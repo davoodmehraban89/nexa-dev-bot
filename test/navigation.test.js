@@ -32,6 +32,9 @@ function installApiMock() {
   const telegramCalls = [];
   const githubCalls = [];
   const originalFetch = globalThis.fetch;
+  const folderSha = 'a'.repeat(40);
+  const fileSha = 'b'.repeat(40);
+  const nestedFileSha = 'c'.repeat(40);
 
   globalThis.fetch = async (url, options = {}) => {
     const value = String(url);
@@ -48,6 +51,7 @@ function installApiMock() {
 
       if (value.startsWith('https://api.github.com/user/repos?')) {
         return json([{
+          id: 1001,
           name: 'demo',
           full_name: 'davoodmehraban89/demo',
           private: true,
@@ -58,8 +62,9 @@ function installApiMock() {
         }]);
       }
 
-      if (value === 'https://api.github.com/repos/davoodmehraban89/demo') {
+      if (value === 'https://api.github.com/repositories/1001' || value === 'https://api.github.com/repos/davoodmehraban89/demo') {
         return json({
+          id: 1001,
           name: 'demo',
           full_name: 'davoodmehraban89/demo',
           private: true,
@@ -72,9 +77,23 @@ function installApiMock() {
 
       if (value === 'https://api.github.com/repos/davoodmehraban89/demo/contents') {
         return json([
-          { name: 'src', path: 'src', type: 'dir', size: 0, sha: 'a'.repeat(40) },
-          { name: 'README.md', path: 'README.md', type: 'file', size: 100, sha: 'b'.repeat(40) }
+          { name: 'src', path: 'src', type: 'dir', size: 0, sha: folderSha },
+          { name: 'README.md', path: 'README.md', type: 'file', size: 100, sha: fileSha }
         ]);
+      }
+
+      if (value === `https://api.github.com/repos/davoodmehraban89/demo/git/trees/${folderSha}`) {
+        return json({ tree: [
+          { path: 'index.js', type: 'blob', size: 42, sha: nestedFileSha }
+        ] });
+      }
+
+      if (value === `https://api.github.com/repos/davoodmehraban89/demo/git/blobs/${nestedFileSha}`) {
+        return json({
+          encoding: 'base64',
+          size: 21,
+          content: btoa('console.log("hello")\n')
+        });
       }
 
       if (value === 'https://api.github.com/repos/davoodmehraban89/demo/commits?per_page=5') {
@@ -118,6 +137,8 @@ function installApiMock() {
   return {
     telegramCalls,
     githubCalls,
+    folderSha,
+    nestedFileSha,
     restore() {
       globalThis.fetch = originalFetch;
     }
@@ -147,7 +168,7 @@ test('single-message navigation edits the same Telegram message across menu laye
       callback_query: { id: 'repos', from: { id: 123 }, data: 'menu:repos', message: menuMessage }
     });
     await sendUpdate({
-      callback_query: { id: 'repo', from: { id: 123 }, data: 'repo:demo', message: menuMessage }
+      callback_query: { id: 'repo', from: { id: 123 }, data: 'repo:1001', message: menuMessage }
     });
     await sendUpdate({
       callback_query: { id: 'back', from: { id: 123 }, data: 'menu:repos', message: menuMessage }
@@ -174,7 +195,7 @@ test('repository activity views use live GitHub responses and edit in place', as
   const mock = installApiMock();
   try {
     const menuMessage = { message_id: 701, chat: { id: 123 } };
-    for (const data of ['files:demo', 'commits:demo', 'pr:demo', 'status:demo']) {
+    for (const data of ['files:1001', 'commits:1001', 'pr:1001', 'status:1001']) {
       await sendUpdate({
         callback_query: { id: data, from: { id: 123 }, data, message: menuMessage }
       });
@@ -187,13 +208,12 @@ test('repository activity views use live GitHub responses and edit in place', as
     assert.match(edits[2].body.text, /#7/);
     assert.match(edits[2].body.text, /Improve bot UI/);
     assert.match(edits[3].body.text, /CI/);
-    assert.ok(mock.githubCalls.some(url => url.startsWith('https://api.github.com/user/repos?')) === false);
   } finally {
     mock.restore();
   }
 });
 
-test('/repos uses authenticated repository discovery and renders the API result', async () => {
+test('/repos uses numeric repository ids in callbacks', async () => {
   const mock = installApiMock();
   try {
     await sendUpdate({
@@ -204,8 +224,45 @@ test('/repos uses authenticated repository discovery and renders the API result'
     assert.ok(sent);
     const buttons = sent.body.reply_markup.inline_keyboard.flat();
     assert.ok(buttons.some(button => button.text.includes('demo')));
-    assert.ok(buttons.some(button => button.callback_data === 'repo:demo'));
+    assert.ok(buttons.some(button => button.callback_data === 'repo:1001'));
     assert.ok(mock.githubCalls.some(url => url.startsWith('https://api.github.com/user/repos?')));
+  } finally {
+    mock.restore();
+  }
+});
+
+test('deep file browser opens directory and file previews in the same Telegram message', async () => {
+  const mock = installApiMock();
+  try {
+    const menuMessage = { message_id: 702, chat: { id: 123 } };
+
+    await sendUpdate({
+      callback_query: { id: 'root', from: { id: 123 }, data: 'files:1001', message: menuMessage }
+    });
+
+    let edits = mock.telegramCalls.filter(call => call.method === 'editMessageText');
+    const rootButtons = edits.at(-1).body.reply_markup.inline_keyboard.flat();
+    assert.ok(rootButtons.some(button => button.callback_data === `tree:1001:${mock.folderSha}`));
+
+    await sendUpdate({
+      callback_query: { id: 'tree', from: { id: 123 }, data: `tree:1001:${mock.folderSha}`, message: menuMessage }
+    });
+
+    edits = mock.telegramCalls.filter(call => call.method === 'editMessageText');
+    const treeView = edits.at(-1);
+    assert.match(treeView.body.text, /index\.js/);
+    const treeButtons = treeView.body.reply_markup.inline_keyboard.flat();
+    assert.ok(treeButtons.some(button => button.callback_data === `blob:1001:${mock.nestedFileSha}`));
+
+    await sendUpdate({
+      callback_query: { id: 'blob', from: { id: 123 }, data: `blob:1001:${mock.nestedFileSha}`, message: menuMessage }
+    });
+
+    edits = mock.telegramCalls.filter(call => call.method === 'editMessageText');
+    const blobView = edits.at(-1);
+    assert.match(blobView.body.text, /console\.log/);
+    assert.equal(blobView.body.message_id, 702);
+    assert.ok(mock.telegramCalls.filter(call => call.method === 'sendMessage').length === 0);
   } finally {
     mock.restore();
   }

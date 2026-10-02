@@ -115,27 +115,6 @@ async function handleCommand(env, message) {
   await sendMessage(env, chatId, "فرمان شناخته نشد. /start را بزن.");
 }
 
-async function setupTelegramWebhook(request, env) {
-  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_WEBHOOK_SECRET) {
-    return text("Telegram secrets not configured", 503);
-  }
-
-  const url = new URL(request.url);
-  const webhookUrl = `${url.origin}/telegram/webhook`;
-
-  const result = await telegramApi(env, "setWebhook", {
-    url: webhookUrl,
-    secret_token: env.TELEGRAM_WEBHOOK_SECRET,
-    allowed_updates: ["message"],
-  });
-
-  return json({
-    ok: true,
-    webhook: webhookUrl,
-    telegram_ok: Boolean(result?.ok),
-  });
-}
-
 async function handleTelegramWebhook(request, env) {
   const expected = env.TELEGRAM_WEBHOOK_SECRET;
   if (!expected) return text("Webhook secret not configured", 503);
@@ -161,15 +140,6 @@ export default {
         status: "ok",
         version: "0.1.0",
       });
-    }
-
-    if (request.method === "GET" && url.pathname === "/telegram/setup") {
-      try {
-        return await setupTelegramWebhook(request, env);
-      } catch (error) {
-        console.error(error);
-        return text("Telegram webhook setup failed", 500);
-      }
     }
 
     if (request.method === "POST" && url.pathname === "/telegram/webhook") {

@@ -8,6 +8,30 @@ function escapeHtml(value = '') {
     .replaceAll('"', '&quot;');
 }
 
+function decodeBase64Utf8(value = '') {
+  const binary = atob(String(value).replace(/\s/g, ''));
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function callbackFits(value) {
+  return new TextEncoder().encode(String(value)).length <= 64;
+}
+
+function fileItemRows(repoId, items) {
+  const rows = [];
+  for (const item of items.slice(0, 30)) {
+    const action = item.type === 'dir' ? 'tree' : 'blob';
+    const callbackData = `${action}:${repoId}:${item.sha}`;
+    if (!item.sha || !callbackFits(callbackData)) continue;
+    rows.push([{
+      text: `${item.type === 'dir' ? '📁' : '📄'} ${item.name}`,
+      callback_data: callbackData
+    }]);
+  }
+  return rows;
+}
+
 /**
  * Menu Router and UI Generator for Nexa Dev Bot.
  * Views never claim external service health unless that view was built from a live API response.
@@ -110,7 +134,10 @@ export class MenuManager {
   }
 
   async getPullRequestsView(repoId) {
-    const prs = await this.github.listPullRequests(repoId);
+    const [repo, prs] = await Promise.all([
+      this.github.getRepository(repoId),
+      this.github.listPullRequests(repoId)
+    ]);
     const prListText = prs.length
       ? prs.map(pr => {
           const state = pr.merged ? '🟣 Merged' : (pr.state === 'open' ? '🟢 Open' : '🔴 Closed');
@@ -119,8 +146,8 @@ export class MenuManager {
       : '<i>Pull Requestی در پاسخ GitHub یافت نشد.</i>';
 
     const text =
-`🔀 <b>Pull Requestهای پروژه ${escapeHtml(repoId)}</b>
-<code>🏠 Nexa Dev &gt; 📁 مخزن‌ها &gt; ${escapeHtml(repoId)} &gt; 🔀 Pull Request</code>
+`🔀 <b>Pull Requestهای پروژه ${escapeHtml(repo.name)}</b>
+<code>🏠 Nexa Dev &gt; 📁 مخزن‌ها &gt; ${escapeHtml(repo.name)} &gt; 🔀 Pull Request</code>
 ➖➖➖➖➖➖➖➖➖➖
 ${prListText}`;
 
@@ -136,14 +163,17 @@ ${prListText}`;
   }
 
   async getCommitsView(repoId) {
-    const commits = await this.github.listCommits(repoId);
+    const [repo, commits] = await Promise.all([
+      this.github.getRepository(repoId),
+      this.github.listCommits(repoId)
+    ]);
     const commitListText = commits.length
       ? commits.map(c => `• <code>${escapeHtml(c.sha)}</code> - ${escapeHtml(c.message)}\n  └ <i>${escapeHtml(c.author)}${c.date ? ` | ${escapeHtml(c.date)}` : ''}</i>`).join('\n\n')
       : '<i>کامیتی در پاسخ GitHub یافت نشد.</i>';
 
     const text =
-`📝 <b>آخرین Commitهای پروژه ${escapeHtml(repoId)}</b>
-<code>🏠 Nexa Dev &gt; 📁 مخزن‌ها &gt; ${escapeHtml(repoId)} &gt; 📝 Commitها</code>
+`📝 <b>آخرین Commitهای پروژه ${escapeHtml(repo.name)}</b>
+<code>🏠 Nexa Dev &gt; 📁 مخزن‌ها &gt; ${escapeHtml(repo.name)} &gt; 📝 Commitها</code>
 ➖➖➖➖➖➖➖➖➖➖
 ${commitListText}`;
 
@@ -159,27 +189,96 @@ ${commitListText}`;
   }
 
   async getFilesView(repoId, subpath = '') {
-    const files = await this.github.listFiles(repoId, subpath);
-    const itemsText = files.length
-      ? files.map(f => {
+    const [repo, files] = await Promise.all([
+      this.github.getRepository(repoId),
+      this.github.listFiles(repoId, subpath)
+    ]);
+    const visibleItems = files.slice(0, 30);
+    const itemsText = visibleItems.length
+      ? visibleItems.map(f => {
           const icon = f.type === 'dir' ? '📁' : '📄';
           const size = f.type === 'file' && f.size ? ` (${f.size} B)` : '';
           return `${icon} <code>${escapeHtml(f.name)}</code>${size}`;
         }).join('\n')
       : '<i>پوشه خالی است.</i>';
+    const omitted = files.length > visibleItems.length
+      ? `\n\n<i>${files.length - visibleItems.length} مورد دیگر در این نما نمایش داده نشده است.</i>`
+      : '';
 
     const text =
-`📂 <b>ساختار فایل‌های پروژه ${escapeHtml(repoId)}</b>
-<code>🏠 Nexa Dev &gt; 📁 مخزن‌ها &gt; ${escapeHtml(repoId)} &gt; 📂 فایل‌ها${subpath ? ` &gt; ${escapeHtml(subpath)}` : ''}</code>
+`📂 <b>ساختار فایل‌های پروژه ${escapeHtml(repo.name)}</b>
+<code>🏠 Nexa Dev &gt; 📁 مخزن‌ها &gt; ${escapeHtml(repo.name)} &gt; 📂 فایل‌ها${subpath ? ` &gt; ${escapeHtml(subpath)}` : ''}</code>
 ➖➖➖➖➖➖➖➖➖➖
-${itemsText}`;
+${itemsText}${omitted}`;
+
+    const inlineKeyboard = fileItemRows(repoId, visibleItems);
+    inlineKeyboard.push([
+      { text: '🔄 بروزرسانی', callback_data: `files:${repoId}${subpath ? `:${subpath}` : ''}` },
+      { text: '🔙 بازگشت به پروژه', callback_data: `repo:${repoId}` }
+    ]);
+
+    return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
+  }
+
+  async getTreeView(repoId, sha) {
+    const [repo, items] = await Promise.all([
+      this.github.getRepository(repoId),
+      this.github.listTree(repoId, sha)
+    ]);
+    const visibleItems = items.slice(0, 30);
+    const itemsText = visibleItems.length
+      ? visibleItems.map(item => {
+          const icon = item.type === 'dir' ? '📁' : '📄';
+          const size = item.type === 'file' && item.size ? ` (${item.size} B)` : '';
+          return `${icon} <code>${escapeHtml(item.name)}</code>${size}`;
+        }).join('\n')
+      : '<i>این پوشه خالی است.</i>';
+    const omitted = items.length > visibleItems.length
+      ? `\n\n<i>${items.length - visibleItems.length} مورد دیگر در این نما نمایش داده نشده است.</i>`
+      : '';
+
+    const text =
+`📁 <b>پوشه در ${escapeHtml(repo.name)}</b>
+<code>🏠 Nexa Dev &gt; 📁 مخزن‌ها &gt; ${escapeHtml(repo.name)} &gt; 📂 فایل‌ها &gt; پوشه</code>
+➖➖➖➖➖➖➖➖➖➖
+${itemsText}${omitted}`;
+
+    const inlineKeyboard = fileItemRows(repoId, visibleItems);
+    inlineKeyboard.push([
+      { text: '🔙 ریشه فایل‌ها', callback_data: `files:${repoId}` },
+      { text: '📦 پروژه', callback_data: `repo:${repoId}` }
+    ]);
+
+    return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
+  }
+
+  async getBlobView(repoId, sha) {
+    const [repo, blob] = await Promise.all([
+      this.github.getRepository(repoId),
+      this.github.getBlob(repoId, sha)
+    ]);
+
+    let body;
+    if (blob.encoding !== 'base64' || blob.size > 100000) {
+      body = '<i>این فایل برای نمایش مستقیم در تلگرام مناسب نیست.</i>';
+    } else {
+      const decoded = decodeBase64Utf8(blob.content);
+      const preview = decoded.length > 2800 ? `${decoded.slice(0, 2800)}\n…` : decoded;
+      body = `<pre>${escapeHtml(preview)}</pre>`;
+    }
+
+    const text =
+`📄 <b>پیش‌نمایش فایل در ${escapeHtml(repo.name)}</b>
+<code>🏠 Nexa Dev &gt; 📁 مخزن‌ها &gt; ${escapeHtml(repo.name)} &gt; 📂 فایل‌ها &gt; فایل</code>
+➖➖➖➖➖➖➖➖➖➖
+${body}`;
 
     return {
       text,
       reply_markup: {
         inline_keyboard: [[
-          { text: '🔄 بروزرسانی', callback_data: `files:${repoId}${subpath ? `:${subpath}` : ''}` },
-          { text: '🔙 بازگشت به پروژه', callback_data: `repo:${repoId}` }
+          { text: '🔙 ریشه فایل‌ها', callback_data: `files:${repoId}` },
+          { text: '📦 پروژه', callback_data: `repo:${repoId}` }
         ]]
       }
     };
@@ -194,9 +293,10 @@ ${itemsText}`;
         }).join('\n')
       : '<i>Workflow runی در پاسخ GitHub یافت نشد.</i>';
 
+    const label = status.repoName || repoId;
     const text =
-`📊 <b>وضعیت پایپ‌لاین ${escapeHtml(repoId)}</b>
-<code>🏠 Nexa Dev &gt; 📁 مخزن‌ها &gt; ${escapeHtml(repoId)} &gt; 📊 وضعیت</code>
+`📊 <b>وضعیت پایپ‌لاین ${escapeHtml(label)}</b>
+<code>🏠 Nexa Dev &gt; 📁 مخزن‌ها &gt; ${escapeHtml(label)} &gt; 📊 وضعیت</code>
 ➖➖➖➖➖➖➖➖➖➖
 شاخه پیش‌فرض: <code>${escapeHtml(status.defaultBranch)}</code>
 آخرین نتایج GitHub Actions:
@@ -311,6 +411,10 @@ ${tools}`;
         return this.getCommitsView(target);
       case 'files':
         return this.getFilesView(target, extra.join(':'));
+      case 'tree':
+        return this.getTreeView(target, extra[0]);
+      case 'blob':
+        return this.getBlobView(target, extra[0]);
       case 'status':
         return this.getRepoStatusView(target);
       case 'tool':

@@ -100,3 +100,30 @@ test("temporary setup endpoint is disabled after webhook registration", async ()
   assert.equal(res.status, 404);
   assert.equal(calls, 0);
 });
+
+test("temporary diagnostic command no longer exposes Telegram ID", async () => {
+  const req = telegramRequest("right", {
+    message: { text: "/diag", from: { id: 123 }, chat: { id: 123 } },
+  });
+
+  const messages = [];
+  globalThis.fetch = async (_url, options) => {
+    const payload = JSON.parse(options.body);
+    messages.push(payload.text);
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const res = await worker.fetch(req, {
+    TELEGRAM_WEBHOOK_SECRET: "right",
+    OWNER_TELEGRAM_ID: "123",
+    TELEGRAM_BOT_TOKEN: "token",
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(messages.length, 1);
+  assert.match(messages[0], /فرمان شناخته نشد/);
+  assert.doesNotMatch(messages[0], /Telegram ID|123/);
+});

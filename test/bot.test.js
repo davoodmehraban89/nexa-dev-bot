@@ -101,6 +101,33 @@ describe('Nexa Dev Bot - Webhook Dispatcher & In-Place Editing', () => {
     assert.match(editedMessages[0].text, /فهرست مخزن‌ها/);
   });
 
+  it('callback navigation still edits when answerCallbackQuery fails', async () => {
+    const editedMessages = [];
+    const bot = makeBot();
+
+    bot.telegram.answerCallbackQuery = async () => {
+      throw new Error('Telegram API answerCallbackQuery failed: query is too old');
+    };
+    bot.telegram.editMessageText = async (chatId, messageId, text, replyMarkup) => {
+      editedMessages.push({ chatId, messageId, text, replyMarkup });
+      return { ok: true };
+    };
+
+    const res = await bot.handleUpdate({
+      callback_query: {
+        id: 'cb_stale',
+        data: 'menu:main',
+        message: { message_id: 501, chat: { id: 123456 } }
+      }
+    });
+
+    assert.equal(res.ok, true);
+    assert.equal(res.edited, true);
+    assert.equal(editedMessages.length, 1);
+    assert.equal(editedMessages[0].messageId, 501);
+    assert.match(editedMessages[0].text, /Nexa Dev Bot/);
+  });
+
   it('multi-tier back navigation stays on the same Telegram message', async () => {
     const edits = [];
     const bot = makeBot();

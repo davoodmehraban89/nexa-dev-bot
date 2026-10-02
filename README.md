@@ -1,61 +1,88 @@
-# Nexa Dev Bot - Redesigned Telegram DevOps & GitHub Navigation Bot
+# Nexa Dev Bot
 
-یک ربات تلگرامی پیشرفته جهت پایش و مدیریت پروژه‌ها، مخازن گیت‌هاب، کامیت‌ها و PRها با معماری مدرن، بدون شلوغی چت (In-place message editing) و ناوبری چندلایه‌ای با دکمه بازگشت همیشه فعال.
+ربات تلگرامی owner-only برای مشاهده و پایش مخازن GitHub از طریق Cloudflare Workers، با ناوبری Inline و ویرایش همان پیام به‌جای تولید پیام‌های پشت‌سرهم.
 
-## 🚀 ویژگی‌های کلیدی (Key Features)
+## قابلیت‌ها
 
-1. **طراحی UX تک‌پیامی (Single-Message In-Place Editing):**
-   - به جای ارسال صدها پیام پشت‌سرهم در چت، کلیه صفحات، زیرمنوها و فهرست‌ها با متد `editMessageText` در همان پیام اولیه ویرایش می‌شوند.
-   - چت همیشه خلوت، سریع و شبیه به یک اپلیکیشن بومی موبایل باقی می‌ماند.
+- منوی اصلی: مخزن‌ها، وضعیت سرویس، ابزارهای توسعه، تنظیمات و امنیت.
+- دریافت فهرست مخازن به‌صورت زنده از GitHub API؛ فهرست پروژه‌ها در کد ثابت نیست.
+- مشاهده جزئیات مخزن، Pull Requestها، Commitها و وضعیت GitHub Actions.
+- مرور فایل‌ها و پوشه‌ها و پیش‌نمایش فایل‌های متنی مناسب.
+- ناوبری callback به‌صورت stateless؛ مسیرها از `callback_data` بازسازی می‌شوند و session دائمی داخل Worker نگهداری نمی‌شود.
+- `/start` یک پیام منوی جدید ایجاد می‌کند؛ حرکت داخل منو با `editMessageText` همان پیام را ویرایش می‌کند.
+- Webhook فقط برای مالک مجاز است و در نبود تنظیمات امنیتی/انتقالی لازم fail-closed می‌شود.
+- خطاهای GitHub و Telegram صریح هستند و با داده ساختگی جایگزین نمی‌شوند.
 
-2. **منوی اصلی دائمی و لایه‌ای (Hierarchical Menu System):**
-   - `📁 مخزن‌ها (پروژه‌ها)`
-   - `📊 وضعیت سرویس`
-   - `🔧 ابزارهای توسعه`
-   - `⚙️ تنظیمات`
-   - `🔐 امنیت و دسترسی‌ها`
+## معماری
 
-3. **مدیریت وضعیت و دکمه بازگشت هوشمند (Stateful Navigation & Breadcrumbs):**
-   - نمایش مسیر کاربر در بالای هر منو (مانند `🏠 Nexa Dev > 📁 مخزن‌ها > Factor-easy > 🔀 Pull Request`).
-   - دکمه `🔙 بازگشت` در هر مرحله کاربر را دقیقاً به منوی والد قبلی بازمی‌گرداند.
+- `src/index.js` — مرز HTTP Worker، اعتبارسنجی webhook secret و owner، health/status و لاگ خطای redacted.
+- `src/bot.js` — مسیریابی commandها و callbackها.
+- `src/telegram.js` — کلاینت Telegram Bot API.
+- `src/github.js` — GitHub REST reader احراز هویت‌شده.
+- `src/menu.js` — تولید نماها و Inline Keyboardها.
+- `src/config.js` — تنظیمات ثابت غیرحساس.
+- `test/` — تست‌های امنیت، Worker، ناوبری، Telegram و GitHub.
+- `.github/workflows/ci.yml` — اجرای تست‌ها روی Node 22 با گارد کشف غیرصفر تست‌ها.
+- `.github/workflows/deploy.yml` — Deploy خودکار commit تأییدشده `main` به Cloudflare Workers پس از CI موفق.
+- `wrangler.jsonc` — پیکربندی Worker.
 
-4. **اتصال کامل به GitHub Reader:**
-   - نمایش پروژه‌ها: `Factor-easy`, `Finora-Invoice`, `AvanTech`, `Aram`
-   - دریافت و نمایش Pull Requestها به همراه شماره، عنوان، نویسنده و برچسب وضعیت (Open / Merged / Closed).
-   - نمایش ۵ کامیت اخیر شاخه با هش کوتاه و تاریخ.
-   - مرور ساختار درختی فایل‌ها و دایرکتوری‌ها.
-   - وضعیت بیلد و پایپ‌لاین CI.
-
-## 📁 ساختار منوهای ربات
+## منوی ربات
 
 ```text
 Nexa Dev
-│
 ├── 📁 مخزن‌ها
-│    └── Factor-easy
-│         ├── 📂 فایل‌ها
-│         ├── 📝 Commitها
-│         ├── 🔀 Pull Request
-│         ├── 📊 وضعیت
-│         └── 🔙 بازگشت
-│
+│   └── <Repository>
+│       ├── 📂 فایل‌ها
+│       ├── 📝 Commitها
+│       ├── 🔀 Pull Requestها
+│       ├── 📊 وضعیت / تست‌ها
+│       └── 🔙 بازگشت
 ├── 📊 وضعیت سرویس
-│
 ├── 🔧 ابزارهای توسعه
-│
-└── ⚙️ تنظیمات
+├── ⚙️ تنظیمات
+└── 🔐 امنیت
 ```
 
-## 🛠 راه‌اندازی و تست
+## تست
 
 ```bash
-# اجرای تست‌های واحد و یکپارچه‌سازی (Node.js Test Runner)
 npm test
 ```
 
-## 🌐 استقرار روی Cloudflare Workers
+CI باید حداقل یک فایل تست پیدا کند؛ workflow در صورت کشف صفر تست fail می‌شود.
 
-متغیرهای محیطی مورد نیاز در داشبورد یا `wrangler.toml`:
-- `TELEGRAM_BOT_TOKEN`: توکن ربات تلگرام دریافتی از BotFather
-- `GITHUB_TOKEN`: پرسنال اکسس توکن گیت‌هاب (Fine-grained PAT با دسترسی Read به مخازن)
-- `GITHUB_OWNER`: نام کاربری مالک گیت‌هاب (پیش‌فرض: `davoodmehraban89`)
+## تنظیمات Runtime در Cloudflare
+
+این مقادیر باید به‌عنوان binding/secret روی Worker تنظیم شوند و نباید در Git ذخیره شوند:
+
+- `TELEGRAM_BOT_TOKEN` — Secret
+- `TELEGRAM_WEBHOOK_SECRET` — Secret
+- `OWNER_TELEGRAM_ID` — شناسه عددی مالک مجاز
+- `GITHUB_TOKEN` — Secret با حداقل دسترسی Read لازم به مخازن موردنظر
+- `GITHUB_OWNER` — اختیاری؛ در صورت نبود از owner پیش‌فرض برنامه استفاده می‌شود
+
+Webhook Production:
+
+```text
+POST /telegram/webhook
+```
+
+Telegram باید هدر `X-Telegram-Bot-Api-Secret-Token` را با مقدار متناظر `TELEGRAM_WEBHOOK_SECRET` ارسال کند.
+
+## Deploy با GitHub Actions
+
+برای workflow استقرار، این دو Repository Secret در GitHub Actions لازم‌اند:
+
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+
+توکن Cloudflare باید فقط مجوزهای لازم برای Deploy Worker را داشته باشد. مقدار هیچ Secretی نباید داخل README، کد، workflow یا لاگ ثبت شود.
+
+پس از موفقیت CI روی `main`، workflow استقرار همان commit تأییدشده را با Wrangler Deploy می‌کند. فایل پیکربندی معتبر پروژه `wrangler.jsonc` است.
+
+## قواعد صحت و امنیت
+
+- موفقیت CI به‌تنهایی اثبات رفتار Production نیست؛ Deployment و Smoke Test زنده باید جداگانه بررسی شوند.
+- داده‌های GitHub در صورت خطای API نباید با fallback ساختگی جایگزین شوند.
+- درخواست‌های کاربران غیرمالک بدون افشای داده خصوصی نادیده گرفته می‌شوند.
+- خطاهای Runtime ثبت‌شده نباید حاوی Token یا Secret باشند.

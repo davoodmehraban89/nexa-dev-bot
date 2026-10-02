@@ -76,7 +76,7 @@ GitHub Actions deployment secrets:
 - PR `#10` added `.github/workflows/deploy.yml` and merged to `main` at `c86b86ec8f5678b9223b7bcb6a73e0377116e670`.
 - GitHub repository secrets for Cloudflare deployment are configured.
 - Re-run of deployment workflow `37057406559` passed credential preflight and deployed successfully.
-- Automatic deploy now runs after successful `main` CI and uses the exact verified commit.
+- Automatic deploy runs after successful `main` CI and uses the exact verified commit.
 
 ## Full Repository Audit + Telegram Runtime Incident — Verified 2026-10-02
 Audit scope covered the full recursive repository tree, including workflows, Worker config, all `src/` modules, all tests, README/project memory and package metadata.
@@ -113,17 +113,17 @@ Audit scope covered the full recursive repository tree, including workflows, Wor
 - Cloudflare deployment `13a5abdc-92a0-415f-b30b-ab422ae8b8ce`, version `812c52f7-f0b3-48bf-917c-151f4618dabd`, served 100% traffic.
 - Live Telegram webhook on that Worker version returned HTTP 200 / outcome `ok`.
 
-## Plugin Foundation v1 — Implementation Checkpoint 2026-10-03
+## Plugin Foundation v1 — Merged and Deployed 2026-10-03
 
 ### Approved design and plan
 - Design: `docs/superpowers/specs/2026-10-03-nexa-plugin-foundation-design.md`.
-- Design commit on `main`: `adabadefd74de656b20d112c325be4defcbf2103`.
+- Design commit: `adabadefd74de656b20d112c325be4defcbf2103`.
 - Plan: `docs/superpowers/plans/2026-10-03-nexa-plugin-foundation.md`.
-- Initial plan commit on `main`: `5f9a1991dbc3a1e79f5c04dfbe591c4d35e74a97`.
+- Initial plan commit: `5f9a1991dbc3a1e79f5c04dfbe591c4d35e74a97`.
 - Feature branch: `feat/plugin-foundation-v1`.
 - PR: `#14`.
 
-### Architecture implemented on PR #14
+### Architecture implemented
 - Plugin Registry with manifest/action validation.
 - Central Action Policy with owner READ allow and WRITE/DESTRUCTIVE approval-required decisions.
 - Recursive-redaction Audit Logger.
@@ -142,37 +142,45 @@ The initial plan described a handler returning an already-produced view/result. 
 - Router RED `4e3fca87139310c24c3c83a5181fc638f887882d` / CI `37069955642`; GREEN `00fcd1041e2f8074dc34727635395896eace0cba` / CI `37070015843`.
 - GitHub adapter RED `ae6829729779c2f656e99958a379c805eb1bebc4` / CI `37070181121`; GREEN adapter head `c9aed93bc1a3bd8ac047a3639722633bcd9c624e` / CI `37070481981`.
 - Bot migration RED `f1ee926320dc918d0d0c8b21d60710077a9d119b` / CI `37070633843`; GREEN integration `d628a4ed0b07dfa4c748b6161515565b1eef3073` / CI `37070778956`.
-- CI `37070778956` inspected in full: 12 test files discovered; 52 tests, 52 pass, 0 fail, 0 skipped/cancelled/todo.
+- Final PR head `c44b557e64d2c3bb9a181f663833385abfb50ad3`; PR CI `37071349162` passed.
 
-### Current verification state
-VERIFIED on PR merge result:
+### Merge / main / deploy evidence
+- PR #14 squash-merged to `main` at `9d95a18659cead269ffa98af08d6bbf041c6135f`.
+- Post-merge `main` CI run `37071695354` succeeded.
+- CI logs were inspected in full: **12 test files discovered; 52 tests, 52 pass, 0 fail, 0 skipped/cancelled/todo**.
+- Cloudflare deploy workflow `37071717251` succeeded; credential preflight, exact verified commit checkout and deploy steps all succeeded.
+- Cloudflare deployment `c5a3bed8-485d-43e9-b898-ded3d3ea3623` activated Worker version `c5d933f1-e8b5-4eb9-b264-2ef7dfee22ee` at **100% traffic**.
+
+### Production runtime verification state
+- Observability was queried from the Foundation deployment time onward for `/telegram/webhook`, `telegram_webhook_error`, and `nexa_audit`.
+- At the time of the query there had been **no post-deploy Telegram webhook traffic**, so no current-version live Telegram interaction can honestly be marked verified yet.
+- No `telegram_webhook_error` event was found in that post-deploy timeframe, but absence of traffic is not a successful smoke test.
+
+VERIFIED:
 - Plugin registry validation.
 - READ/WRITE/DESTRUCTIVE policy semantics.
 - Recursive audit redaction and non-breaking sink failure.
 - Undeclared and approval-required actions do not execute provider code.
 - GitHub callback/command ownership mapping.
-- Existing `/start`, same-message navigation, stale callback handling, security gates, GitHub fail-closed behavior and Cloudflare fetch-receiver regression remain green.
+- Existing `/start`, same-message navigation, stale callback handling, security gates, GitHub fail-closed behavior and Cloudflare fetch-receiver regression remain green in automated tests.
+- PR CI, main CI, deploy workflow and Cloudflare 100% rollout are green.
 
-NOT YET VERIFIED for Foundation v1:
-- Final documentation-head PR CI after this checkpoint commit.
-- Merge of PR #14 to `main`.
-- Post-merge `main` CI.
-- Cloudflare deployment of the merged Foundation revision.
-- Production Telegram webhook telemetry on that new Worker version.
-- Owner-device visual/interactive smoke after Foundation deploy.
+NOT YET VERIFIED:
+- Live owner-device Telegram `/start` after the Foundation deployment.
+- Live GitHub-plugin path after deployment: Repositories -> project -> Files / PR / Commits / Status -> Back.
+- Post-interaction Cloudflare telemetry showing the current Worker version serving those webhook requests successfully and emitting expected redacted `nexa_audit` events.
 
 ## Current Work / Last Checkpoint
 WHERE WE ARE:
-- Foundation v1 implementation is on PR #14 and has passed the full automated suite on the pre-documentation head.
-- Final documentation alignment is being committed before merge.
-- Production is still the previously verified pre-Foundation version until PR #14 is merged and deploy succeeds.
+- Foundation v1 code is merged to `main` and deployed to Cloudflare at 100% traffic.
+- Automated suite is fully green at 52/52.
+- The only remaining Foundation acceptance gate is real owner Telegram interaction on the deployed version plus telemetry confirmation.
 
 WHAT REMAINS:
-1. Verify final PR #14 CI after documentation changes.
-2. Mark PR ready and merge after green CI/scope review.
-3. Verify post-merge main CI and Cloudflare deploy.
-4. Verify current-version Telegram webhook telemetry.
-5. Record owner-device smoke for the Foundation build.
+1. Owner sends `/start` in Telegram.
+2. Owner opens `Repositories`, opens one project, and opens at least one GitHub-backed view such as Files or Commits.
+3. Re-query Cloudflare telemetry for current Worker version HTTP 200 webhook events, expected `nexa_audit` READ events, and absence of new `telegram_webhook_error`.
+4. Mark Foundation v1 production acceptance complete and then begin the next plugin phase.
 
 ## Acceptance Rules
 A checkpoint is complete only after `IMPLEMENTED -> VERIFIED -> FIXED IF NEEDED -> RE-VERIFIED`.
@@ -187,7 +195,7 @@ Minimum automated/runtime gates:
 - Cloudflare telemetry must show successful production webhook behavior before runtime is called verified.
 
 ## Known Gaps / Low-Priority Technical Debt
-- Post-Foundation owner-device visual/interactive smoke remains a final UI acceptance gate.
+- Post-Foundation owner-device visual/interactive smoke remains the final UI acceptance gate.
 - `package.json` still has `"start": "node src/index.js"`, which is not a useful local Cloudflare Worker development command; it does not affect production deployment.
 - Extremely long path-based refresh callback data could theoretically approach Telegram's 64-byte callback-data limit; normal deep navigation uses SHA-based callbacks.
 - Persistent navigation/session storage is intentionally not required for the current stateless callback flow.
@@ -227,4 +235,4 @@ Minimum automated/runtime gates:
 - `wrangler.jsonc`
 
 ## Next Executable Action
-Verify final PR #14 CI after documentation commits; if green, perform final scope/secret review, mark ready, merge, verify main CI/deploy, then verify production telemetry and owner-device smoke.
+Run `/start` on the owner Telegram account, open `Repositories`, open one project and one GitHub-backed view. Then verify current-version Cloudflare webhook/audit telemetry and close Foundation v1 production acceptance.

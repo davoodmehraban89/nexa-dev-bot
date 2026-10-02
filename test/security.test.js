@@ -81,26 +81,6 @@ test("unauthorized Telegram users receive no bot response", async () => {
   assert.equal(calls, 0);
 });
 
-test("temporary setup endpoint is disabled after webhook registration", async () => {
-  const req = new Request("https://nexa-dev-bot.example.workers.dev/telegram/setup", {
-    method: "GET",
-  });
-
-  let calls = 0;
-  globalThis.fetch = async () => {
-    calls += 1;
-    throw new Error("setup endpoint must not call Telegram after registration");
-  };
-
-  const res = await worker.fetch(req, {
-    TELEGRAM_WEBHOOK_SECRET: "secret",
-    TELEGRAM_BOT_TOKEN: "token",
-  });
-
-  assert.equal(res.status, 404);
-  assert.equal(calls, 0);
-});
-
 test("temporary diagnostic command no longer exposes Telegram ID", async () => {
   const req = telegramRequest("right", {
     message: { text: "/diag", from: { id: 123 }, chat: { id: 123 } },

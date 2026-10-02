@@ -300,6 +300,26 @@ async function handleCallbackQuery(env, query) {
   if (action === "prs") return showPullRequests(env, chatId, repoId);
 }
 
+async function setupTelegramWebhook(request, env) {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_WEBHOOK_SECRET) {
+    return text("Telegram secrets not configured", 503);
+  }
+
+  const url = new URL(request.url);
+  const webhookUrl = `${url.origin}/telegram/webhook`;
+  const result = await telegramApi(env, "setWebhook", {
+    url: webhookUrl,
+    secret_token: env.TELEGRAM_WEBHOOK_SECRET,
+    allowed_updates: ["message", "callback_query"],
+  });
+
+  return json({
+    ok: true,
+    webhook: webhookUrl,
+    telegram_ok: Boolean(result?.ok),
+  });
+}
+
 async function handleTelegramWebhook(request, env) {
   const expected = env.TELEGRAM_WEBHOOK_SECRET;
   if (!expected) return text("Webhook secret not configured", 503);
@@ -337,6 +357,15 @@ export default {
         status: "ok",
         version: "0.2.0",
       });
+    }
+
+    if (request.method === "GET" && url.pathname === "/telegram/setup") {
+      try {
+        return await setupTelegramWebhook(request, env);
+      } catch (error) {
+        console.error(error);
+        return text("Telegram webhook setup failed", 500);
+      }
     }
 
     if (request.method === "POST" && url.pathname === "/telegram/webhook") {

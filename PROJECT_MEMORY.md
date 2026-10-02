@@ -22,7 +22,7 @@
 - `src/github.js` — authenticated GitHub REST reader; explicit errors, numeric repository-id resolution, tree/blob access.
 - `src/menu.js` — hierarchical inline menus, one-message editing, repository/file browser.
 - `src/config.js` — non-secret static config.
-- `.github/workflows/ci.yml` — Node 22 CI with non-zero test-discovery guard.
+- `.github/workflows/ci.yml` — Node 22 project test runtime, Node-24-based official GitHub Actions, non-zero test-discovery guard.
 - `test/` — security, worker, navigation, menu, GitHub and Telegram regression coverage.
 
 ## Runtime Configuration
@@ -43,50 +43,48 @@ Required names:
 - Temporary setup/diagnostic exposure is disabled.
 - Operational UI does not invent SLA, latency or external health claims.
 
-## Telegram UX
+## Telegram UX / GitHub Reader
 - `/start` creates the initial menu message.
 - Callback navigation uses `editMessageText` on the same Telegram message.
 - Main sections: Repositories, Status, Tools, Settings, Security.
 - Repository sections: Files, Pull Requests, Commits, Actions status, Back.
 - Back navigation and breadcrumb-style text exist.
+- Repository callbacks use numeric GitHub repository IDs.
+- Folder navigation uses `tree:<repoId>:<sha>` and file previews use `blob:<repoId>:<sha>`.
+- Tree/blob SHA input is validated.
+- File previews are HTML-escaped and bounded; oversized/non-base64 blobs are not rendered directly.
+- Directory interactive entries are capped at 30 and omitted counts are disclosed.
 
-## Deep File Browser — 2026-10-02
-Branch/PR checkpoint:
-- Branch: `feat/deep-file-browser`
-- PR: `#8`
-- Red test commit: `f5a1a75180344b306c000b3db580cd55c06abc67`
-- Implementation head before this docs commit: `7a81ca8adf2594b2478b0c9d8f7d308ec6121ba8`
-- PR CI run: `37055098355`
-- Exact result: `29` tests, `29` passed, `0` failed, `0` skipped/cancelled.
+## Deep File Browser — Verified/Merged 2026-10-02
+- PR `#8` merged to `main` at commit `b2a2b61ffb92dc14508e16a19c6221a805445c76`.
+- Regression-first RED evidence: 29 tests / 25 pass / 4 expected fail before implementation.
+- PR green CI: run `37055283770` = 29/29 pass.
+- Post-merge `main` CI: run `37055466988` = 29/29 pass.
+- Deep folder/file browsing remains single-message navigation.
 
-Implemented:
-- Repository menu callbacks now use numeric GitHub repository IDs returned by `/user/repos`.
-- Numeric IDs keep callback payloads short and allow repositories outside the configured default owner to resolve correctly.
-- Legacy name-based repository references remain supported.
-- Folder navigation uses Git tree SHA callbacks: `tree:<repoId>:<sha>`.
-- File preview uses Git blob SHA callbacks: `blob:<repoId>:<sha>`.
-- Tree/blob SHA input is validated as 40-char hexadecimal.
-- File/folder navigation remains in the same Telegram message.
-- File previews are HTML-escaped; oversized/non-base64 blobs are not rendered directly.
-- Directory views cap interactive entries at 30 and disclose omitted counts.
-- Root/project return buttons are always provided.
-
-TDD evidence:
-- New tests were committed first and CI failed with 4 expected navigation failures (`29 total / 25 pass / 4 fail`).
-- Implementation then changed `src/github.js` and `src/menu.js`.
-- Re-run CI passed `29/29`.
+## GitHub Actions Runtime Upgrade — Current Slice
+- Branch: `chore/actions-node24-runtime`
+- PR: `#9`
+- Change commit: `a04b7230afc75262d3c15ab9b7f2f9a79179d6d3`.
+- `actions/checkout` upgraded from v4 to v7.
+- `actions/setup-node` upgraded from v4 to v7.
+- Project test Node version remains 22.
+- `package-manager-cache: false` is explicit to preserve prior no-cache CI behavior.
+- PR CI run `37055691513` passed 29/29 tests.
+- The prior GitHub Actions Node-20-runtime deprecation warning is absent from this green run.
+- This documentation commit must receive its own green CI before PR #9 is merged.
 
 ## Current Work / Last Checkpoint
 WHERE WE ARE:
-- Deep interactive file/folder browsing is implemented and automated-test verified on PR #8.
-- PR #8 still requires the final docs-triggered CI re-run and merge to `main`.
-- Live Cloudflare verification remains blocked from the current execution environment by DNS resolution failure for the workers.dev hostname.
-- Real Telegram mobile smoke is still NOT VERIFIED.
+- Security, data trust, one-message navigation and deep repository file browsing are implemented and automated-verified on `main`.
+- PR #9 contains the verified official GitHub Actions runtime upgrade.
+- Live Cloudflare verification is still blocked from the current execution environment by DNS resolution failure for the workers.dev hostname.
+- Real Telegram mobile smoke is NOT VERIFIED.
 
 WHAT REMAINS:
-1. Verify CI for this documentation commit and merge PR #8 into `main` only if green.
+1. Verify CI for this PROJECT_MEMORY commit on PR #9; merge only if green.
 2. Verify post-merge CI on `main`.
-3. Verify the live Cloudflare root/health/status endpoints from an environment that can resolve the workers.dev hostname.
+3. Verify live Cloudflare root/health/status endpoints from an environment that can resolve workers.dev.
 4. Owner-device Telegram smoke: `/start → Repositories → repository → Files → folder → file preview → root → project → Commits/PR/Status → Back → Main`.
 5. Confirm callbacks create no extra bot messages.
 6. Confirm a non-owner Telegram account receives no private bot response.
@@ -104,7 +102,6 @@ Minimum automated gates:
 ## Known Gaps / Technical Debt
 - Live Cloudflare deployment content is not verified in this environment.
 - Real mobile Telegram smoke is not verified yet.
-- GitHub Actions emits a Node-20-runtime deprecation warning for `actions/checkout@v4` and `actions/setup-node@v4`; current CI still passes, but action upgrades should be handled in a separate verified slice.
 - Persistent navigation/session storage is not required for current stateless callback flow.
 
 ## Project Boundaries
@@ -131,4 +128,4 @@ Minimum automated gates:
 - `wrangler.jsonc`
 
 ## Next Executable Action
-Wait for the PR #8 CI run for this docs commit; if green, merge to `main`, verify `main` CI, then continue to live/mobile validation or the next independent hardening slice.
+Verify PR #9 CI for this docs commit; if green, fast-forward `main`, verify PR merged state and post-merge `main` CI, then continue to the remaining live/mobile verification boundary.

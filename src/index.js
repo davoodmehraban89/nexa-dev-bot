@@ -20,7 +20,7 @@ function isOwnerUpdate(update, env) {
  * Security invariants:
  * - Telegram webhook requests must carry the configured secret header.
  * - Telegram updates are owner-only and unauthorized senders are ignored silently.
- * - Missing security configuration fails closed.
+ * - Missing security or transport configuration fails closed.
  */
 export default {
   async fetch(request, env = {}, ctx = {}) {
@@ -57,6 +57,10 @@ export default {
 
       if (!env.OWNER_TELEGRAM_ID) {
         return new Response('Owner not configured', { status: 503 });
+      }
+
+      if (!env.TELEGRAM_BOT_TOKEN) {
+        return new Response('Telegram bot token not configured', { status: 503 });
       }
 
       try {

@@ -35,6 +35,10 @@ async function sendMessage(env, chatId, message, extra = {}) {
   });
 }
 
+async function answerCallback(env, callbackQueryId) {
+  return telegramApi(env, "answerCallbackQuery", { callback_query_id: callbackQueryId });
+}
+
 function isOwner(env, from) {
   if (!from || !env.OWNER_TELEGRAM_ID) return false;
   return String(from.id) === String(env.OWNER_TELEGRAM_ID);
@@ -49,18 +53,45 @@ function githubHeaders(env) {
   };
 }
 
-async function fetchRepos(env) {
-  const response = await fetch(
-    "https://api.github.com/user/repos?sort=updated&per_page=20&affiliation=owner,collaborator,organization_member",
-    { headers: githubHeaders(env) }
-  );
-
+async function githubJson(env, url, label) {
+  const response = await fetch(url, { headers: githubHeaders(env) });
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`GitHub repos failed: ${response.status} ${body}`);
+    const error = new Error(`${label} failed: ${response.status} ${body}`);
+    error.status = response.status;
+    throw error;
   }
-
   return response.json();
+}
+
+async function fetchRepos(env) {
+  return githubJson(
+    env,
+    "https://api.github.com/user/repos?sort=updated&per_page=20&affiliation=owner,collaborator,organization_member",
+    "GitHub repos"
+  );
+}
+
+async function fetchRepoById(env, repoId) {
+  return githubJson(env, `https://api.github.com/repositories/${repoId}`, "GitHub repository");
+}
+
+function repoPath(fullName) {
+  return fullName.split("/").map(encodeURIComponent).join("/");
+}
+
+function escapeHtml(value = "") {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function decodeBase64Utf8(value) {
+  const binary = atob(String(value || "").replace(/\s/g, ""));
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
 }
 
 function startMessage() {
@@ -68,17 +99,164 @@ function startMessage() {
     "<b>Nexa Dev</b>",
     "دستیار شخصی توسعه و مدیریت GitHub از داخل تلگرام.",
     "",
-    "فرمان‌های نسخه اول:",
-    "/repos — نمایش مخزن‌های قابل دسترس",
+    "فرمان‌ها:",
+    "/repos — مرور مخزن‌ها با دکمه‌های لمسی",
     "/status — وضعیت سرویس",
   ].join("\n");
+}
+
+function repoButtons(repos) {
+  return repos.slice(0, 20).map((repo) => [{
+    text: `${repo.private ? "🔒" : "🌐"} ${repo.name}`,
+    callback_data: `repo:${repo.id}`,
+  }]);
+}
+
+async function showRepos(env, chatId) {
+  if (!env.GITHUB_TOKEN) {
+    await sendMessage(env, chatId, "⚠️ اتصال GitHub هنوز با Secret نهایی نشده است.");
+    return;
+  }
+
+  const repos = await fetchRepos(env);
+  if (!repos.length) {
+    await sendMessage(env, chatId, "هیچ مخزنی پیدا نشد.");
+    return;
+  }
+
+  await sendMessage(env, chatId, "<b>Repositories</b>\nیک مخزن را انتخاب کن:", {
+    reply_markup: { inline_keyboard: repoButtons(repos) },
+  });
+}
+
+function repoMenu(repo) {
+  return {
+    inline_keyboard: [
+      [{ text: "📁 فایل‌ها", callback_data: `files:${repo.id}` }],
+      [
+        { text: "🧾 کامیت‌ها", callback_data: `commits:${repo.id}` },
+        { text: "🔀 Pull Requestها", callback_data: `prs:${repo.id}` },
+      ],
+      [{ text: "⬅️ مخزن‌ها", callback_data: "repos" }],
+    ],
+  };
+}
+
+async function showRepo(env, chatId, repoId) {
+  const repo = await fetchRepoById(env, repoId);
+  const visibility = repo.private ? "🔒 خصوصی" : "🌐 عمومی";
+  const description = repo.description ? `\n${escapeHtml(repo.description)}` : "";
+  await sendMessage(
+    env,
+    chatId,
+    `<b>${escapeHtml(repo.full_name)}</b>\n${visibility}\nbranch: <code>${escapeHtml(repo.default_branch)}</code>${description}`,
+    { reply_markup: repoMenu(repo) }
+  );
+}
+
+function fileButtons(repoId, items, back = `repo:${repoId}`) {
+  const rows = items.slice(0, 30).map((item) => {
+    const isDir = item.type === "dir" || item.type === "tree";
+    const isFile = item.type === "file" || item.type === "blob";
+    const callback = isDir
+      ? `tree:${repoId}:${item.sha}`
+      : isFile
+        ? `blob:${repoId}:${item.sha}`
+        : null;
+    return callback ? [{ text: `${isDir ? "📁" : "📄"} ${item.name || item.path}`, callback_data: callback }] : [];
+  }).filter((row) => row.length);
+  rows.push([{ text: "⬅️ برگشت", callback_data: back }]);
+  return { inline_keyboard: rows };
+}
+
+async function showRootFiles(env, chatId, repoId) {
+  const repo = await fetchRepoById(env, repoId);
+  const full = repoPath(repo.full_name);
+  const branch = encodeURIComponent(repo.default_branch);
+  const items = await githubJson(
+    env,
+    `https://api.github.com/repos/${full}/contents?ref=${branch}`,
+    "GitHub contents"
+  );
+
+  await sendMessage(env, chatId, `📁 <b>${escapeHtml(repo.full_name)}</b> /`, {
+    reply_markup: fileButtons(repoId, Array.isArray(items) ? items : [], `repo:${repoId}`),
+  });
+}
+
+async function showTree(env, chatId, repoId, sha) {
+  const repo = await fetchRepoById(env, repoId);
+  const full = repoPath(repo.full_name);
+  const tree = await githubJson(
+    env,
+    `https://api.github.com/repos/${full}/git/trees/${encodeURIComponent(sha)}`,
+    "GitHub tree"
+  );
+
+  await sendMessage(env, chatId, `📁 <b>${escapeHtml(repo.full_name)}</b>`, {
+    reply_markup: fileButtons(repoId, tree.tree || [], `files:${repoId}`),
+  });
+}
+
+async function showBlob(env, chatId, repoId, sha) {
+  const repo = await fetchRepoById(env, repoId);
+  const full = repoPath(repo.full_name);
+  const blob = await githubJson(
+    env,
+    `https://api.github.com/repos/${full}/git/blobs/${encodeURIComponent(sha)}`,
+    "GitHub blob"
+  );
+
+  if (blob.encoding !== "base64" || blob.size > 100000) {
+    await sendMessage(env, chatId, "این فایل برای نمایش مستقیم در تلگرام مناسب نیست.", {
+      reply_markup: { inline_keyboard: [[{ text: "⬅️ فایل‌ها", callback_data: `files:${repoId}` }]] },
+    });
+    return;
+  }
+
+  const decoded = decodeBase64Utf8(blob.content);
+  const preview = decoded.length > 3000 ? `${decoded.slice(0, 3000)}\n…` : decoded;
+  await sendMessage(env, chatId, `<pre>${escapeHtml(preview)}</pre>`, {
+    reply_markup: { inline_keyboard: [[{ text: "⬅️ فایل‌ها", callback_data: `files:${repoId}` }]] },
+  });
+}
+
+async function showCommits(env, chatId, repoId) {
+  const repo = await fetchRepoById(env, repoId);
+  const full = repoPath(repo.full_name);
+  const commits = await githubJson(
+    env,
+    `https://api.github.com/repos/${full}/commits?per_page=5&sha=${encodeURIComponent(repo.default_branch)}`,
+    "GitHub commits"
+  );
+  const lines = commits.map((commit) => {
+    const title = String(commit.commit?.message || "").split("\n")[0];
+    const author = commit.author?.login || commit.commit?.author?.name || "unknown";
+    return `• <code>${escapeHtml(String(commit.sha).slice(0, 7))}</code> ${escapeHtml(title)} — ${escapeHtml(author)}`;
+  });
+  await sendMessage(env, chatId, `<b>آخرین کامیت‌ها</b>\n\n${lines.join("\n") || "کامیتی پیدا نشد."}`, {
+    reply_markup: { inline_keyboard: [[{ text: "⬅️ مخزن", callback_data: `repo:${repoId}` }]] },
+  });
+}
+
+async function showPullRequests(env, chatId, repoId) {
+  const repo = await fetchRepoById(env, repoId);
+  const full = repoPath(repo.full_name);
+  const prs = await githubJson(
+    env,
+    `https://api.github.com/repos/${full}/pulls?state=open&per_page=5`,
+    "GitHub pull requests"
+  );
+  const lines = prs.map((pr) => `• <b>#${pr.number}</b> ${escapeHtml(pr.title)} — ${escapeHtml(pr.user?.login || "unknown")}`);
+  await sendMessage(env, chatId, `<b>Pull Requestهای باز</b>\n\n${lines.join("\n") || "PR بازی وجود ندارد."}`, {
+    reply_markup: { inline_keyboard: [[{ text: "⬅️ مخزن", callback_data: `repo:${repoId}` }]] },
+  });
 }
 
 async function handleCommand(env, message) {
   const chatId = message.chat?.id;
   const command = (message.text || "").trim().split(/\s+/)[0].split("@")[0].toLowerCase();
 
-  // Personal bot: fail silently for every Telegram user except the owner.
   if (!isOwner(env, message.from)) return;
 
   if (command === "/start") {
@@ -87,32 +265,39 @@ async function handleCommand(env, message) {
   }
 
   if (command === "/status") {
-    await sendMessage(env, chatId, "✅ Nexa Dev آنلاین است.\nGitHub integration: آماده بررسی");
+    await sendMessage(env, chatId, "✅ Nexa Dev آنلاین است.\nGitHub integration: آماده");
     return;
   }
 
   if (command === "/repos") {
-    if (!env.GITHUB_TOKEN) {
-      await sendMessage(env, chatId, "⚠️ اتصال GitHub هنوز با Secret نهایی نشده است.");
-      return;
-    }
-
-    const repos = await fetchRepos(env);
-    if (!repos.length) {
-      await sendMessage(env, chatId, "هیچ مخزنی پیدا نشد.");
-      return;
-    }
-
-    const lines = repos.slice(0, 20).map((repo, i) => {
-      const visibility = repo.private ? "🔒" : "🌐";
-      return `${i + 1}. ${visibility} <b>${repo.full_name}</b>\n   branch: <code>${repo.default_branch}</code>`;
-    });
-
-    await sendMessage(env, chatId, `<b>Repositories</b>\n\n${lines.join("\n\n")}`);
+    await showRepos(env, chatId);
     return;
   }
 
   await sendMessage(env, chatId, "فرمان شناخته نشد. /start را بزن.");
+}
+
+async function handleCallbackQuery(env, query) {
+  if (!isOwner(env, query.from)) return;
+
+  const chatId = query.message?.chat?.id;
+  const data = String(query.data || "");
+  await answerCallback(env, query.id);
+
+  if (data === "repos") {
+    await showRepos(env, chatId);
+    return;
+  }
+
+  const [action, repoId, sha] = data.split(":");
+  if (!/^\d+$/.test(repoId || "")) return;
+
+  if (action === "repo") return showRepo(env, chatId, repoId);
+  if (action === "files") return showRootFiles(env, chatId, repoId);
+  if (action === "tree" && /^[a-f0-9]{40}$/i.test(sha || "")) return showTree(env, chatId, repoId, sha);
+  if (action === "blob" && /^[a-f0-9]{40}$/i.test(sha || "")) return showBlob(env, chatId, repoId, sha);
+  if (action === "commits") return showCommits(env, chatId, repoId);
+  if (action === "prs") return showPullRequests(env, chatId, repoId);
 }
 
 async function handleTelegramWebhook(request, env) {
@@ -125,6 +310,18 @@ async function handleTelegramWebhook(request, env) {
   const update = await request.json();
   if (update.message?.text) {
     await handleCommand(env, update.message);
+  } else if (update.callback_query) {
+    try {
+      await handleCallbackQuery(env, update.callback_query);
+    } catch (error) {
+      console.error(error);
+      if (isOwner(env, update.callback_query.from) && update.callback_query.message?.chat?.id) {
+        const hint = error?.status === 403
+          ? "⚠️ توکن GitHub مجوز Read لازم برای این بخش را ندارد."
+          : "⚠️ دریافت اطلاعات GitHub ناموفق بود.";
+        await sendMessage(env, update.callback_query.message.chat.id, hint);
+      }
+    }
   }
 
   return text("OK");
@@ -138,7 +335,7 @@ export default {
       return json({
         name: "Nexa Dev",
         status: "ok",
-        version: "0.1.0",
+        version: "0.2.0",
       });
     }
 

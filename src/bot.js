@@ -1,6 +1,11 @@
 import { TelegramClient } from './telegram.js';
 import { GitHubService } from './github.js';
 import { MenuManager } from './menu.js';
+import { PluginRegistry } from './core/plugin-registry.js';
+import { ActionPolicy } from './core/action-policy.js';
+import { AuditLogger } from './core/audit.js';
+import { PluginRouter } from './core/router.js';
+import { createGitHubPlugin } from './plugins/github/plugin.js';
 
 export class NexaDevBot {
   constructor(env = {}) {
@@ -8,10 +13,31 @@ export class NexaDevBot {
     this.telegram = new TelegramClient(env.TELEGRAM_BOT_TOKEN || '');
     this.github = new GitHubService(env.GITHUB_TOKEN || '', env.GITHUB_OWNER || 'davoodmehraban89');
     this.menu = new MenuManager(this.github);
+
+    this.githubPlugin = createGitHubPlugin({
+      github: this.github,
+      menu: this.menu
+    });
+    this.registry = new PluginRegistry([this.githubPlugin]);
+    this.policy = new ActionPolicy();
+    this.audit = new AuditLogger({
+      secrets: [
+        env.TELEGRAM_BOT_TOKEN,
+        env.TELEGRAM_WEBHOOK_SECRET,
+        env.GITHUB_TOKEN
+      ]
+    });
+    this.router = new PluginRouter({
+      registry: this.registry,
+      policy: this.policy,
+      audit: this.audit
+    });
   }
 
   /**
-   * Process incoming Telegram webhook update
+   * Process incoming Telegram webhook update.
+   * Owner authorization is enforced at the Worker boundary before this bot is
+   * constructed, so routed actions use an owner-authorized internal context.
    */
   async handleUpdate(update) {
     if (!update) return { ok: false, error: 'Empty update' };
@@ -50,8 +76,29 @@ export class NexaDevBot {
     }
 
     try {
-      // Render requested view
-      const view = await this.menu.renderByCallback(data);
+      // GitHub callbacks pass through the plugin policy boundary. Non-GitHub
+      // callbacks remain on the existing compatibility router in Foundation v1.
+      const routed = await this.router.dispatchCallback(data, { isOwner: true });
+      if (routed?.requiresApproval) {
+        return {
+          ok: false,
+          approvalRequired: true,
+          actionId: routed.actionId,
+          risk: routed.risk,
+          callbackAnswered
+        };
+      }
+      if (routed?.denied) {
+        return {
+          ok: false,
+          denied: true,
+          actionId: routed.actionId,
+          reason: routed.reason,
+          callbackAnswered
+        };
+      }
+
+      const view = routed || await this.menu.renderByCallback(data);
 
       // Edit the existing message in-place to prevent chat flooding
       const res = await this.telegram.editMessageText(
@@ -84,10 +131,18 @@ export class NexaDevBot {
       return { ok: true, command: 'start', res };
     }
 
-    // Legacy or shortcut command: /repos
+    // GitHub shortcut command routed through the plugin kernel.
     if (text === '/repos') {
-      const view = await this.menu.getReposListView();
-      const res = await this.telegram.sendMessage(chatId, view.text, view.reply_markup);
+      const routed = await this.router.dispatchCommand(text, { isOwner: true });
+      if (routed?.requiresApproval || routed?.denied || !routed) {
+        return {
+          ok: false,
+          command: 'repos',
+          error: routed?.reason || 'GitHub repository route unavailable'
+        };
+      }
+
+      const res = await this.telegram.sendMessage(chatId, routed.text, routed.reply_markup);
       return { ok: true, command: 'repos', res };
     }
 

@@ -2,6 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TelegramClient } from '../src/telegram.js';
 
+test('TelegramClient fails closed when TELEGRAM_BOT_TOKEN is missing', async () => {
+  const client = new TelegramClient('');
+
+  await assert.rejects(
+    () => client.sendMessage(1, 'hello'),
+    /TELEGRAM_BOT_TOKEN is not configured/i
+  );
+});
+
 test('TelegramClient rejects HTTP-level Telegram API failures', async () => {
   const client = new TelegramClient('token', {
     fetch: async () => new Response(JSON.stringify({ ok: false, description: 'Bad Request' }), {

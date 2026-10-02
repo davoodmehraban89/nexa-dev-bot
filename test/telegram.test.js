@@ -38,3 +38,27 @@ test('TelegramClient rejects Telegram ok:false responses even with HTTP 200', as
     /message is not modified/i
   );
 });
+
+test('TelegramClient invokes the default fetch without a TelegramClient receiver', async () => {
+  const originalFetch = globalThis.fetch;
+  let observedThis;
+
+  globalThis.fetch = async function () {
+    observedThis = this;
+    if (this instanceof TelegramClient) {
+      throw new TypeError('Illegal invocation: function called with incorrect this reference');
+    }
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+
+  try {
+    const client = new TelegramClient('token');
+    await client.sendMessage(1, 'hello');
+    assert.notEqual(observedThis, client);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

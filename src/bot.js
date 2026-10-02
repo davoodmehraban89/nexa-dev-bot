@@ -36,11 +36,17 @@ export class NexaDevBot {
     const chatId = message?.chat?.id;
     const messageId = message?.message_id;
 
-    // Answer callback query immediately to stop the Telegram client spinner
-    await this.telegram.answerCallbackQuery(callbackId);
+    // Callback acknowledgement is best-effort. A stale/expired callback must not
+    // block rendering and editing the existing menu message.
+    let callbackAnswered = true;
+    try {
+      await this.telegram.answerCallbackQuery(callbackId);
+    } catch {
+      callbackAnswered = false;
+    }
 
     if (!chatId || !messageId) {
-      return { ok: false, error: 'Missing message context for callback' };
+      return { ok: false, error: 'Missing message context for callback', callbackAnswered };
     }
 
     try {
@@ -55,13 +61,13 @@ export class NexaDevBot {
         view.reply_markup
       );
 
-      return { ok: true, edited: true, res };
+      return { ok: true, edited: true, callbackAnswered, res };
     } catch (err) {
       // Ignore 'message is not modified' error in Telegram
       if (err.message && err.message.includes('message is not modified')) {
-        return { ok: true, unmodified: true };
+        return { ok: true, unmodified: true, callbackAnswered };
       }
-      return { ok: false, error: err.message };
+      return { ok: false, error: err.message, callbackAnswered };
     }
   }
 

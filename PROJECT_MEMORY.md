@@ -5,7 +5,7 @@
 - Repository: `davoodmehraban89/nexa-dev-bot`
 - Canonical branch: `main`
 - Visibility: private
-- Purpose: personal Telegram developer console for GitHub repository visibility and operations.
+- Purpose: personal, owner-only Telegram developer console for GitHub repository visibility and controlled developer operations.
 - This file is the Single Source of Truth for AI continuity. Repository/runtime evidence overrides stale text here.
 
 ## AI HANDOFF PROTOCOL
@@ -18,196 +18,198 @@
 7. Never store passwords, tokens, API secrets, webhook secrets or private keys here.
 
 ## Product Vision
-Build a secure, professional, mobile-first Telegram control surface for GitHub projects with clean hierarchical navigation, minimal chat clutter, trustworthy live data, auditability and later developer automation.
+Build a secure, professional, mobile-first Telegram control surface for GitHub projects with hierarchical navigation, minimal chat clutter, trustworthy live data, auditability and later developer automation.
 
 ## Repository / Workspace
 - Repository: `davoodmehraban89/nexa-dev-bot`
 - Default branch: `main`
-- Verified GitHub integration permissions available to the connected tool: admin/read/write.
-- Verified main head at reconciliation: `2f55a22d9ca8c9dfec42ce7021ccc355bad49b92` (`Add files via upload`, 2026-10-02).
-- Existing feature branch `feat/telegram-main-inline-menu` is behind main by 6 commits and no longer represents the newest implementation baseline.
+- Connected GitHub integration has repository read/write access.
+- The former branch `feat/telegram-main-inline-menu` is stale and is not the implementation baseline.
+- Current implementation baseline is `main`.
 
 ## Architecture
-Verified current source layout on `main`:
-- `src/index.js` — Cloudflare Worker entrypoint / HTTP handler.
+Current source layout:
+- `src/index.js` — Cloudflare Worker HTTP boundary, webhook authentication and owner authorization.
 - `src/bot.js` — Telegram update router and callback handling.
-- `src/telegram.js` — Telegram Bot API client.
-- `src/github.js` — GitHub API reader with fallback data.
+- `src/telegram.js` — Telegram Bot API client with explicit error propagation.
+- `src/github.js` — authenticated GitHub REST reader; fails explicitly instead of returning fabricated fallback data.
 - `src/menu.js` — hierarchical inline-menu renderer and callback router.
-- `src/config.js` — static default repositories/service/security display configuration.
-- `.github/workflows/ci.yml` — Node CI.
-- `test/` — test files, including security and navigation regression tests.
+- `src/config.js` — minimal non-secret static configuration.
+- `.github/workflows/ci.yml` — Node.js CI.
+- `test/` — security, navigation, bot, menu, worker, GitHub and Telegram client regression tests.
 
 ## Technology Stack
 - JavaScript ES modules
-- Node.js test runner
+- Node.js 22 test runner
 - Telegram Bot API
 - GitHub REST API
 - Cloudflare Workers / Wrangler
 - GitHub Actions
 
 ## Environments & Integrations
-Verified in repository:
-- Cloudflare Worker configuration exists in `wrangler.jsonc`, main entry `src/index.js`, `workers_dev: true`, observability enabled.
+Repository-verified:
+- Cloudflare Worker configuration exists in `wrangler.jsonc` with `src/index.js` as entrypoint.
 - Telegram Bot API integration exists.
 - GitHub API integration exists.
 - CI workflow exists.
-Not verified in this reconciliation:
-- Current live Cloudflare deployment contents.
-- Current live Telegram webhook configuration.
-- Current production secret values.
+Runtime configuration names required by the code:
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_WEBHOOK_SECRET`
+- `OWNER_TELEGRAM_ID`
+- `GITHUB_TOKEN`
+- optional `GITHUB_OWNER`
+Secret values must never be committed to this file or the repository.
 
 ## Current Production State
-**NOT VERIFIED.** Do not infer live deployment correctness from repository contents or CI alone.
+- Source and automated CI state are verified as described below.
+- Live Cloudflare deployment contents after the latest security/quality repair: **NOT YET VERIFIED IN THIS CHECKPOINT**.
+- Live Telegram mobile behavior after the latest repair: **NOT YET VERIFIED IN THIS CHECKPOINT**.
 
-## Completed Work (Repository-Verified)
-- Continuity system exists.
-- Current `main` contains a modular redesign (`bot.js`, `menu.js`, `telegram.js`, `github.js`, `config.js`).
-- Inline hierarchical menu views exist for main menu, repositories, repo detail, files, commits, pull requests, service status, tools, settings and security.
-- Callback handling uses Telegram `editMessageText` for in-place menu navigation.
-- Main menu includes Repositories, Status, Tools, Settings and Security.
-- Breadcrumb-style path text and explicit back buttons are present.
-- Latest GitHub Actions run inspected: run `37047035443` for head `2f55a22...` concluded `success`.
+## Completed Work — Verified
+### Telegram UX
+- Hierarchical Inline Keyboard navigation exists.
+- `/start` creates the initial menu message.
+- Callback navigation uses `editMessageText` on the same message.
+- Main menu sections: Repositories, Status, Tools, Settings, Security.
+- Repository submenu: Files, Pull Requests, Commits, Status/Tests, Back.
+- Explicit Back navigation is present.
+- Breadcrumb-style path text is present.
 
-## Critical Verification Finding
-The latest CI success is **not a valid test pass**. `package.json` runs:
-`node --test tests/*.test.js`
-while the repository test directory is `test/` (singular). GitHub Actions run `37047035443` therefore executed **0 tests** (`# tests 0`, `# pass 0`, `# fail 0`) and still exited successfully.
+### Security boundary
+Implemented and test-verified in `src/index.js`:
+- Telegram webhook processing is restricted to `POST /telegram/webhook`.
+- Missing `TELEGRAM_WEBHOOK_SECRET` fails closed with 503.
+- Wrong `X-Telegram-Bot-Api-Secret-Token` is rejected with 403.
+- Missing `OWNER_TELEGRAM_ID` fails closed.
+- Message and callback senders must match `OWNER_TELEGRAM_ID`.
+- Unauthorized senders are ignored without Telegram/GitHub network calls.
+- Temporary `/telegram/setup` route remains disabled.
+- Temporary diagnostic behavior does not expose Telegram ID/authorization details.
 
-## Security Regression — VERIFIED BY SOURCE INSPECTION
-The modular uploaded implementation on current `main` removed security boundaries present in the older worker implementation/tests:
-- `src/index.js` currently accepts POST requests without validating `X-Telegram-Bot-Api-Secret-Token`.
-- `src/index.js` does not restrict POST handling to `/telegram/webhook`.
-- `src/bot.js` currently does not enforce `OWNER_TELEGRAM_ID` before handling messages/callbacks.
-- Existing `test/security.test.js` explicitly expects fail-closed webhook secret validation and owner-only behavior, but those tests are currently not executed because of the CI path bug.
+### Data trust
+- `src/github.js` no longer returns sample/default operational data when GitHub fails.
+- Missing `GITHUB_TOKEN` is an explicit error.
+- GitHub HTTP failures are surfaced as errors.
+- Repository discovery uses the authenticated `/user/repos` endpoint so private accessible repositories can be returned.
+- Repository detail uses live repository metadata.
+- PRs, commits, files and GitHub Actions status are source-backed.
+- Hard-coded service health, `100% SLA`, fixed latency and fake security/token status claims were removed.
+- GitHub-derived menu content is HTML-escaped before Telegram HTML rendering.
 
-Status: **BLOCKING — NOT SAFE TO CALL PRODUCTION-READY.**
+### Telegram API correctness
+- `TelegramClient` now throws for network errors, HTTP-level Telegram API failures and Telegram `{ok:false}` responses.
+- `message is not modified` can therefore be handled deliberately by the bot callback layer rather than silently treated as success.
 
-## Data-Trust / Correctness Findings
-Current `src/github.js` silently falls back to static/default data when GitHub calls fail. This can make unavailable or failed integrations look successful and conflicts with the project requirement to never present fabricated/demo data as live operational truth.
-Current `src/config.js` contains static status claims such as `100% SLA`, connected/operational services and security state; these are display defaults, not verified runtime telemetry.
-The Tools view includes hard-coded success outputs (for example a fixed ping latency) rather than measured operations.
-Status: **IMPLEMENTED UI, NOT TRUSTWORTHY RUNTIME TELEMETRY YET.**
-
-## UX/UI State
-Implemented direction on current main:
-- hierarchical inline keyboards;
-- one-message in-place callback navigation after the initial message;
-- parent back buttons;
-- breadcrumbs.
-Important gap relative to owner preference:
-- this is an Inline Keyboard design attached to messages, not a persistent Telegram Reply Keyboard replacing the phone keyboard.
-- `/start`, `/repos`, `/status` still create a new message because they are command entry points; navigation after callback uses message editing.
-
-## GitHub Reader State
-Repository code includes views/services for:
-- repositories;
-- files;
-- commits;
-- pull requests;
-- workflow/status.
-Previously observed Telegram tests from the owner confirmed repository/files/commits/PR/status reading before the uploaded redesign.
-**Regression of those live flows after the new uploaded architecture is NOT VERIFIED.**
+### CI
+- Test discovery corrected from the wrong `tests/*.test.js` path to `test/*.test.js`.
+- TDD RED evidence was captured after enabling the real suite and during Telegram error-propagation work.
+- Fresh GREEN evidence: GitHub Actions run `37050047446`, commit `40e31294950ba6e3d85744728476e81cc239fbe9`.
+- Exact result: `26` tests, `26` passed, `0` failed, `0` skipped/cancelled.
 
 ## Current Work / Last Checkpoint
 WHERE WE WERE:
-- Owner requested Nexa Dev UX redesign to hierarchical menus, back navigation and reduced message spam.
+- A modular menu redesign had been uploaded to `main`, but CI ran zero tests, webhook/owner security had regressed, GitHub failures could silently turn into fake data, and status screens contained fabricated operational claims.
 
 WHAT CHANGED:
-- Three `Add files via upload` commits (`65a8fbec...`, `453c0ddf...`, `2f55a22d...`) placed a modular menu redesign directly on `main`.
-- `src/index.js` is now only the Worker entrypoint and imports `NexaDevBot`; the old monolithic implementation is no longer the main source shape.
+- Real CI test discovery restored.
+- Fail-closed webhook authentication and owner-only authorization restored.
+- GitHub fallback/sample operational data removed.
+- Status/security/tool screens made non-fabricated.
+- Navigation tests rewritten for the current one-message architecture.
+- Telegram API failures now propagate correctly.
+- Full automated suite is green: run `37050047446`, 26/26 passing.
 
 WHERE WE ARE NOW:
-- Menu redesign is materially present in source.
-- CI is false-green because zero tests run.
-- Critical webhook/owner security checks are missing from current main implementation.
-- Runtime/mobile behavior after this redesign is NOT VERIFIED.
+- Repository-level security, data-trust and navigation regression gates are green.
+- The source implements the requested one-message hierarchical Inline Keyboard flow.
+- Live deployment and real-phone Telegram smoke after this latest repair remain the final verification gap.
 
 WHAT REMAINS:
-1. Restore fail-closed Telegram webhook secret validation and owner-only authorization without breaking modular navigation.
-2. Restrict webhook processing to the intended endpoint.
-3. Fix `package.json` test glob from `tests/*.test.js` to `test/*.test.js` (or equivalent reliable test discovery).
-4. Run the real security/navigation/bot/menu/index tests; fix failures and re-run.
-5. Remove or clearly label mock/static fallback data; failures must not masquerade as verified live GitHub/service state.
-6. Re-verify `/start → Repos → Repo → Files/Commits/PR/Status → Back` on the real Telegram bot/mobile runtime.
-7. Decide whether the final main menu should remain Inline Keyboard or move to the owner's preferred persistent Reply Keyboard shell.
+1. Verify the live Cloudflare root/health endpoint is serving the latest application version.
+2. Verify `/telegram/setup` remains unavailable in live runtime.
+3. On the real Telegram bot/mobile client, smoke-test: `/start → Repositories → repository → Files/Commits/PR/Status → Back → Main`.
+4. Confirm callback navigation edits the same menu message and does not create message spam.
+5. Decide separately whether to keep Inline Keyboard as the final UX or add a persistent Reply Keyboard shell; this is not required for the current in-place navigation implementation.
 
 ## Master Roadmap
-Phase 1 — Secure Telegram navigation core.
-Phase 2 — Trustworthy GitHub repository browsing and status telemetry.
-Phase 3 — Developer tools and controlled operations.
-Phase 4 — Security hardening, auditability and observability.
-Phase 5 — Mobile QA, release validation and documentation.
+Phase 1 — Secure Telegram navigation core: **IMPLEMENTED + AUTOMATED-VERIFIED; LIVE MOBILE VERIFICATION PENDING**.
+Phase 2 — Trustworthy GitHub repository browsing/status: **IMPLEMENTED + AUTOMATED-VERIFIED; LIVE TOKEN/RUNTIME SMOKE PENDING**.
+Phase 3 — Developer tools and controlled write operations: planned.
+Phase 4 — Security hardening, auditability and observability: ongoing after live verification.
+Phase 5 — Mobile QA, release validation and documentation: current next checkpoint.
 
 ## Requirements
 - Owner-only personal bot.
-- Fail closed if webhook authentication configuration is missing or wrong.
+- Fail closed if webhook authentication/owner configuration is absent or wrong.
 - No secret values committed to repository.
 - No fabricated operational success/status.
 - Minimal chat spam.
 - Hierarchical navigation with reliable Back behavior.
-- Preserve working GitHub Reader flows.
+- Preserve GitHub Reader functionality.
 - Mobile-first Telegram usability.
 - Completion claims require implemented + tested + re-verified evidence.
 
 ## User Decisions
 - Nexa Dev Bot is independent from Finora / Factor-easy application development; do not mix project state or Supabase requirements from those projects into this repository.
-- GitHub repository: `davoodmehraban89/nexa-dev-bot`.
+- Canonical repository: `davoodmehraban89/nexa-dev-bot`.
 - Professional layered menus are desired.
-- User strongly prefers execution over explanatory chat.
-- User requires verification from execution, architecture/quality and QA/user perspectives before saying work is complete.
+- User prefers execution over explanatory chat.
+- Before saying a task is complete, verify from three perspectives: Execution, Architecture/Quality, QA/User.
 
 ## Architecture Decisions
-- `PROJECT_MEMORY.md` is the canonical continuity file for this project.
-- Modular source files are now the current main architecture; do not revert to the old monolithic file merely because an older branch contains it.
-- Security enforcement belongs at the Worker/update boundary and must not rely on display-only configuration.
-- Runtime failures must be explicit rather than silently replaced with plausible mock data.
+- `PROJECT_MEMORY.md` is the canonical continuity file.
+- Keep the modular source architecture; do not revert to the old monolithic Worker implementation.
+- Security enforcement belongs at the Worker/update boundary.
+- External integration failures must be explicit rather than replaced with plausible mock data.
+- Callback navigation edits the current Telegram message rather than sending a new message.
+- Initial command entry (`/start`, `/repos`, `/status`) may create an entry message; callback navigation must remain in-place.
 
 ## Data Model
-No persistent application database is verified or required for the current menu/read-only GitHub scope.
+No persistent application database is required or verified for the current read-only GitHub/menu scope.
 
 ## Security Rules
-- Never store Telegram bot token, GitHub token, webhook secret or credentials in committed files.
-- Validate Telegram webhook secret before parsing/processing privileged updates.
-- Enforce `OWNER_TELEGRAM_ID` for both message and callback flows.
+- Never commit Telegram token, GitHub token, webhook secret or private keys.
+- Validate webhook secret before processing Telegram updates.
+- Enforce `OWNER_TELEGRAM_ID` for messages and callbacks.
 - Unauthorized callers must not receive private repository data.
-- Temporary diagnostic/setup endpoints must remain disabled unless explicitly reintroduced for a bounded setup operation and removed afterward.
+- Do not reintroduce temporary diagnostic/setup endpoints without a bounded need and explicit cleanup.
+- Do not display secret values or infer that a token is valid from static configuration text.
 
 ## Testing & Acceptance Criteria
-Completed means:
+A checkpoint is complete only after:
 `IMPLEMENTED → VERIFIED → FIXED IF NEEDED → RE-VERIFIED`
-Required minimum gates for the navigation/security slice:
-- CI must execute a non-zero test count.
+Automated minimum gates:
+- CI executes a non-zero test count.
 - Security tests pass.
-- Navigation tests pass.
-- Bot/menu/index tests pass.
-- Live Telegram mobile smoke confirms one-message callback navigation and working Back path.
-- GitHub read paths return real data or explicit errors; no silent fake success.
+- Navigation/bot/menu/index tests pass.
+- GitHub fail-closed/data-trust tests pass.
+- Telegram API error propagation tests pass.
+Current automated evidence: run `37050047446` = 26 pass / 0 fail.
+Final release gate still required:
+- live Cloudflare smoke;
+- real Telegram mobile smoke of complete menu/back flow.
 
-## Known Issues
-- CI run `37047035443` is false-green with 0 tests because of the wrong test directory glob.
-- Current main lacks webhook-secret validation.
-- Current main lacks owner authorization enforcement.
-- Static/mock fallback data can be presented as if live.
-- Several service/security/ping status strings are hard-coded and not runtime measurements.
-- Live Cloudflare/Telegram state after the uploaded redesign is not verified.
+## Known Issues / Remaining Gaps
+- Live Cloudflare deployment after the latest repair is not yet verified in this checkpoint.
+- Real Telegram mobile smoke after the latest repair is not yet verified.
+- The current files view is a source-backed listing but does not yet provide full deep folder/file browsing buttons in the new modular UI.
+- Service Status intentionally avoids claiming external uptime/latency without measured telemetry.
 
 ## Risks
-- Unauthorized Telegram user could exercise bot flows if current main is deployed as-is.
-- A forged POST to the Worker could be processed because the webhook secret is not checked.
-- False-green CI can allow regressions to reach main.
-- Mock fallback data can mislead operational decisions.
+- If Cloudflare has not deployed current `main`, runtime may temporarily differ from repository state.
+- A runtime secret/configuration mismatch can make the secure webhook fail closed; this is preferable to unauthorized access.
+- Future GitHub write operations require explicit permission scoping and stronger audit/confirmation rules than current read-only flows.
 
 ## Technical Debt
-- Correct test discovery and add a non-zero-test assertion/gate.
-- Make Telegram API client throw/propagate API `ok:false` failures instead of treating JSON responses as success by default.
-- Replace hard-coded service telemetry with measured/unknown states.
-- Add robust HTML escaping for GitHub-derived titles/names displayed with Telegram HTML parse mode.
-- Add folder/file navigation buttons if full tree browsing is required; current files view primarily renders a textual listing with refresh/back controls.
+- Add measured deployment/runtime telemetry if desired rather than static service claims.
+- Add deeper interactive folder navigation to the modular files view if required.
+- Consider a durable navigation/session store only if future flows require cross-message/session state; current callback data is sufficient for the existing hierarchy.
+- Track GitHub Actions deprecation warning for older action runtimes and upgrade actions when appropriate.
 
 ## Deployment / Release State
-- GitHub Actions CI exists and latest inspected run is green but invalid as a quality gate due to 0 executed tests.
-- Cloudflare live deployment: NOT VERIFIED in this reconciliation.
+- GitHub Actions: green on verified code checkpoint `40e31294950ba6e3d85744728476e81cc239fbe9`, run `37050047446`, 26/26 tests passing.
+- Cloudflare live deployment: pending direct runtime verification after this memory update.
+- Telegram live/mobile: pending owner smoke test after runtime verification.
 
 ## Important File Paths
 - `PROJECT_MEMORY.md`
@@ -222,16 +224,19 @@ Required minimum gates for the navigation/security slice:
 - `test/bot.test.js`
 - `test/menu.test.js`
 - `test/index.test.js`
+- `test/github.test.js`
+- `test/telegram.test.js`
 - `.github/workflows/ci.yml`
 - `wrangler.jsonc`
 
 ## Reference Assets
-No canonical UI image asset for Nexa Dev Bot is currently verified in `docs/project-memory/assets/`.
+No canonical Nexa Dev UI image asset is currently stored under `docs/project-memory/assets/`.
 Status: Missing Asset.
 
 ## Change Log
 - 2026-10-02: Initial continuity memory created.
-- 2026-10-02: Reconciled memory after modular menu redesign uploads. Recorded current architecture, false-green zero-test CI, verified source-level security regressions, data-trust issues and exact repair sequence.
+- 2026-10-02: Reconciled memory after modular menu redesign upload and recorded false-green CI/security/data-trust regressions.
+- 2026-10-02: Repaired real test discovery, webhook/owner security, GitHub fail-closed behavior, non-fabricated UI status, current navigation coverage and Telegram API failure handling. Automated verification reached 26/26 green in run `37050047446`.
 
 ## Next Executable Action
-Create a bounded security/CI repair slice from current `main`: restore webhook secret + owner authorization, fix test discovery, run the real test suite, fix regressions, re-run, then verify the live Telegram mobile menu flow before declaring the redesign complete.
+Verify the live Cloudflare deployment against current `main`, then run the final owner-device Telegram smoke flow without changing architecture unless that live test exposes a defect.

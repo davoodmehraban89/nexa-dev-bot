@@ -1,316 +1,299 @@
 import { DEFAULT_CONFIG } from './config.js';
 
+function escapeHtml(value = '') {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+}
+
 /**
- * Menu Router and UI Generator for Nexa Dev Bot
+ * Menu Router and UI Generator for Nexa Dev Bot.
+ * Views never claim external service health unless that view was built from a live API response.
  */
 export class MenuManager {
   constructor(githubService) {
     this.github = githubService;
   }
 
-  /**
-   * Main Menu (Home)
-   */
   getMainMenuView() {
-    const text = 
+    const text =
 `⚡ <b>Nexa Dev Bot | پنل مدیریت توسعه</b>
 ➖➖➖➖➖➖➖➖➖➖
-خوش آمدید! یکی از بخش‌های زیر را انتخاب کنید:
-وضعیت اتصال گیت‌هاب: ✅ متصل (davoodmehraban89)
-مدیریت مخازن، وضعیت سرویس‌ها و پایش یکپارچه.`;
+یکی از بخش‌های زیر را انتخاب کنید.
+اتصال GitHub هنگام باز کردن مخزن‌ها به‌صورت زنده بررسی می‌شود.`;
 
-    const inlineKeyboard = [
-      [
-        { text: '📁 مخزن‌ها (پروژه‌ها)', callback_data: 'menu:repos' },
-        { text: '📊 وضعیت سرویس', callback_data: 'menu:status' }
-      ],
-      [
-        { text: '🔧 ابزارهای توسعه', callback_data: 'menu:tools' },
-        { text: '⚙️ تنظیمات', callback_data: 'menu:settings' }
-      ],
-      [
-        { text: '🔐 امنیت و توکن‌ها', callback_data: 'menu:security' }
-      ]
-    ];
-
-    return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
+    return {
+      text,
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '📁 مخزن‌ها (پروژه‌ها)', callback_data: 'menu:repos' },
+            { text: '📊 وضعیت سرویس', callback_data: 'menu:status' }
+          ],
+          [
+            { text: '🔧 ابزارهای توسعه', callback_data: 'menu:tools' },
+            { text: '⚙️ تنظیمات', callback_data: 'menu:settings' }
+          ],
+          [
+            { text: '🔐 امنیت', callback_data: 'menu:security' }
+          ]
+        ]
+      }
+    };
   }
 
-  /**
-   * Repositories List Menu
-   */
   async getReposListView() {
     const repos = await this.github.listRepositories();
-    const text = 
+    const text =
 `📁 <b>فهرست مخزن‌ها و پروژه‌ها</b>
-<code>🏠 Nexa Dev > 📁 مخزن‌ها</code>
+<code>🏠 Nexa Dev &gt; 📁 مخزن‌ها</code>
 ➖➖➖➖➖➖➖➖➖➖
-لطفاً پروژه مورد نظر خود را جهت مشاهده جزئیات، فایل‌ها، کامیت‌ها و PRها انتخاب کنید:`;
+این فهرست از GitHub API دریافت شده است. پروژه مورد نظر را انتخاب کنید:`;
 
     const inlineKeyboard = [];
     for (let i = 0; i < repos.length; i += 2) {
       const row = [];
-      row.push({ text: `📦 ${repos[i].name}`, callback_data: `repo:${repos[i].id}` });
+      row.push({
+        text: `${repos[i].private ? '🔒' : '🌐'} ${repos[i].name}`,
+        callback_data: `repo:${repos[i].id}`
+      });
       if (repos[i + 1]) {
-        row.push({ text: `📦 ${repos[i + 1].name}`, callback_data: `repo:${repos[i + 1].id}` });
+        row.push({
+          text: `${repos[i + 1].private ? '🔒' : '🌐'} ${repos[i + 1].name}`,
+          callback_data: `repo:${repos[i + 1].id}`
+        });
       }
       inlineKeyboard.push(row);
     }
 
-    // Navigation row
-    inlineKeyboard.push([
-      { text: '🔙 بازگشت به منوی اصلی', callback_data: 'menu:main' }
-    ]);
+    if (!repos.length) {
+      inlineKeyboard.push([{ text: '🔄 بررسی مجدد', callback_data: 'menu:repos' }]);
+    }
+    inlineKeyboard.push([{ text: '🔙 بازگشت به منوی اصلی', callback_data: 'menu:main' }]);
 
     return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
   }
 
-  /**
-   * Single Repository Detail Menu
-   */
   async getRepoDetailView(repoId) {
-    const text = 
-`📦 <b>پروژه: ${repoId}</b>
-<code>🏠 Nexa Dev > 📁 مخزن‌ها > ${repoId}</code>
+    const repo = await this.github.getRepository(repoId);
+    const visibility = repo.private ? '🔒 خصوصی' : '🌐 عمومی';
+    const archived = repo.archived ? '\n⚠️ وضعیت: آرشیوشده' : '';
+    const description = repo.description ? `\n📝 ${escapeHtml(repo.description)}` : '';
+    const text =
+`📦 <b>پروژه: ${escapeHtml(repo.name)}</b>
+<code>🏠 Nexa Dev &gt; 📁 مخزن‌ها &gt; ${escapeHtml(repo.name)}</code>
 ➖➖➖➖➖➖➖➖➖➖
-👤 مخزن: <code>${this.github.owner}/${repoId}</code>
-🔗 وضعیت اتصال GitHub: ✅ تایید شده
-یک عملیات را انتخاب کنید:`;
+👤 مخزن: <code>${escapeHtml(repo.fullName)}</code>
+👁 دسترسی: ${visibility}
+🌿 شاخه پیش‌فرض: <code>${escapeHtml(repo.defaultBranch)}</code>${archived}${description}
 
-    const inlineKeyboard = [
-      [
-        { text: '📂 فایل‌ها', callback_data: `files:${repoId}` },
-        { text: '🔀 Pull Requestها', callback_data: `pr:${repoId}` }
-      ],
-      [
-        { text: '📝 Commitها', callback_data: `commits:${repoId}` },
-        { text: '📊 وضعیت / تست‌ها', callback_data: `status:${repoId}` }
-      ],
-      [
-        { text: '🔙 بازگشت به لیست پروژه‌ها', callback_data: 'menu:repos' }
-      ]
-    ];
+اطلاعات بالا از GitHub API دریافت شد. یک عملیات را انتخاب کنید:`;
 
-    return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
+    return {
+      text,
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '📂 فایل‌ها', callback_data: `files:${repoId}` },
+            { text: '🔀 Pull Requestها', callback_data: `pr:${repoId}` }
+          ],
+          [
+            { text: '📝 Commitها', callback_data: `commits:${repoId}` },
+            { text: '📊 وضعیت / تست‌ها', callback_data: `status:${repoId}` }
+          ],
+          [{ text: '🔙 بازگشت به لیست پروژه‌ها', callback_data: 'menu:repos' }]
+        ]
+      }
+    };
   }
 
-  /**
-   * Pull Requests View
-   */
   async getPullRequestsView(repoId) {
     const prs = await this.github.listPullRequests(repoId);
-    
-    let prListText = '';
-    if (prs.length === 0) {
-      prListText = '<i>هیچ Pull Request بازی یافت نشد.</i>';
-    } else {
-      prListText = prs.map(pr => {
-        const stateEmoji = pr.merged ? '🟣 [Merged]' : (pr.state === 'open' ? '🟢 [Open]' : '🔴 [Closed]');
-        return `• <b>#${pr.number}</b> ${pr.title}\n  └ <i>نویسنده: @${pr.author} | وضعیت: ${stateEmoji}</i>`;
-      }).join('\n\n');
-    }
+    const prListText = prs.length
+      ? prs.map(pr => {
+          const state = pr.merged ? '🟣 Merged' : (pr.state === 'open' ? '🟢 Open' : '🔴 Closed');
+          return `• <b>#${pr.number}</b> ${escapeHtml(pr.title)}\n  └ <i>${escapeHtml(pr.author)} | ${state}</i>`;
+        }).join('\n\n')
+      : '<i>Pull Requestی در پاسخ GitHub یافت نشد.</i>';
 
-    const text = 
-`🔀 <b>Pull Requestهای پروژه ${repoId}</b>
-<code>🏠 Nexa Dev > 📁 مخزن‌ها > ${repoId} > 🔀 Pull Request</code>
+    const text =
+`🔀 <b>Pull Requestهای پروژه ${escapeHtml(repoId)}</b>
+<code>🏠 Nexa Dev &gt; 📁 مخزن‌ها &gt; ${escapeHtml(repoId)} &gt; 🔀 Pull Request</code>
 ➖➖➖➖➖➖➖➖➖➖
-✅ دریافت لیست PRها از GitHub
-✅ نمایش شماره، عنوان، نویسنده و وضعیت:
-
 ${prListText}`;
 
-    const inlineKeyboard = [
-      [
-        { text: '🔄 بروزرسانی', callback_data: `pr:${repoId}` },
-        { text: '🔙 بازگشت به پروژه', callback_data: `repo:${repoId}` }
-      ]
-    ];
-
-    return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
+    return {
+      text,
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '🔄 بروزرسانی', callback_data: `pr:${repoId}` },
+          { text: '🔙 بازگشت به پروژه', callback_data: `repo:${repoId}` }
+        ]]
+      }
+    };
   }
 
-  /**
-   * Commits View
-   */
   async getCommitsView(repoId) {
     const commits = await this.github.listCommits(repoId);
-    
-    let commitListText = commits.map(c => {
-      return `• <code>${c.sha}</code> - ${c.message}\n  └ <i>توسط @${c.author} در ${c.date}</i>`;
-    }).join('\n\n');
+    const commitListText = commits.length
+      ? commits.map(c => `• <code>${escapeHtml(c.sha)}</code> - ${escapeHtml(c.message)}\n  └ <i>${escapeHtml(c.author)}${c.date ? ` | ${escapeHtml(c.date)}` : ''}</i>`).join('\n\n')
+      : '<i>کامیتی در پاسخ GitHub یافت نشد.</i>';
 
-    const text = 
-`📝 <b>آخرین Commitهای پروژه ${repoId}</b>
-<code>🏠 Nexa Dev > 📁 مخزن‌ها > ${repoId} > 📝 Commitها</code>
+    const text =
+`📝 <b>آخرین Commitهای پروژه ${escapeHtml(repoId)}</b>
+<code>🏠 Nexa Dev &gt; 📁 مخزن‌ها &gt; ${escapeHtml(repoId)} &gt; 📝 Commitها</code>
 ➖➖➖➖➖➖➖➖➖➖
 ${commitListText}`;
 
-    const inlineKeyboard = [
-      [
-        { text: '🔄 بروزرسانی', callback_data: `commits:${repoId}` },
-        { text: '🔙 بازگشت به پروژه', callback_data: `repo:${repoId}` }
-      ]
-    ];
-
-    return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
+    return {
+      text,
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '🔄 بروزرسانی', callback_data: `commits:${repoId}` },
+          { text: '🔙 بازگشت به پروژه', callback_data: `repo:${repoId}` }
+        ]]
+      }
+    };
   }
 
-  /**
-   * Files View
-   */
   async getFilesView(repoId, subpath = '') {
     const files = await this.github.listFiles(repoId, subpath);
-    
-    const itemsText = files.map(f => {
-      const icon = f.type === 'dir' ? '📁' : '📄';
-      const size = f.size ? ` (${f.size} B)` : '';
-      return `${icon} <code>${f.name}</code>${size}`;
-    }).join('\n');
+    const itemsText = files.length
+      ? files.map(f => {
+          const icon = f.type === 'dir' ? '📁' : '📄';
+          const size = f.type === 'file' && f.size ? ` (${f.size} B)` : '';
+          return `${icon} <code>${escapeHtml(f.name)}</code>${size}`;
+        }).join('\n')
+      : '<i>پوشه خالی است.</i>';
 
-    const text = 
-`📂 <b>ساختار فایل‌های پروژه ${repoId}</b>
-<code>🏠 Nexa Dev > 📁 مخزن‌ها > ${repoId} > 📂 فایل‌ها${subpath ? ` > ${subpath}` : ''}</code>
+    const text =
+`📂 <b>ساختار فایل‌های پروژه ${escapeHtml(repoId)}</b>
+<code>🏠 Nexa Dev &gt; 📁 مخزن‌ها &gt; ${escapeHtml(repoId)} &gt; 📂 فایل‌ها${subpath ? ` &gt; ${escapeHtml(subpath)}` : ''}</code>
 ➖➖➖➖➖➖➖➖➖➖
-${itemsText || '<i>پوشه خالی است.</i>'}`;
+${itemsText}`;
 
-    const inlineKeyboard = [
-      [
-        { text: '🔄 بروزرسانی', callback_data: `files:${repoId}` },
-        { text: '🔙 بازگشت به پروژه', callback_data: `repo:${repoId}` }
-      ]
-    ];
-
-    return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
+    return {
+      text,
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '🔄 بروزرسانی', callback_data: `files:${repoId}${subpath ? `:${subpath}` : ''}` },
+          { text: '🔙 بازگشت به پروژه', callback_data: `repo:${repoId}` }
+        ]]
+      }
+    };
   }
 
-  /**
-   * Repository Status & Tests View
-   */
   async getRepoStatusView(repoId) {
     const status = await this.github.getRepoStatus(repoId);
-    
-    const runsText = status.lastRuns.map(r => {
-      const icon = r.conclusion === 'success' ? '✅' : (r.conclusion === 'failure' ? '❌' : '⏳');
-      return `• ${icon} <b>${r.name}</b>: ${r.conclusion || r.status}\n  └ <i>کامیت: ${r.commit}</i>`;
-    }).join('\n');
+    const runsText = status.lastRuns.length
+      ? status.lastRuns.map(r => {
+          const icon = r.conclusion === 'success' ? '✅' : (r.conclusion === 'failure' ? '❌' : '⏳');
+          return `• ${icon} <b>${escapeHtml(r.name)}</b>: ${escapeHtml(r.conclusion || r.status || 'unknown')}\n  └ <i>${escapeHtml(r.commit || '')}</i>`;
+        }).join('\n')
+      : '<i>Workflow runی در پاسخ GitHub یافت نشد.</i>';
 
-    const text = 
-`📊 <b>وضعیت سیستم و پایپ‌لاین ${repoId}</b>
-<code>🏠 Nexa Dev > 📁 مخزن‌ها > ${repoId} > 📊 وضعیت</code>
+    const text =
+`📊 <b>وضعیت پایپ‌لاین ${escapeHtml(repoId)}</b>
+<code>🏠 Nexa Dev &gt; 📁 مخزن‌ها &gt; ${escapeHtml(repoId)} &gt; 📊 وضعیت</code>
 ➖➖➖➖➖➖➖➖➖➖
-شاخه پیش‌فرض: <code>${status.defaultBranch}</code>
-آخرین نتایج Workflow و تست‌ها:
+شاخه پیش‌فرض: <code>${escapeHtml(status.defaultBranch)}</code>
+آخرین نتایج GitHub Actions:
 
 ${runsText}`;
 
-    const inlineKeyboard = [
-      [
-        { text: '🔄 بروزرسانی', callback_data: `status:${repoId}` },
-        { text: '🔙 بازگشت به پروژه', callback_data: `repo:${repoId}` }
-      ]
-    ];
-
-    return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
+    return {
+      text,
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '🔄 بروزرسانی', callback_data: `status:${repoId}` },
+          { text: '🔙 بازگشت به پروژه', callback_data: `repo:${repoId}` }
+        ]]
+      }
+    };
   }
 
-  /**
-   * System & Service Status View
-   */
   getServiceStatusView() {
-    const services = DEFAULT_CONFIG.systemServices.map(s => `• <b>${s.name}</b>:\n  └ ${s.status}`).join('\n\n');
-    const text = 
-`📊 <b>وضعیت سیستم و سرویس‌های فعال</b>
-<code>🏠 Nexa Dev > 📊 وضعیت سرویس</code>
+    const text =
+`📊 <b>وضعیت سیستم و سرویس‌ها</b>
+<code>🏠 Nexa Dev &gt; 📊 وضعیت سرویس</code>
 ➖➖➖➖➖➖➖➖➖➖
-${services}
+• <b>Cloudflare Worker:</b> این درخواست توسط Worker پاسخ داده شد.
+• <b>Telegram Webhook:</b> secret و owner در مرز ورودی Worker enforce می‌شوند؛ مقادیر محرمانه نمایش داده نمی‌شوند.
+• <b>GitHub API:</b> هنگام باز کردن مخزن‌ها و وضعیت پروژه به‌صورت زنده فراخوانی می‌شود.
+• <b>CI/CD:</b> نتیجه هر مخزن از GitHub Actions خوانده می‌شود.
 
-⏰ آخرین بررسی: هم‌اکنون (Realtime)`;
+این صفحه SLA، latency یا سلامت سرویس خارجی را بدون اندازه‌گیری واقعی اعلام نمی‌کند.`;
 
-    const inlineKeyboard = [
-      [
-        { text: '🔄 بررسی مجدد', callback_data: 'menu:status' },
-        { text: '🔙 بازگشت به منوی اصلی', callback_data: 'menu:main' }
-      ]
-    ];
-
-    return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
+    return {
+      text,
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '🔄 بررسی مجدد', callback_data: 'menu:status' },
+          { text: '🔙 بازگشت به منوی اصلی', callback_data: 'menu:main' }
+        ]]
+      }
+    };
   }
 
-  /**
-   * Developer Tools View
-   */
   getToolsView() {
-    const tools = DEFAULT_CONFIG.devTools.map(t => `• <b>${t.title}</b>:\n  └ <i>${t.desc}</i>`).join('\n\n');
-    const text = 
-`🔧 <b>ابزارهای توسعه (Dev Tools)</b>
-<code>🏠 Nexa Dev > 🔧 ابزارهای توسعه</code>
+    const tools = DEFAULT_CONFIG.devTools.map(t => `• <b>${t.title}</b>\n  └ <i>${t.desc}</i>`).join('\n\n');
+    const text =
+`🔧 <b>ابزارهای توسعه</b>
+<code>🏠 Nexa Dev &gt; 🔧 ابزارهای توسعه</code>
 ➖➖➖➖➖➖➖➖➖➖
 ${tools}`;
 
-    const inlineKeyboard = [
-      [
-        { text: '🏓 پینگ سرور', callback_data: 'tool:ping' },
-        { text: '🧹 پاکسازی سشن', callback_data: 'tool:cache_clear' }
-      ],
-      [
-        { text: '🔙 بازگشت به منوی اصلی', callback_data: 'menu:main' }
-      ]
-    ];
-
-    return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
+    return {
+      text,
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🏓 بررسی مسیر داخلی', callback_data: 'tool:ping' }],
+          [{ text: '🔙 بازگشت به منوی اصلی', callback_data: 'menu:main' }]
+        ]
+      }
+    };
   }
 
-  /**
-   * Settings View
-   */
   getSettingsView() {
-    const text = 
-`⚙️ <b>تنظیمات ربات Nexa Dev</b>
-<code>🏠 Nexa Dev > ⚙️ تنظیمات</code>
+    const text =
+`⚙️ <b>تنظیمات Nexa Dev</b>
+<code>🏠 Nexa Dev &gt; ⚙️ تنظیمات</code>
 ➖➖➖➖➖➖➖➖➖➖
-• اکانت گیت‌هاب هدف: <code>${DEFAULT_CONFIG.defaultOwner}</code>
-• حالت وب‌هوک: <b>Cloudflare Worker Event Handler</b>
-• نحوه ناوبری: <b>Single-Message In-Place Edit (حذف پیام‌های هرز)</b>
-• زبان رابط کاربری: <b>فارسی (پیش‌فرض)</b>`;
+• مالک GitHub پیش‌فرض: <code>${escapeHtml(DEFAULT_CONFIG.defaultOwner)}</code>
+• Runtime: <b>Cloudflare Worker</b>
+• ناوبری: <b>Single-message / editMessageText</b>
+• زبان رابط: <b>فارسی</b>
 
-    const inlineKeyboard = [
-      [
-        { text: '🔙 بازگشت به منوی اصلی', callback_data: 'menu:main' }
-      ]
-    ];
+مقادیر Secret از این رابط نمایش داده نمی‌شوند.`;
 
-    return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
+    return {
+      text,
+      reply_markup: { inline_keyboard: [[{ text: '🔙 بازگشت به منوی اصلی', callback_data: 'menu:main' }]] }
+    };
   }
 
-  /**
-   * Security & Tokens View
-   */
   getSecurityView() {
-    const sec = DEFAULT_CONFIG.securityStatus;
-    const text = 
+    const text =
 `🔐 <b>امنیت و دسترسی‌ها</b>
-<code>🏠 Nexa Dev > 🔐 امنیت</code>
+<code>🏠 Nexa Dev &gt; 🔐 امنیت</code>
 ➖➖➖➖➖➖➖➖➖➖
-• وضعیت توکن: <b>${sec.status}</b>
-• نوع دسترسی: <code>${sec.tokenType}</code>
-• کاربران مجاز: <code>${sec.allowedUsers.join(', ')}</code>
-• محدودیت نرخ (Rate Limit): <code>${sec.rateLimit}</code>
-• حفاظت در برابر پیام‌های تکراری و Spam: <b>فعال ✅</b>`;
+• Webhook secret: <b>اجباری در Worker</b>
+• Owner-only access: <b>اجباری با OWNER_TELEGRAM_ID</b>
+• Credentials: <b>خارج از مخزن و خارج از پیام‌های ربات</b>
+• Diagnostic ID endpoint: <b>غیرفعال</b>
 
-    const inlineKeyboard = [
-      [
-        { text: '🔙 بازگشت به منوی اصلی', callback_data: 'menu:main' }
-      ]
-    ];
+این صفحه وجود یا مقدار Secretهای runtime را افشا نمی‌کند.`;
 
-    return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
+    return {
+      text,
+      reply_markup: { inline_keyboard: [[{ text: '🔙 بازگشت به منوی اصلی', callback_data: 'menu:main' }]] }
+    };
   }
 
-  /**
-   * Route callback data to corresponding view
-   */
   async renderByCallback(callbackData) {
-    const [action, target, ...extra] = callbackData.split(':');
+    const [action, target, ...extra] = String(callbackData || '').split(':');
 
     switch (action) {
       case 'menu':
@@ -320,41 +303,24 @@ ${tools}`;
         if (target === 'settings') return this.getSettingsView();
         if (target === 'security') return this.getSecurityView();
         return this.getMainMenuView();
-
       case 'repo':
         return this.getRepoDetailView(target);
-
       case 'pr':
         return this.getPullRequestsView(target);
-
       case 'commits':
         return this.getCommitsView(target);
-
       case 'files':
         return this.getFilesView(target, extra.join(':'));
-
       case 'status':
         return this.getRepoStatusView(target);
-
       case 'tool':
         if (target === 'ping') {
           return {
-            text: `🏓 <b>Pong!</b>\nپاسخ سرور در <b>12ms</b> دریافت شد.\nاتصال تلگرام و ورکر پایدار است.`,
-            reply_markup: {
-              inline_keyboard: [[{ text: '🔙 بازگشت به ابزارها', callback_data: 'menu:tools' }]]
-            }
-          };
-        }
-        if (target === 'cache_clear') {
-          return {
-            text: `🧹 <b>حافظه موقت پاکسازی شد.</b>\nوضعیت ناوبری ریست شد.`,
-            reply_markup: {
-              inline_keyboard: [[{ text: '🔙 بازگشت به ابزارها', callback_data: 'menu:tools' }]]
-            }
+            text: '🏓 <b>Pong</b>\nمسیر داخلی ربات پاسخ داد. latency شبکه یا سلامت سرویس خارجی در این عملیات اندازه‌گیری نشده است.',
+            reply_markup: { inline_keyboard: [[{ text: '🔙 بازگشت به ابزارها', callback_data: 'menu:tools' }]] }
           };
         }
         return this.getToolsView();
-
       default:
         return this.getMainMenuView();
     }

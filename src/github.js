@@ -42,42 +42,69 @@ export class GitHubService {
     return `${this.baseUrl}/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(repo)}${suffix}`;
   }
 
-  async listRepositories() {
-    const data = await this.requestJson(
-      `${this.baseUrl}/user/repos?sort=updated&per_page=20&affiliation=owner,collaborator,organization_member`,
-      'GitHub repositories'
-    );
-
-    return data.map(r => ({
-      id: r.name,
-      name: r.name,
-      fullName: r.full_name,
-      title: `${r.name} ${r.private ? '🔒' : '🌐'}`,
-      private: !!r.private,
-      stars: r.stargazers_count ?? 0,
-      forks: r.forks_count ?? 0,
-      description: r.description || '',
-      defaultBranch: r.default_branch || 'main'
-    }));
+  repositoryLookupUrl(repoRef) {
+    const value = String(repoRef || '');
+    if (/^\d+$/.test(value)) {
+      return `${this.baseUrl}/repositories/${value}`;
+    }
+    return this.repoUrl(value);
   }
 
-  async getRepository(repo) {
-    const r = await this.requestJson(this.repoUrl(repo), 'GitHub repository');
+  repositoryApiBase(fullName) {
+    const parts = String(fullName || '').split('/').filter(Boolean);
+    if (parts.length !== 2) {
+      throw new Error('GitHub repository full_name is invalid');
+    }
+    return `${this.baseUrl}/repos/${parts.map(encodeURIComponent).join('/')}`;
+  }
+
+  async getRepositoryContext(repoRef) {
+    const raw = await this.requestJson(this.repositoryLookupUrl(repoRef), 'GitHub repository');
     return {
-      id: r.name,
+      raw,
+      apiBase: this.repositoryApiBase(raw.full_name)
+    };
+  }
+
+  mapRepository(r) {
+    return {
+      id: String(r.id ?? r.name),
       name: r.name,
       fullName: r.full_name,
       private: !!r.private,
       description: r.description || '',
       defaultBranch: r.default_branch || 'main',
       archived: !!r.archived,
-      htmlUrl: r.html_url || ''
+      htmlUrl: r.html_url || '',
+      stars: r.stargazers_count ?? 0,
+      forks: r.forks_count ?? 0
     };
   }
 
-  async listPullRequests(repo) {
+  async listRepositories() {
     const data = await this.requestJson(
-      this.repoUrl(repo, '/pulls?state=all&per_page=10'),
+      `${this.baseUrl}/user/repos?sort=updated&per_page=20&affiliation=owner,collaborator,organization_member`,
+      'GitHub repositories'
+    );
+
+    return data.map(r => {
+      const repo = this.mapRepository(r);
+      return {
+        ...repo,
+        title: `${repo.name} ${repo.private ? '🔒' : '🌐'}`
+      };
+    });
+  }
+
+  async getRepository(repoRef) {
+    const { raw } = await this.getRepositoryContext(repoRef);
+    return this.mapRepository(raw);
+  }
+
+  async listPullRequests(repoRef) {
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/pulls?state=all&per_page=10`,
       'GitHub pull requests'
     );
 
@@ -92,9 +119,10 @@ export class GitHubService {
     }));
   }
 
-  async listCommits(repo) {
+  async listCommits(repoRef) {
+    const { apiBase } = await this.getRepositoryContext(repoRef);
     const data = await this.requestJson(
-      this.repoUrl(repo, '/commits?per_page=5'),
+      `${apiBase}/commits?per_page=5`,
       'GitHub commits'
     );
 
@@ -106,11 +134,12 @@ export class GitHubService {
     }));
   }
 
-  async listFiles(repo, path = '') {
+  async listFiles(repoRef, path = '') {
+    const { apiBase } = await this.getRepositoryContext(repoRef);
     const suffix = path
       ? `/contents/${path.split('/').map(encodeURIComponent).join('/')}`
       : '/contents';
-    const data = await this.requestJson(this.repoUrl(repo, suffix), 'GitHub contents');
+    const data = await this.requestJson(`${apiBase}${suffix}`, 'GitHub contents');
 
     if (!Array.isArray(data)) {
       throw new Error('GitHub contents response is not a directory listing');
@@ -125,16 +154,58 @@ export class GitHubService {
     }));
   }
 
-  async getRepoStatus(repo) {
-    const [repository, runsData] = await Promise.all([
-      this.getRepository(repo),
-      this.requestJson(this.repoUrl(repo, '/actions/runs?per_page=3'), 'GitHub Actions runs')
-    ]);
+  async listTree(repoRef, sha) {
+    if (!/^[a-f0-9]{40}$/i.test(String(sha || ''))) {
+      throw new Error('Invalid Git tree SHA');
+    }
+
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/git/trees/${encodeURIComponent(sha)}`,
+      'GitHub tree'
+    );
+
+    return (data.tree || [])
+      .filter(item => item.type === 'tree' || item.type === 'blob')
+      .map(item => ({
+        name: item.path,
+        path: item.path,
+        type: item.type === 'tree' ? 'dir' : 'file',
+        size: item.size ?? 0,
+        sha: item.sha || ''
+      }));
+  }
+
+  async getBlob(repoRef, sha) {
+    if (!/^[a-f0-9]{40}$/i.test(String(sha || ''))) {
+      throw new Error('Invalid Git blob SHA');
+    }
+
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/git/blobs/${encodeURIComponent(sha)}`,
+      'GitHub blob'
+    );
+
+    return {
+      encoding: data.encoding || '',
+      size: data.size ?? 0,
+      content: data.content || ''
+    };
+  }
+
+  async getRepoStatus(repoRef) {
+    const { raw, apiBase } = await this.getRepositoryContext(repoRef);
+    const runsData = await this.requestJson(
+      `${apiBase}/actions/runs?per_page=3`,
+      'GitHub Actions runs'
+    );
 
     const runs = runsData.workflow_runs || [];
     return {
-      repo,
-      defaultBranch: repository.defaultBranch,
+      repo: String(repoRef),
+      repoName: raw.name,
+      defaultBranch: raw.default_branch || 'main',
       lastRuns: runs.map(r => ({
         name: r.name,
         status: r.status,

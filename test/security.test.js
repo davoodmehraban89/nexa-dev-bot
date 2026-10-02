@@ -81,21 +81,15 @@ test("unauthorized Telegram users receive no bot response", async () => {
   assert.equal(calls, 0);
 });
 
-test("temporary setup endpoint registers Telegram webhook to this worker", async () => {
+test("temporary setup endpoint is disabled after webhook registration", async () => {
   const req = new Request("https://nexa-dev-bot.example.workers.dev/telegram/setup", {
     method: "GET",
   });
 
-  let captured;
-  globalThis.fetch = async (url, init) => {
-    captured = {
-      url: String(url),
-      body: JSON.parse(init.body),
-    };
-    return new Response(JSON.stringify({ ok: true, result: true }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    throw new Error("setup endpoint must not call Telegram after registration");
   };
 
   const res = await worker.fetch(req, {
@@ -103,11 +97,6 @@ test("temporary setup endpoint registers Telegram webhook to this worker", async
     TELEGRAM_BOT_TOKEN: "token",
   });
 
-  assert.equal(res.status, 200);
-  assert.equal(captured.url, "https://api.telegram.org/bottoken/setWebhook");
-  assert.deepEqual(captured.body, {
-    url: "https://nexa-dev-bot.example.workers.dev/telegram/webhook",
-    secret_token: "secret",
-    allowed_updates: ["message"],
-  });
+  assert.equal(res.status, 404);
+  assert.equal(calls, 0);
 });

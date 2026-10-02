@@ -78,10 +78,8 @@ async function handleCommand(env, message) {
   const chatId = message.chat?.id;
   const command = (message.text || "").trim().split(/\s+/)[0].split("@")[0].toLowerCase();
 
-  if (!isOwner(env, message.from)) {
-    if (chatId) await sendMessage(env, chatId, "⛔️ دسترسی مجاز نیست.");
-    return;
-  }
+  // Personal bot: fail silently for every Telegram user except the owner.
+  if (!isOwner(env, message.from)) return;
 
   if (command === "/start") {
     await sendMessage(env, chatId, startMessage());
@@ -119,10 +117,10 @@ async function handleCommand(env, message) {
 
 async function handleTelegramWebhook(request, env) {
   const expected = env.TELEGRAM_WEBHOOK_SECRET;
-  if (expected) {
-    const actual = request.headers.get("X-Telegram-Bot-Api-Secret-Token");
-    if (actual !== expected) return text("Forbidden", 403);
-  }
+  if (!expected) return text("Webhook secret not configured", 503);
+
+  const actual = request.headers.get("X-Telegram-Bot-Api-Secret-Token");
+  if (actual !== expected) return text("Forbidden", 403);
 
   const update = await request.json();
   if (update.message?.text) {

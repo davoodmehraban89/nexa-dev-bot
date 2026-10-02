@@ -25,5 +25,20 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Verify test discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tests=(test/*.test.js)
+
+          if (( ${#tests[@]} == 0 )); then
+            echo "::error::No test/*.test.js files were discovered"
+            exit 1
+          fi
+
+          printf 'Discovered %d test files\n' "${#tests[@]}"
+          printf ' - %s\n' "${tests[@]}"
+
       - name: Run tests
         run: npm test

@@ -78,13 +78,6 @@ async function handleCommand(env, message) {
   const chatId = message.chat?.id;
   const command = (message.text || "").trim().split(/\s+/)[0].split("@")[0].toLowerCase();
 
-  if (command === "/diag") {
-    const senderId = message.from?.id;
-    const authState = isOwner(env, message.from) ? "authorized" : "unauthorized";
-    await sendMessage(env, chatId, `Telegram ID: <code>${senderId}</code>\nAuthorization: <b>${authState}</b>`);
-    return;
-  }
-
   // Personal bot: fail silently for every Telegram user except the owner.
   if (!isOwner(env, message.from)) return;
 

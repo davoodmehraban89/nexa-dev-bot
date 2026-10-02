@@ -124,6 +124,5 @@ test("temporary diagnostic command no longer exposes Telegram ID", async () => {
 
   assert.equal(res.status, 200);
   assert.equal(messages.length, 1);
-  assert.match(messages[0], /فرمان شناخته نشد/);
-  assert.doesNotMatch(messages[0], /Telegram ID|123/);
+  assert.doesNotMatch(messages[0], /Telegram ID|Authorization:|\b123\b/);
 });

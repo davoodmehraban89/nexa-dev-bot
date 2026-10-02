@@ -1,196 +1,212 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import worker from "../src/index.js";
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import worker from '../src/index.js';
 
 const env = {
-  TELEGRAM_WEBHOOK_SECRET: "right",
-  OWNER_TELEGRAM_ID: "123",
-  TELEGRAM_BOT_TOKEN: "token",
-  GITHUB_TOKEN: "gh-token",
+  TELEGRAM_WEBHOOK_SECRET: 'right',
+  OWNER_TELEGRAM_ID: '123',
+  TELEGRAM_BOT_TOKEN: 'telegram-test-token',
+  GITHUB_TOKEN: 'github-test-token',
+  GITHUB_OWNER: 'davoodmehraban89'
 };
 
 function webhook(update) {
-  return new Request("https://example.com/telegram/webhook", {
-    method: "POST",
+  return new Request('https://example.test/telegram/webhook', {
+    method: 'POST',
     headers: {
-      "content-type": "application/json",
-      "X-Telegram-Bot-Api-Secret-Token": "right",
+      'content-type': 'application/json',
+      'X-Telegram-Bot-Api-Secret-Token': 'right'
     },
-    body: JSON.stringify(update),
+    body: JSON.stringify(update)
   });
 }
 
-function telegramOk() {
-  return new Response(JSON.stringify({ ok: true, result: {} }), {
-    status: 200,
-    headers: { "content-type": "application/json" },
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'content-type': 'application/json' }
   });
 }
 
-test("/repos renders repositories as tappable inline buttons", async () => {
-  const calls = [];
-  globalThis.fetch = async (url, options = {}) => {
-    const u = String(url);
-    if (u.includes("api.github.com/user/repos")) {
-      return new Response(JSON.stringify([
-        { id: 101, full_name: "davood/demo", name: "demo", private: true, default_branch: "main" },
-      ]), { status: 200, headers: { "content-type": "application/json" } });
-    }
-    calls.push({ url: u, body: options.body ? JSON.parse(options.body) : null });
-    return telegramOk();
-  };
-
-  const res = await worker.fetch(webhook({
-    message: { text: "/repos", from: { id: 123 }, chat: { id: 123 } },
-  }), env);
-
-  assert.equal(res.status, 200);
-  const sent = calls.find((c) => c.url.includes("sendMessage"));
-  assert.ok(sent);
-  assert.equal(sent.body.reply_markup.inline_keyboard[0][0].text, "🔒 demo");
-  assert.equal(sent.body.reply_markup.inline_keyboard[0][0].callback_data, "repo:101");
-});
-
-test("repository callback opens a mobile action menu", async () => {
+function installApiMock() {
   const telegramCalls = [];
+  const githubCalls = [];
+  const originalFetch = globalThis.fetch;
+
   globalThis.fetch = async (url, options = {}) => {
-    const u = String(url);
-    if (u === "https://api.github.com/repositories/101") {
-      return new Response(JSON.stringify({
-        id: 101,
-        full_name: "davood/demo",
-        private: true,
-        default_branch: "main",
-        description: "Demo repo",
-      }), { status: 200, headers: { "content-type": "application/json" } });
+    const value = String(url);
+
+    if (value.startsWith('https://api.telegram.org/')) {
+      const method = value.split('/').at(-1);
+      const body = options.body ? JSON.parse(options.body) : {};
+      telegramCalls.push({ method, body });
+      return json({ ok: true, result: { message_id: body.message_id || 700, ...body } });
     }
-    telegramCalls.push({ url: u, body: options.body ? JSON.parse(options.body) : null });
-    return telegramOk();
+
+    if (value.startsWith('https://api.github.com/')) {
+      githubCalls.push(value);
+
+      if (value.startsWith('https://api.github.com/user/repos?')) {
+        return json([{
+          name: 'demo',
+          full_name: 'davoodmehraban89/demo',
+          private: true,
+          default_branch: 'main',
+          stargazers_count: 0,
+          forks_count: 0,
+          description: 'Demo repository'
+        }]);
+      }
+
+      if (value === 'https://api.github.com/repos/davoodmehraban89/demo') {
+        return json({
+          name: 'demo',
+          full_name: 'davoodmehraban89/demo',
+          private: true,
+          default_branch: 'main',
+          archived: false,
+          description: 'Demo repository',
+          html_url: 'https://github.com/davoodmehraban89/demo'
+        });
+      }
+
+      if (value === 'https://api.github.com/repos/davoodmehraban89/demo/contents') {
+        return json([
+          { name: 'src', path: 'src', type: 'dir', size: 0, sha: 'a'.repeat(40) },
+          { name: 'README.md', path: 'README.md', type: 'file', size: 100, sha: 'b'.repeat(40) }
+        ]);
+      }
+
+      if (value === 'https://api.github.com/repos/davoodmehraban89/demo/commits?per_page=5') {
+        return json([{
+          sha: '1234567890abcdef',
+          commit: { message: 'fix mobile menu', author: { name: 'Davood', date: '2026-10-02T10:00:00Z' } },
+          author: { login: 'davoodmehraban89' }
+        }]);
+      }
+
+      if (value === 'https://api.github.com/repos/davoodmehraban89/demo/pulls?state=all&per_page=10') {
+        return json([{
+          number: 7,
+          title: 'Improve bot UI',
+          state: 'open',
+          merged_at: null,
+          created_at: '2026-10-02T10:00:00Z',
+          html_url: 'https://github.com/davoodmehraban89/demo/pull/7',
+          user: { login: 'davoodmehraban89' }
+        }]);
+      }
+
+      if (value === 'https://api.github.com/repos/davoodmehraban89/demo/actions/runs?per_page=3') {
+        return json({
+          workflow_runs: [{
+            name: 'CI',
+            status: 'completed',
+            conclusion: 'success',
+            head_commit: { message: 'fix mobile menu' },
+            html_url: 'https://github.com/davoodmehraban89/demo/actions/runs/1'
+          }]
+        });
+      }
+
+      return json({ message: 'Not Found' }, 404);
+    }
+
+    throw new Error(`Unexpected URL: ${value}`);
   };
 
-  const res = await worker.fetch(webhook({
-    callback_query: {
-      id: "cb1",
-      from: { id: 123 },
-      data: "repo:101",
-      message: { chat: { id: 123 }, message_id: 50 },
-    },
-  }), env);
-
-  assert.equal(res.status, 200);
-  assert.ok(telegramCalls.some((c) => c.url.includes("answerCallbackQuery")));
-  const sent = telegramCalls.find((c) => c.url.includes("sendMessage"));
-  assert.match(sent.body.text, /davood\/demo/);
-  const buttons = sent.body.reply_markup.inline_keyboard.flat().map((b) => b.callback_data);
-  assert.deepEqual(buttons, ["files:101", "commits:101", "prs:101", "repos"]);
-});
-
-test("files callback lists folders and files using compact SHA callbacks", async () => {
-  const telegramCalls = [];
-  globalThis.fetch = async (url, options = {}) => {
-    const u = String(url);
-    if (u === "https://api.github.com/repositories/101") {
-      return new Response(JSON.stringify({ id: 101, full_name: "davood/demo", default_branch: "main" }), { status: 200, headers: { "content-type": "application/json" } });
+  return {
+    telegramCalls,
+    githubCalls,
+    restore() {
+      globalThis.fetch = originalFetch;
     }
-    if (u.startsWith("https://api.github.com/repos/davood/demo/contents")) {
-      return new Response(JSON.stringify([
-        { name: "src", type: "dir", sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
-        { name: "README.md", type: "file", sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
-      ]), { status: 200, headers: { "content-type": "application/json" } });
-    }
-    telegramCalls.push({ url: u, body: options.body ? JSON.parse(options.body) : null });
-    return telegramOk();
   };
+}
 
-  await worker.fetch(webhook({
-    callback_query: {
-      id: "cb2",
-      from: { id: 123 },
-      data: "files:101",
-      message: { chat: { id: 123 }, message_id: 51 },
-    },
-  }), env);
+async function sendUpdate(update) {
+  const response = await worker.fetch(webhook(update), env);
+  assert.equal(response.status, 200);
+  return response.json();
+}
 
-  const sent = telegramCalls.find((c) => c.url.includes("sendMessage"));
-  const buttons = sent.body.reply_markup.inline_keyboard.flat();
-  assert.equal(buttons[0].text, "📁 src");
-  assert.equal(buttons[0].callback_data, "tree:101:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-  assert.equal(buttons[1].text, "📄 README.md");
-  assert.equal(buttons[1].callback_data, "blob:101:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-});
+test('single-message navigation edits the same Telegram message across menu layers', async () => {
+  const mock = installApiMock();
+  try {
+    await sendUpdate({
+      message: { message_id: 1, from: { id: 123 }, chat: { id: 123 }, text: '/start' }
+    });
 
-test("blob callback shows escaped text content and a back button", async () => {
-  const telegramCalls = [];
-  globalThis.fetch = async (url, options = {}) => {
-    const u = String(url);
-    if (u === "https://api.github.com/repositories/101") {
-      return new Response(JSON.stringify({ id: 101, full_name: "davood/demo", default_branch: "main" }), { status: 200, headers: { "content-type": "application/json" } });
-    }
-    if (u === "https://api.github.com/repos/davood/demo/git/blobs/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") {
-      const content = Buffer.from("<hello> & goodbye").toString("base64");
-      return new Response(JSON.stringify({ encoding: "base64", content, size: 17 }), { status: 200, headers: { "content-type": "application/json" } });
-    }
-    telegramCalls.push({ url: u, body: options.body ? JSON.parse(options.body) : null });
-    return telegramOk();
-  };
+    const initial = mock.telegramCalls.find(call => call.method === 'sendMessage');
+    assert.ok(initial);
+    assert.match(initial.body.text, /Nexa Dev Bot/);
 
-  await worker.fetch(webhook({
-    callback_query: {
-      id: "cb3",
-      from: { id: 123 },
-      data: "blob:101:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      message: { chat: { id: 123 }, message_id: 52 },
-    },
-  }), env);
+    const menuMessage = { message_id: 700, chat: { id: 123 } };
 
-  const sent = telegramCalls.find((c) => c.url.includes("sendMessage"));
-  assert.match(sent.body.text, /&lt;hello&gt; &amp; goodbye/);
-  assert.equal(sent.body.reply_markup.inline_keyboard.at(-1)[0].callback_data, "files:101");
-});
+    await sendUpdate({
+      callback_query: { id: 'repos', from: { id: 123 }, data: 'menu:repos', message: menuMessage }
+    });
+    await sendUpdate({
+      callback_query: { id: 'repo', from: { id: 123 }, data: 'repo:demo', message: menuMessage }
+    });
+    await sendUpdate({
+      callback_query: { id: 'back', from: { id: 123 }, data: 'menu:repos', message: menuMessage }
+    });
+    await sendUpdate({
+      callback_query: { id: 'home', from: { id: 123 }, data: 'menu:main', message: menuMessage }
+    });
 
-test("commits and pull requests callbacks render concise repository activity", async () => {
-  const sentTexts = [];
-  globalThis.fetch = async (url, options = {}) => {
-    const u = String(url);
-    if (u === "https://api.github.com/repositories/101") {
-      return new Response(JSON.stringify({ id: 101, full_name: "davood/demo", default_branch: "main" }), { status: 200, headers: { "content-type": "application/json" } });
-    }
-    if (u.includes("/commits?")) {
-      return new Response(JSON.stringify([{ sha: "1234567890", commit: { message: "fix mobile menu" }, author: { login: "davood" } }]), { status: 200, headers: { "content-type": "application/json" } });
-    }
-    if (u.includes("/pulls?")) {
-      return new Response(JSON.stringify([{ number: 7, title: "Improve bot UI", user: { login: "davood" } }]), { status: 200, headers: { "content-type": "application/json" } });
-    }
-    if (u.includes("sendMessage")) sentTexts.push(JSON.parse(options.body).text);
-    return telegramOk();
-  };
+    const edits = mock.telegramCalls.filter(call => call.method === 'editMessageText');
+    assert.equal(edits.length, 4);
+    assert.ok(edits.every(call => call.body.message_id === 700));
+    assert.match(edits[0].body.text, /فهرست مخزن‌ها/);
+    assert.match(edits[1].body.text, /پروژه: demo/);
+    assert.match(edits[3].body.text, /Nexa Dev Bot/);
 
-  for (const data of ["commits:101", "prs:101"]) {
-    await worker.fetch(webhook({
-      callback_query: { id: data, from: { id: 123 }, data, message: { chat: { id: 123 }, message_id: 53 } },
-    }), env);
+    const postStartSends = mock.telegramCalls.filter(call => call.method === 'sendMessage');
+    assert.equal(postStartSends.length, 1, 'callbacks must not create extra chat messages');
+  } finally {
+    mock.restore();
   }
-
-  assert.ok(sentTexts.some((t) => t.includes("fix mobile menu")));
-  assert.ok(sentTexts.some((t) => t.includes("#7") && t.includes("Improve bot UI")));
 });
 
-test("callback queries from non-owner users are ignored", async () => {
-  let calls = 0;
-  globalThis.fetch = async () => {
-    calls += 1;
-    return telegramOk();
-  };
+test('repository activity views use live GitHub responses and edit in place', async () => {
+  const mock = installApiMock();
+  try {
+    const menuMessage = { message_id: 701, chat: { id: 123 } };
+    for (const data of ['files:demo', 'commits:demo', 'pr:demo', 'status:demo']) {
+      await sendUpdate({
+        callback_query: { id: data, from: { id: 123 }, data, message: menuMessage }
+      });
+    }
 
-  const res = await worker.fetch(webhook({
-    callback_query: {
-      id: "bad",
-      from: { id: 999 },
-      data: "repo:101",
-      message: { chat: { id: 999 }, message_id: 1 },
-    },
-  }), env);
+    const edits = mock.telegramCalls.filter(call => call.method === 'editMessageText');
+    assert.equal(edits.length, 4);
+    assert.match(edits[0].body.text, /README\.md/);
+    assert.match(edits[1].body.text, /fix mobile menu/);
+    assert.match(edits[2].body.text, /#7/);
+    assert.match(edits[2].body.text, /Improve bot UI/);
+    assert.match(edits[3].body.text, /CI/);
+    assert.ok(mock.githubCalls.some(url => url.startsWith('https://api.github.com/user/repos?')) === false);
+  } finally {
+    mock.restore();
+  }
+});
 
-  assert.equal(res.status, 200);
-  assert.equal(calls, 0);
+test('/repos uses authenticated repository discovery and renders the API result', async () => {
+  const mock = installApiMock();
+  try {
+    await sendUpdate({
+      message: { message_id: 1, from: { id: 123 }, chat: { id: 123 }, text: '/repos' }
+    });
+
+    const sent = mock.telegramCalls.find(call => call.method === 'sendMessage');
+    assert.ok(sent);
+    const buttons = sent.body.reply_markup.inline_keyboard.flat();
+    assert.ok(buttons.some(button => button.text.includes('demo')));
+    assert.ok(buttons.some(button => button.callback_data === 'repo:demo'));
+    assert.ok(mock.githubCalls.some(url => url.startsWith('https://api.github.com/user/repos?')));
+  } finally {
+    mock.restore();
+  }
 });

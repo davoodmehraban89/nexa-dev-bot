@@ -5,9 +5,30 @@ import worker from '../src/index.js';
 const runtime = {
   TELEGRAM_WEBHOOK_SECRET: 'unit-test-secret',
   OWNER_TELEGRAM_ID: '123',
-  TELEGRAM_BOT_TOKEN: '',
+  TELEGRAM_BOT_TOKEN: 'unit-test-token',
   GITHUB_TOKEN: 'unit-test-github'
 };
+
+const startUpdate = {
+  update_id: 101,
+  message: {
+    message_id: 202,
+    from: { id: 123 },
+    chat: { id: 123 },
+    text: '/start'
+  }
+};
+
+function webhookRequest(update = startUpdate) {
+  return new Request('https://example.test/telegram/webhook', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Telegram-Bot-Api-Secret-Token': 'unit-test-secret'
+    },
+    body: JSON.stringify(update)
+  });
+}
 
 describe('Nexa Dev Bot - Cloudflare Worker Entrypoint', () => {
   it('GET / returns online status without fabricated uptime', async () => {
@@ -30,28 +51,36 @@ describe('Nexa Dev Bot - Cloudflare Worker Entrypoint', () => {
   });
 
   it('authorized Telegram webhook processes /start', async () => {
-    const update = {
-      update_id: 101,
-      message: {
-        message_id: 202,
-        from: { id: 123 },
-        chat: { id: 123 },
-        text: '/start'
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      if (String(url).startsWith('https://api.telegram.org/')) {
+        return new Response(JSON.stringify({ ok: true, result: { message_id: 303 } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        });
       }
+      return originalFetch(url);
     };
-    const req = new Request('https://example.test/telegram/webhook', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Telegram-Bot-Api-Secret-Token': 'unit-test-secret'
-      },
-      body: JSON.stringify(update)
+
+    try {
+      const res = await worker.fetch(webhookRequest(), runtime);
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.ok, true);
+      assert.equal(body.command, 'start');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('webhook fails closed when TELEGRAM_BOT_TOKEN is missing', async () => {
+    const res = await worker.fetch(webhookRequest(), {
+      ...runtime,
+      TELEGRAM_BOT_TOKEN: ''
     });
-    const res = await worker.fetch(req, runtime);
-    assert.equal(res.status, 200);
-    const body = await res.json();
-    assert.equal(body.ok, true);
-    assert.equal(body.command, 'start');
+
+    assert.equal(res.status, 503);
+    assert.match(await res.text(), /Telegram bot token not configured/i);
   });
 
   it('arbitrary POST paths are not treated as webhooks', async () => {

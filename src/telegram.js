@@ -7,7 +7,7 @@ export class TelegramClient {
 
   async callApi(method, payload) {
     if (!this.botToken) {
-      return { ok: true, result: { message_id: 1001, ...payload } };
+      throw new Error('TELEGRAM_BOT_TOKEN is not configured');
     }
 
     let response;

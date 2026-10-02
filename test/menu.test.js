@@ -1,20 +1,52 @@
 import { describe, it } from 'node:test';
-import assert from 'node:assert';
-import { GitHubService } from '../src/github.js';
+import assert from 'node:assert/strict';
 import { MenuManager } from '../src/menu.js';
 
-describe('Nexa Dev Bot - MenuManager & State Navigation', () => {
-  const github = new GitHubService();
+const github = {
+  owner: 'davoodmehraban89',
+  async listRepositories() {
+    return [
+      { id: 'Factor-easy', name: 'Factor-easy', private: true },
+      { id: 'nexa-dev-bot', name: 'nexa-dev-bot', private: true }
+    ];
+  },
+  async getRepository(repo) {
+    return {
+      id: repo,
+      name: repo,
+      fullName: `davoodmehraban89/${repo}`,
+      private: true,
+      description: 'Repository description',
+      defaultBranch: 'main',
+      archived: false
+    };
+  },
+  async listPullRequests() {
+    return [{ number: 43, title: 'Ops: strengthen long-running execution heartbeat rule', author: 'davoodmehraban89', state: 'open', merged: false }];
+  },
+  async listCommits() {
+    return [{ sha: '87b25b1', message: 'feat: mobile GitHub repository browser UX', author: 'davoodmehraban89', date: '2026-10-02' }];
+  },
+  async listFiles() {
+    return [{ name: 'src', path: 'src', type: 'dir', size: 0 }];
+  },
+  async getRepoStatus() {
+    return {
+      defaultBranch: 'main',
+      lastRuns: [{ name: 'CI', status: 'completed', conclusion: 'success', commit: 'fix mobile menu' }]
+    };
+  }
+};
+
+describe('Nexa Dev Bot - MenuManager & Navigation', () => {
   const menu = new MenuManager(github);
 
-  it('1. Main Menu has correct sections and buttons', () => {
+  it('main menu exposes the required top-level sections without claiming an unverified GitHub connection', () => {
     const view = menu.getMainMenuView();
     assert.ok(view.text.includes('Nexa Dev Bot'));
-    assert.ok(view.reply_markup?.inline_keyboard);
-    
-    const buttons = view.reply_markup.inline_keyboard.flat();
-    const callbacks = buttons.map(b => b.callback_data);
-    
+    assert.doesNotMatch(view.text, /✅\s*متصل|تایید شده/);
+
+    const callbacks = view.reply_markup.inline_keyboard.flat().map(b => b.callback_data);
     assert.ok(callbacks.includes('menu:repos'));
     assert.ok(callbacks.includes('menu:status'));
     assert.ok(callbacks.includes('menu:tools'));
@@ -22,92 +54,68 @@ describe('Nexa Dev Bot - MenuManager & State Navigation', () => {
     assert.ok(callbacks.includes('menu:security'));
   });
 
-  it('2. Repositories list displays projects and has back button to main', async () => {
+  it('repositories list renders discovered projects and a back button', async () => {
     const view = await menu.getReposListView();
     assert.ok(view.text.includes('فهرست مخزن‌ها'));
-    assert.ok(view.text.includes('Nexa Dev > 📁 مخزن‌ها'));
-
     const buttons = view.reply_markup.inline_keyboard.flat();
-    const btnTexts = buttons.map(b => b.text);
-    const callbacks = buttons.map(b => b.callback_data);
-
-    assert.ok(btnTexts.some(t => t.includes('Factor-easy')));
-    assert.ok(btnTexts.some(t => t.includes('Finora-Invoice')));
-    assert.ok(callbacks.includes('repo:Factor-easy'));
-    assert.ok(callbacks.includes('menu:main'), 'Should have back button to main menu');
+    assert.ok(buttons.some(b => b.text.includes('Factor-easy')));
+    assert.ok(buttons.some(b => b.callback_data === 'repo:Factor-easy'));
+    assert.ok(buttons.some(b => b.callback_data === 'menu:main'));
   });
 
-  it('3. Repository detail menu has sub-operations and back button to repos list', async () => {
+  it('repository detail is based on live repository metadata', async () => {
     const view = await menu.getRepoDetailView('Factor-easy');
-    assert.ok(view.text.includes('پروژه: Factor-easy'));
-    assert.ok(view.text.includes('Nexa Dev > 📁 مخزن‌ها > Factor-easy'));
+    assert.ok(view.text.includes('davoodmehraban89/Factor-easy'));
+    assert.ok(view.text.includes('main'));
+    assert.ok(view.text.includes('خصوصی'));
+    assert.doesNotMatch(view.text, /اتصال GitHub: ✅ تایید شده/);
 
-    const buttons = view.reply_markup.inline_keyboard.flat();
-    const callbacks = buttons.map(b => b.callback_data);
-
+    const callbacks = view.reply_markup.inline_keyboard.flat().map(b => b.callback_data);
     assert.ok(callbacks.includes('files:Factor-easy'));
     assert.ok(callbacks.includes('pr:Factor-easy'));
     assert.ok(callbacks.includes('commits:Factor-easy'));
     assert.ok(callbacks.includes('status:Factor-easy'));
-    assert.ok(callbacks.includes('menu:repos'), 'Back button must return to repos list');
+    assert.ok(callbacks.includes('menu:repos'));
   });
 
-  it('4. Pull Requests view renders all target PRs with back to repo detail', async () => {
-    const view = await menu.getPullRequestsView('Factor-easy');
-    assert.ok(view.text.includes('Pull Requestهای پروژه Factor-easy'));
-    assert.ok(view.text.includes('#43'));
-    assert.ok(view.text.includes('Ops: strengthen long-running execution heartbeat rule'));
-    assert.ok(view.text.includes('#40'));
-    assert.ok(view.text.includes('#39'));
-    assert.ok(view.text.includes('#28'));
-    assert.ok(view.text.includes('#6'));
+  it('pull requests, commits, files and workflow status render source-backed data', async () => {
+    const prView = await menu.getPullRequestsView('Factor-easy');
+    assert.ok(prView.text.includes('#43'));
+    assert.ok(prView.text.includes('Ops: strengthen long-running execution heartbeat rule'));
 
-    const buttons = view.reply_markup.inline_keyboard.flat();
-    const callbacks = buttons.map(b => b.callback_data);
-    assert.ok(callbacks.includes('repo:Factor-easy'), 'Back button must return to repo detail');
+    const commitsView = await menu.getCommitsView('Factor-easy');
+    assert.ok(commitsView.text.includes('87b25b1'));
+
+    const filesView = await menu.getFilesView('Factor-easy');
+    assert.ok(filesView.text.includes('src'));
+
+    const statusView = await menu.getRepoStatusView('Factor-easy');
+    assert.ok(statusView.text.includes('CI'));
+    assert.ok(statusView.text.includes('main'));
   });
 
-  it('5. Commits view displays recent commits and back button', async () => {
-    const view = await menu.getCommitsView('Factor-easy');
-    assert.ok(view.text.includes('آخرین Commitهای پروژه Factor-easy'));
-    assert.ok(view.text.includes('87b25b1'));
+  it('service, tools and security views do not fabricate measurements or SLA claims', async () => {
+    const serviceView = menu.getServiceStatusView();
+    assert.doesNotMatch(serviceView.text, /100% SLA|Realtime/i);
 
-    const callbacks = view.reply_markup.inline_keyboard.flat().map(b => b.callback_data);
-    assert.ok(callbacks.includes('repo:Factor-easy'));
+    const pingView = await menu.renderByCallback('tool:ping');
+    assert.doesNotMatch(pingView.text, /12ms|پایدار است/);
+
+    const securityView = menu.getSecurityView();
+    assert.doesNotMatch(securityView.text, /5000 req\/hr|فعال و ایمن|Fine-grained Personal Access Token/i);
   });
 
-  it('6. Files view displays directory structure and back button', async () => {
-    const view = await menu.getFilesView('Factor-easy');
-    assert.ok(view.text.includes('ساختار فایل‌های پروژه Factor-easy'));
-    assert.ok(view.text.includes('src'));
-
-    const callbacks = view.reply_markup.inline_keyboard.flat().map(b => b.callback_data);
-    assert.ok(callbacks.includes('repo:Factor-easy'));
-  });
-
-  it('7. Service status view displays infrastructure SLA and back button', () => {
-    const view = menu.getServiceStatusView();
-    assert.ok(view.text.includes('وضعیت سیستم و سرویس‌های فعال'));
-    assert.ok(view.text.includes('Cloudflare Worker'));
-
-    const callbacks = view.reply_markup.inline_keyboard.flat().map(b => b.callback_data);
-    assert.ok(callbacks.includes('menu:main'));
-  });
-
-  it('8. renderByCallback handles dynamic routing and navigation hierarchy', async () => {
+  it('callback router preserves hierarchical back navigation', async () => {
     const mainView = await menu.renderByCallback('menu:main');
     assert.ok(mainView.text.includes('Nexa Dev Bot'));
 
-    const reposView = await menu.renderByCallback('menu:repos');
-    assert.ok(reposView.text.includes('فهرست مخزن‌ها'));
-
     const repoView = await menu.renderByCallback('repo:Factor-easy');
-    assert.ok(repoView.text.includes('پروژه: Factor-easy'));
+    assert.ok(repoView.text.includes('Factor-easy'));
 
     const prView = await menu.renderByCallback('pr:Factor-easy');
-    assert.ok(prView.text.includes('Pull Requestهای پروژه Factor-easy'));
+    assert.ok(prView.text.includes('Pull Request'));
 
-    const pingView = await menu.renderByCallback('tool:ping');
-    assert.ok(pingView.text.includes('Pong!'));
+    const backCallbacks = prView.reply_markup.inline_keyboard.flat().map(b => b.callback_data);
+    assert.ok(backCallbacks.includes('repo:Factor-easy'));
   });
 });

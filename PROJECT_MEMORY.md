@@ -78,30 +78,32 @@ GitHub Actions deployment secrets:
 - Post-merge `main` CI run `37056086860` = 29/29 pass.
 - The prior GitHub Actions Node-20-runtime deprecation warning is absent from the verified PR and post-merge runs.
 
-## Production Deploy Automation — Current Release Blocker 2026-10-02
-- Real Telegram screenshot showed production is stale/unresponsive relative to current `main`: old repository buttons are visible and repeated `/start` commands received no new response.
+## Production Deploy Automation — Verified 2026-10-02
+- Real Telegram screenshot first exposed a stale/unresponsive production Worker relative to current source.
 - Root cause in repository: CI had no Cloudflare deploy step, so green/merged `main` did not guarantee Worker deployment.
 - PR `#10` added `.github/workflows/deploy.yml` and was fast-forwarded to `main` at commit `c86b86ec8f5678b9223b7bcb6a73e0377116e670`.
 - PR CI run `37057306685` passed.
 - Post-merge `main` CI run `37057386587` passed.
-- Deployment workflow run `37057406559` started correctly but failed during credential preflight before any deploy.
-- Exact blocker from verified job log: GitHub repository secret `CLOUDFLARE_API_TOKEN` is missing/empty. `CLOUDFLARE_ACCOUNT_ID` also appeared empty in the workflow environment and must be configured before rerun.
-- No Cloudflare deploy was attempted after the preflight failure; production therefore remains NOT VERIFIED and should be treated as stale until the deploy run succeeds.
+- Initial deployment workflow run `37057406559` failed before deploy because GitHub Actions Cloudflare credentials were absent.
+- Repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` were then configured by the owner.
+- Failed jobs for workflow run `37057406559` were re-run; credential preflight passed and the Cloudflare deploy step completed successfully.
+- Cloudflare API verification after the successful deploy shows latest deployment `b2f47b95-277f-423b-aab5-1d7020e60501`, created `2026-10-02T20:45:26.729642Z`.
+- Latest active Worker version is `51`, version id `dc70c38f-d84e-40f5-8db1-8ae909dae6d7`, receiving 100% of traffic.
+- Worker subdomain remains enabled. Direct public HTTP probing of the workers.dev hostname from the assistant web environment is unavailable, so Telegram/mobile smoke remains the final runtime acceptance gate.
 
 ## Current Work / Last Checkpoint
 WHERE WE ARE:
 - Source, tests, security gates, one-message navigation, deep file browsing and CI are green on `main`.
-- Automated production deployment path now exists on `main`.
-- The deployment is blocked only by missing GitHub Actions Cloudflare credentials.
-- Real Telegram evidence proves the production bot has not yet reached the current implementation.
+- Production deploy automation exists and has successfully deployed through GitHub Actions using repository secrets.
+- Cloudflare confirms Worker version 51 is active at 100% traffic.
+- Real Telegram mobile smoke after this successful deployment is still NOT VERIFIED.
 
 WHAT REMAINS:
-1. Add GitHub repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
-2. Re-run failed deploy workflow run `37057406559` (or trigger the next successful `main` CI) and require a green deploy.
-3. Verify live Worker root/health/status reports current version/source behavior.
-4. Repeat owner-device Telegram smoke: `/start → Repositories → repository → Files → folder → file preview → root → project → Commits/PR/Status → Back → Main`.
-5. Confirm callbacks create no extra bot messages in the real Telegram client.
-6. Confirm a non-owner Telegram account receives no private bot response.
+1. Repeat owner-device Telegram smoke on the freshly deployed Worker: `/start → Repositories → repository → Files → folder → file preview → root → project → Commits/PR/Status → Back → Main`.
+2. Confirm callbacks edit the same Telegram message and create no extra bot-message flood.
+3. Confirm `/start` returns the new main menu instead of the stale repository-button view.
+4. Confirm a non-owner Telegram account receives no private bot response.
+5. If desired later, tighten the Cloudflare CI token scope from the official `Edit Cloudflare Workers` template to a least-privilege Worker-scoped token.
 
 ## Acceptance Rules
 A checkpoint is complete only after:
@@ -115,8 +117,8 @@ Minimum automated gates:
 - Production deploy workflow green before live behavior is called verified.
 
 ## Known Gaps / Technical Debt
-- Live Cloudflare deployment is currently blocked by missing GitHub Actions Cloudflare secrets.
 - Real mobile Telegram smoke must be repeated after successful production deploy.
+- Direct workers.dev health probing is unavailable from the current assistant web environment; Cloudflare control-plane deployment state is verified instead.
 - Persistent navigation/session storage is not required for the current stateless callback flow.
 
 ## Project Boundaries
@@ -144,4 +146,4 @@ Minimum automated gates:
 - `wrangler.jsonc`
 
 ## Next Executable Action
-Configure `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub repository Actions secrets, then rerun deploy run `37057406559` and verify the live Telegram bot again.
+Run `/start` on the owner Telegram account and complete the mobile navigation smoke against the freshly deployed Worker version 51.

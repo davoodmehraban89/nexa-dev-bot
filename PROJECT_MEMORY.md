@@ -23,15 +23,20 @@
 - `src/menu.js` — hierarchical inline menus, one-message editing, repository/file browser.
 - `src/config.js` — non-secret static config.
 - `.github/workflows/ci.yml` — Node 22 project test runtime, official GitHub Actions on Node-24-based v7 releases, non-zero test-discovery guard.
+- `.github/workflows/deploy.yml` — production Cloudflare Worker deploy after successful CI on `main`; deploys the exact verified commit.
 - `test/` — security, worker, navigation, menu, GitHub and Telegram regression coverage.
 
 ## Runtime Configuration
-Required names:
+Worker runtime names:
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_WEBHOOK_SECRET`
 - `OWNER_TELEGRAM_ID`
 - `GITHUB_TOKEN`
 - optional `GITHUB_OWNER`
+
+GitHub Actions deployment secrets:
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
 
 ## Verified Security / Data Trust
 - Webhook only at `POST /telegram/webhook`.
@@ -73,19 +78,30 @@ Required names:
 - Post-merge `main` CI run `37056086860` = 29/29 pass.
 - The prior GitHub Actions Node-20-runtime deprecation warning is absent from the verified PR and post-merge runs.
 
+## Production Deploy Automation — Current Release Blocker 2026-10-02
+- Real Telegram screenshot showed production is stale/unresponsive relative to current `main`: old repository buttons are visible and repeated `/start` commands received no new response.
+- Root cause in repository: CI had no Cloudflare deploy step, so green/merged `main` did not guarantee Worker deployment.
+- PR `#10` added `.github/workflows/deploy.yml` and was fast-forwarded to `main` at commit `c86b86ec8f5678b9223b7bcb6a73e0377116e670`.
+- PR CI run `37057306685` passed.
+- Post-merge `main` CI run `37057386587` passed.
+- Deployment workflow run `37057406559` started correctly but failed during credential preflight before any deploy.
+- Exact blocker from verified job log: GitHub repository secret `CLOUDFLARE_API_TOKEN` is missing/empty. `CLOUDFLARE_ACCOUNT_ID` also appeared empty in the workflow environment and must be configured before rerun.
+- No Cloudflare deploy was attempted after the preflight failure; production therefore remains NOT VERIFIED and should be treated as stale until the deploy run succeeds.
+
 ## Current Work / Last Checkpoint
 WHERE WE ARE:
-- Security, data trust, one-message navigation, deep repository file browsing and CI runtime modernization are implemented and automated-verified on `main`.
-- Last verified implementation/docs head before this memory-only commit: `7574fb1a373c3ab7b81f3f6857452059287cd44e`.
-- Live Cloudflare verification is still NOT VERIFIED: both the execution environment and the web-access path failed to reach the `workers.dev` hostname, so no runtime claim is made.
-- Real Telegram mobile smoke is NOT VERIFIED.
+- Source, tests, security gates, one-message navigation, deep file browsing and CI are green on `main`.
+- Automated production deployment path now exists on `main`.
+- The deployment is blocked only by missing GitHub Actions Cloudflare credentials.
+- Real Telegram evidence proves the production bot has not yet reached the current implementation.
 
 WHAT REMAINS:
-1. Verify CI for this memory-only commit on `main`.
-2. Verify live Cloudflare root/health/status and confirm `/telegram/setup` is unavailable from an environment that can reach the Worker hostname.
-3. Owner-device Telegram smoke: `/start → Repositories → repository → Files → folder → file preview → root → project → Commits/PR/Status → Back → Main`.
-4. Confirm callbacks create no extra bot messages in the real Telegram client.
-5. Confirm a non-owner Telegram account receives no private bot response.
+1. Add GitHub repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+2. Re-run failed deploy workflow run `37057406559` (or trigger the next successful `main` CI) and require a green deploy.
+3. Verify live Worker root/health/status reports current version/source behavior.
+4. Repeat owner-device Telegram smoke: `/start → Repositories → repository → Files → folder → file preview → root → project → Commits/PR/Status → Back → Main`.
+5. Confirm callbacks create no extra bot messages in the real Telegram client.
+6. Confirm a non-owner Telegram account receives no private bot response.
 
 ## Acceptance Rules
 A checkpoint is complete only after:
@@ -96,10 +112,11 @@ Minimum automated gates:
 - Navigation/bot/menu/index tests green.
 - GitHub fail-closed/data-trust tests green.
 - Telegram missing-token/API-error tests green.
+- Production deploy workflow green before live behavior is called verified.
 
 ## Known Gaps / Technical Debt
-- Live Cloudflare deployment content is not verified from this environment.
-- Real mobile Telegram smoke is not verified yet.
+- Live Cloudflare deployment is currently blocked by missing GitHub Actions Cloudflare secrets.
+- Real mobile Telegram smoke must be repeated after successful production deploy.
 - Persistent navigation/session storage is not required for the current stateless callback flow.
 
 ## Project Boundaries
@@ -123,7 +140,8 @@ Minimum automated gates:
 - `test/github.test.js`
 - `test/telegram.test.js`
 - `.github/workflows/ci.yml`
+- `.github/workflows/deploy.yml`
 - `wrangler.jsonc`
 
 ## Next Executable Action
-Verify CI for this memory-only commit. After that, the remaining release gate requires real runtime/mobile evidence rather than further repository assumptions.
+Configure `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub repository Actions secrets, then rerun deploy run `37057406559` and verify the live Telegram bot again.

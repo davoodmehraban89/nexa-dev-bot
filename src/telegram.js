@@ -2,7 +2,7 @@ export class TelegramClient {
   constructor(botToken, options = {}) {
     this.botToken = botToken;
     this.baseUrl = options.baseUrl || `https://api.telegram.org/bot${botToken}`;
-    this.fetchFn = options.fetch || fetch;
+    this.fetchFn = options.fetch || ((...args) => fetch(...args));
   }
 
   async callApi(method, payload) {

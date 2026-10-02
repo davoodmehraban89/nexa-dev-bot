@@ -15,6 +15,15 @@ function isOwnerUpdate(update, env) {
   return senderId !== null && String(senderId) === String(env.OWNER_TELEGRAM_ID);
 }
 
+function safeErrorMessage(error, env = {}) {
+  let message = String(error?.message || 'Unknown error');
+  for (const secret of [env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_WEBHOOK_SECRET, env.GITHUB_TOKEN]) {
+    const value = String(secret || '');
+    if (value) message = message.split(value).join('[REDACTED]');
+  }
+  return message;
+}
+
 /**
  * Cloudflare Worker entrypoint.
  * Security invariants:
@@ -74,7 +83,9 @@ export default {
         const result = await bot.handleUpdate(update);
         return jsonResponse(result);
       } catch (err) {
-        return jsonResponse({ ok: false, error: err.message }, 400);
+        const safeError = safeErrorMessage(err, env);
+        console.error('telegram_webhook_error', safeError);
+        return jsonResponse({ ok: false, error: 'Telegram webhook processing failed' }, 400);
       }
     }
 

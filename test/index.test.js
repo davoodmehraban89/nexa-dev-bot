@@ -91,4 +91,36 @@ describe('Nexa Dev Bot - Cloudflare Worker Entrypoint', () => {
     }), runtime);
     assert.equal(res.status, 404);
   });
+
+  it('logs Telegram webhook processing failures without exposing the bot token', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalError = console.error;
+    const logs = [];
+    const secretToken = 'telegram-secret-token-for-test';
+
+    globalThis.fetch = async (url) => {
+      if (String(url).startsWith('https://api.telegram.org/')) {
+        return new Response(JSON.stringify({ ok: false, description: 'Unauthorized' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' }
+        });
+      }
+      return originalFetch(url);
+    };
+    console.error = (...args) => logs.push(args.map(String).join(' '));
+
+    try {
+      const res = await worker.fetch(webhookRequest(), {
+        ...runtime,
+        TELEGRAM_BOT_TOKEN: secretToken
+      });
+      assert.equal(res.status, 400);
+      assert.ok(logs.some(line => /telegram_webhook_error/i.test(line)));
+      assert.ok(logs.some(line => /401|Unauthorized/i.test(line)));
+      assert.ok(logs.every(line => !line.includes(secretToken)));
+    } finally {
+      globalThis.fetch = originalFetch;
+      console.error = originalError;
+    }
+  });
 });

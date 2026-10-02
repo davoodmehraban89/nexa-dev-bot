@@ -7,203 +7,141 @@ export class GitHubService {
     this.baseUrl = 'https://api.github.com';
   }
 
-  getHeaders() {
-    const headers = {
-      'User-Agent': 'Nexa-Dev-Bot-v1.1',
-      'Accept': 'application/vnd.github.v3+json'
-    };
-    if (this.token) {
-      headers['Authorization'] = `token ${this.token}`;
+  requireToken() {
+    if (!this.token) {
+      throw new Error('GITHUB_TOKEN is not configured');
     }
-    return headers;
+  }
+
+  getHeaders() {
+    this.requireToken();
+    return {
+      'User-Agent': 'Nexa-Dev-Bot-v1.1',
+      'Accept': 'application/vnd.github+json',
+      'Authorization': `Bearer ${this.token}`,
+      'X-GitHub-Api-Version': '2022-11-28'
+    };
+  }
+
+  async requestJson(url, label) {
+    const res = await fetch(url, { headers: this.getHeaders() });
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const body = await res.json();
+        detail = body?.message ? ` ${body.message}` : '';
+      } catch {
+        detail = '';
+      }
+      throw new Error(`${label} failed: ${res.status}${detail}`);
+    }
+    return res.json();
+  }
+
+  repoUrl(repo, suffix = '') {
+    return `${this.baseUrl}/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(repo)}${suffix}`;
   }
 
   async listRepositories() {
-    if (this.token) {
-      try {
-        const res = await fetch(`${this.baseUrl}/users/${this.owner}/repos?sort=updated&per_page=10`, {
-          headers: this.getHeaders()
-        });
-        if (res.ok) {
-          const data = await res.json();
-          return data.map(r => ({
-            id: r.name,
-            name: r.name,
-            title: `${r.name} ${r.private ? '🔒' : '🌐'}`,
-            stars: r.stargazers_count,
-            forks: r.forks_count,
-            description: r.description || ''
-          }));
-        }
-      } catch (err) {
-        // Fall back to default repo registry
-      }
-    }
-    return DEFAULT_CONFIG.defaultRepos;
+    const data = await this.requestJson(
+      `${this.baseUrl}/user/repos?sort=updated&per_page=20&affiliation=owner,collaborator,organization_member`,
+      'GitHub repositories'
+    );
+
+    return data.map(r => ({
+      id: r.name,
+      name: r.name,
+      fullName: r.full_name,
+      title: `${r.name} ${r.private ? '🔒' : '🌐'}`,
+      private: !!r.private,
+      stars: r.stargazers_count ?? 0,
+      forks: r.forks_count ?? 0,
+      description: r.description || '',
+      defaultBranch: r.default_branch || 'main'
+    }));
+  }
+
+  async getRepository(repo) {
+    const r = await this.requestJson(this.repoUrl(repo), 'GitHub repository');
+    return {
+      id: r.name,
+      name: r.name,
+      fullName: r.full_name,
+      private: !!r.private,
+      description: r.description || '',
+      defaultBranch: r.default_branch || 'main',
+      archived: !!r.archived,
+      htmlUrl: r.html_url || ''
+    };
   }
 
   async listPullRequests(repo) {
-    if (this.token) {
-      try {
-        const res = await fetch(`${this.baseUrl}/repos/${this.owner}/${repo}/pulls?state=all&per_page=10`, {
-          headers: this.getHeaders()
-        });
-        if (res.ok) {
-          const data = await res.json();
-          return data.map(pr => ({
-            number: pr.number,
-            title: pr.title,
-            author: pr.user?.login || 'unknown',
-            state: pr.state,
-            merged: !!pr.merged_at,
-            createdAt: pr.created_at,
-            url: pr.html_url
-          }));
-        }
-      } catch (err) {
-        // Fall back to known PRs
-      }
-    }
+    const data = await this.requestJson(
+      this.repoUrl(repo, '/pulls?state=all&per_page=10'),
+      'GitHub pull requests'
+    );
 
-    // Default verified PR mock data matching user tests
-    if (repo.toLowerCase() === 'factor-easy') {
-      return [
-        {
-          number: 43,
-          title: 'Ops: strengthen long-running execution heartbeat rule',
-          author: 'davoodmehraban89',
-          state: 'open',
-          merged: false
-        },
-        {
-          number: 40,
-          title: 'UI: structurally bind each scrollbar to its visual layer',
-          author: 'davoodmehraban89',
-          state: 'open',
-          merged: false
-        },
-        {
-          number: 39,
-          title: 'UI: correct native scrollbar side in mobile RTL views',
-          author: 'davoodmehraban89',
-          state: 'closed',
-          merged: true
-        },
-        {
-          number: 28,
-          title: 'Docs: record verified Wave 4b gates',
-          author: 'davoodmehraban89',
-          state: 'closed',
-          merged: true
-        },
-        {
-          number: 6,
-          title: 'Phase 3 recovery & persistent state management',
-          author: 'davoodmehraban89',
-          state: 'closed',
-          merged: true
-        }
-      ];
-    }
-
-    return [
-      { number: 1, title: 'Initial architecture & bootstrap', author: this.owner, state: 'closed', merged: true },
-      { number: 2, title: 'CI/CD pipeline and automated tests', author: this.owner, state: 'open', merged: false }
-    ];
+    return data.map(pr => ({
+      number: pr.number,
+      title: pr.title,
+      author: pr.user?.login || 'unknown',
+      state: pr.state,
+      merged: !!pr.merged_at,
+      createdAt: pr.created_at,
+      url: pr.html_url
+    }));
   }
 
   async listCommits(repo) {
-    if (this.token) {
-      try {
-        const res = await fetch(`${this.baseUrl}/repos/${this.owner}/${repo}/commits?per_page=5`, {
-          headers: this.getHeaders()
-        });
-        if (res.ok) {
-          const data = await res.json();
-          return data.map(c => ({
-            sha: c.sha.slice(0, 7),
-            message: c.commit.message.split('\n')[0],
-            author: c.commit.author?.name || c.author?.login || 'Unknown',
-            date: c.commit.author?.date ? c.commit.author.date.slice(0, 10) : ''
-          }));
-        }
-      } catch (err) {
-        // Fall back to sample commits
-      }
-    }
+    const data = await this.requestJson(
+      this.repoUrl(repo, '/commits?per_page=5'),
+      'GitHub commits'
+    );
 
-    return [
-      { sha: '87b25b1', message: 'feat: mobile GitHub repository browser UX', author: this.owner, date: '2026-10-02' },
-      { sha: 'b8689f1', message: 'fix: enable Telegram callback updates & router', author: this.owner, date: '2026-10-02' },
-      { sha: '0644e5e', message: 'cleanup: remove temporary /diag command', author: this.owner, date: '2026-10-02' },
-      { sha: 'dd2da6d', message: 'test: cover automatic Telegram webhook setup', author: this.owner, date: '2026-10-02' }
-    ];
+    return data.map(c => ({
+      sha: c.sha.slice(0, 7),
+      message: String(c.commit?.message || '').split('\n')[0],
+      author: c.author?.login || c.commit?.author?.name || 'Unknown',
+      date: c.commit?.author?.date ? c.commit.author.date.slice(0, 10) : ''
+    }));
   }
 
   async listFiles(repo, path = '') {
-    if (this.token) {
-      try {
-        const endpoint = path ? `${this.baseUrl}/repos/${this.owner}/${repo}/contents/${path}` : `${this.baseUrl}/repos/${this.owner}/${repo}/contents`;
-        const res = await fetch(endpoint, {
-          headers: this.getHeaders()
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data)) {
-            return data.map(item => ({
-              name: item.name,
-              path: item.path,
-              type: item.type === 'dir' ? 'dir' : 'file',
-              size: item.size
-            }));
-          }
-        }
-      } catch (err) {
-        // Fall back
-      }
+    const suffix = path
+      ? `/contents/${path.split('/').map(encodeURIComponent).join('/')}`
+      : '/contents';
+    const data = await this.requestJson(this.repoUrl(repo, suffix), 'GitHub contents');
+
+    if (!Array.isArray(data)) {
+      throw new Error('GitHub contents response is not a directory listing');
     }
 
-    return [
-      { name: 'src', path: 'src', type: 'dir', size: 0 },
-      { name: 'tests', path: 'tests', type: 'dir', size: 0 },
-      { name: 'package.json', path: 'package.json', type: 'file', size: 450 },
-      { name: 'wrangler.toml', path: 'wrangler.toml', type: 'file', size: 280 },
-      { name: 'README.md', path: 'README.md', type: 'file', size: 1240 }
-    ];
+    return data.map(item => ({
+      name: item.name,
+      path: item.path,
+      type: item.type === 'dir' ? 'dir' : 'file',
+      size: item.size ?? 0,
+      sha: item.sha || ''
+    }));
   }
 
   async getRepoStatus(repo) {
-    if (this.token) {
-      try {
-        const res = await fetch(`${this.baseUrl}/repos/${this.owner}/${repo}/actions/runs?per_page=3`, {
-          headers: this.getHeaders()
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const runs = data.workflow_runs || [];
-          return {
-            repo,
-            defaultBranch: 'main',
-            lastRuns: runs.map(r => ({
-              name: r.name,
-              status: r.status,
-              conclusion: r.conclusion,
-              commit: r.head_commit?.message?.slice(0, 40) || ''
-            }))
-          };
-        }
-      } catch (err) {
-        // Fall back
-      }
-    }
+    const [repository, runsData] = await Promise.all([
+      this.getRepository(repo),
+      this.requestJson(this.repoUrl(repo, '/actions/runs?per_page=3'), 'GitHub Actions runs')
+    ]);
 
+    const runs = runsData.workflow_runs || [];
     return {
       repo,
-      defaultBranch: 'main',
-      lastRuns: [
-        { name: 'CI Workflow', status: 'completed', conclusion: 'success', commit: 'UI: structurally bind scrollbar' },
-        { name: 'Security Checks', status: 'completed', conclusion: 'success', commit: 'Docs: record verified Wave 4b' }
-      ]
+      defaultBranch: repository.defaultBranch,
+      lastRuns: runs.map(r => ({
+        name: r.name,
+        status: r.status,
+        conclusion: r.conclusion,
+        commit: r.head_commit?.message?.slice(0, 80) || '',
+        url: r.html_url || ''
+      }))
     };
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "nexa-dev-bot",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Nexa Dev Bot - Advanced Telegram DevOps & GitHub Navigator",
   "main": "src/index.js",
   "type": "module",

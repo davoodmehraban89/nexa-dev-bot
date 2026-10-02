@@ -65,6 +65,40 @@ describe('Nexa Dev Bot - Webhook Dispatcher & In-Place Editing', () => {
     assert.ok(sentMessages[0].replyMarkup.inline_keyboard);
   });
 
+  it('/repos is dispatched through the plugin router', async () => {
+    const sentMessages = [];
+    const bot = makeBot();
+    const routedView = {
+      text: 'routed repositories',
+      reply_markup: { inline_keyboard: [] }
+    };
+    let dispatchCount = 0;
+
+    bot.menu.getReposListView = async () => {
+      throw new Error('direct repository path must not be used');
+    };
+    bot.router.dispatchCommand = async (command, context) => {
+      dispatchCount += 1;
+      assert.equal(command, '/repos');
+      assert.equal(context.isOwner, true);
+      return routedView;
+    };
+    bot.telegram.sendMessage = async (chatId, text, replyMarkup) => {
+      sentMessages.push({ chatId, text, replyMarkup });
+      return { ok: true };
+    };
+
+    const res = await bot.handleUpdate({
+      message: { message_id: 101, chat: { id: 123456 }, text: '/repos' }
+    });
+
+    assert.equal(res.ok, true);
+    assert.equal(res.command, 'repos');
+    assert.equal(dispatchCount, 1);
+    assert.equal(sentMessages.length, 1);
+    assert.equal(sentMessages[0].text, 'routed repositories');
+  });
+
   it('callback answers Telegram and edits the existing message in place', async () => {
     const answeredCallbacks = [];
     const editedMessages = [];
@@ -99,6 +133,44 @@ describe('Nexa Dev Bot - Webhook Dispatcher & In-Place Editing', () => {
     assert.equal(sentMessages.length, 0);
     assert.equal(editedMessages[0].messageId, 501);
     assert.match(editedMessages[0].text, /فهرست مخزن‌ها/);
+  });
+
+  it('github callbacks are dispatched through the plugin router before editing', async () => {
+    const bot = makeBot();
+    const edits = [];
+    let dispatchCount = 0;
+
+    bot.telegram.answerCallbackQuery = async () => ({ ok: true });
+    bot.menu.renderByCallback = async () => {
+      throw new Error('direct github callback path must not be used');
+    };
+    bot.router.dispatchCallback = async (data, context) => {
+      dispatchCount += 1;
+      assert.equal(data, 'repo:Factor-easy');
+      assert.equal(context.isOwner, true);
+      return {
+        text: 'routed project',
+        reply_markup: { inline_keyboard: [] }
+      };
+    };
+    bot.telegram.editMessageText = async (chatId, messageId, text, replyMarkup) => {
+      edits.push({ chatId, messageId, text, replyMarkup });
+      return { ok: true };
+    };
+
+    const res = await bot.handleUpdate({
+      callback_query: {
+        id: 'cb_route',
+        data: 'repo:Factor-easy',
+        message: { message_id: 501, chat: { id: 123456 } }
+      }
+    });
+
+    assert.equal(res.ok, true);
+    assert.equal(res.edited, true);
+    assert.equal(dispatchCount, 1);
+    assert.equal(edits.length, 1);
+    assert.equal(edits[0].text, 'routed project');
   });
 
   it('callback navigation still edits when answerCallbackQuery fails', async () => {

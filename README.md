@@ -1,24 +1,61 @@
-# Nexa Dev
+# Nexa Dev Bot - Redesigned Telegram DevOps & GitHub Navigation Bot
 
-Personal Telegram developer console for GitHub.
+یک ربات تلگرامی پیشرفته جهت پایش و مدیریت پروژه‌ها، مخازن گیت‌هاب، کامیت‌ها و PRها با معماری مدرن، بدون شلوغی چت (In-place message editing) و ناوبری چندلایه‌ای با دکمه بازگشت همیشه فعال.
 
-## Current MVP
+## 🚀 ویژگی‌های کلیدی (Key Features)
 
-- Private owner-only Telegram bot
-- `/start` and `/status`
-- `/repos` lists accessible GitHub repositories
-- Cloudflare Worker deployment
-- Secrets are read from environment variables, never committed
+1. **طراحی UX تک‌پیامی (Single-Message In-Place Editing):**
+   - به جای ارسال صدها پیام پشت‌سرهم در چت، کلیه صفحات، زیرمنوها و فهرست‌ها با متد `editMessageText` در همان پیام اولیه ویرایش می‌شوند.
+   - چت همیشه خلوت، سریع و شبیه به یک اپلیکیشن بومی موبایل باقی می‌ماند.
 
-## Required Cloudflare secrets
+2. **منوی اصلی دائمی و لایه‌ای (Hierarchical Menu System):**
+   - `📁 مخزن‌ها (پروژه‌ها)`
+   - `📊 وضعیت سرویس`
+   - `🔧 ابزارهای توسعه`
+   - `⚙️ تنظیمات`
+   - `🔐 امنیت و دسترسی‌ها`
 
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_WEBHOOK_SECRET`
-- `OWNER_TELEGRAM_ID`
-- `GITHUB_TOKEN`
+3. **مدیریت وضعیت و دکمه بازگشت هوشمند (Stateful Navigation & Breadcrumbs):**
+   - نمایش مسیر کاربر در بالای هر منو (مانند `🏠 Nexa Dev > 📁 مخزن‌ها > Factor-easy > 🔀 Pull Request`).
+   - دکمه `🔙 بازگشت` در هر مرحله کاربر را دقیقاً به منوی والد قبلی بازمی‌گرداند.
 
-## Webhook endpoint
+4. **اتصال کامل به GitHub Reader:**
+   - نمایش پروژه‌ها: `Factor-easy`, `Finora-Invoice`, `AvanTech`, `Aram`
+   - دریافت و نمایش Pull Requestها به همراه شماره، عنوان، نویسنده و برچسب وضعیت (Open / Merged / Closed).
+   - نمایش ۵ کامیت اخیر شاخه با هش کوتاه و تاریخ.
+   - مرور ساختار درختی فایل‌ها و دایرکتوری‌ها.
+   - وضعیت بیلد و پایپ‌لاین CI.
 
-`POST /telegram/webhook`
+## 📁 ساختار منوهای ربات
 
-Configure Telegram's webhook with the same `TELEGRAM_WEBHOOK_SECRET` using the `secret_token` parameter.
+```text
+Nexa Dev
+│
+├── 📁 مخزن‌ها
+│    └── Factor-easy
+│         ├── 📂 فایل‌ها
+│         ├── 📝 Commitها
+│         ├── 🔀 Pull Request
+│         ├── 📊 وضعیت
+│         └── 🔙 بازگشت
+│
+├── 📊 وضعیت سرویس
+│
+├── 🔧 ابزارهای توسعه
+│
+└── ⚙️ تنظیمات
+```
+
+## 🛠 راه‌اندازی و تست
+
+```bash
+# اجرای تست‌های واحد و یکپارچه‌سازی (Node.js Test Runner)
+npm test
+```
+
+## 🌐 استقرار روی Cloudflare Workers
+
+متغیرهای محیطی مورد نیاز در داشبورد یا `wrangler.toml`:
+- `TELEGRAM_BOT_TOKEN`: توکن ربات تلگرام دریافتی از BotFather
+- `GITHUB_TOKEN`: پرسنال اکسس توکن گیت‌هاب (Fine-grained PAT با دسترسی Read به مخازن)
+- `GITHUB_OWNER`: نام کاربری مالک گیت‌هاب (پیش‌فرض: `davoodmehraban89`)

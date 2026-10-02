@@ -1,14 +1,19 @@
 {
   "name": "nexa-dev-bot",
-  "version": "0.1.0",
-  "private": true,
+  "version": "1.1.0",
+  "description": "Nexa Dev Bot - Advanced Telegram DevOps & GitHub Navigator",
+  "main": "src/index.js",
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "test": "node --test"
+    "test": "node --test tests/*.test.js",
+    "start": "node src/index.js"
   },
-  "devDependencies": {
-    "wrangler": "^4.0.0"
-  }
+  "keywords": [
+    "telegram-bot",
+    "github",
+    "cloudflare-workers",
+    "devops"
+  ],
+  "author": "Davood Mehraban",
+  "license": "MIT"
 }

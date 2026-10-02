@@ -7,20 +7,38 @@ export class TelegramClient {
 
   async callApi(method, payload) {
     if (!this.botToken) {
-      // In mock/test environment without token
       return { ok: true, result: { message_id: 1001, ...payload } };
     }
 
+    let response;
     try {
-      const response = await this.fetchFn(`${this.baseUrl}/${method}`, {
+      response = await this.fetchFn(`${this.baseUrl}/${method}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      return await response.json();
     } catch (err) {
-      return { ok: false, description: err.message };
+      throw new Error(`Telegram API ${method} network failure: ${err.message}`);
     }
+
+    let body;
+    try {
+      body = await response.json();
+    } catch {
+      body = null;
+    }
+
+    if (!response.ok) {
+      const detail = body?.description ? ` ${body.description}` : '';
+      throw new Error(`Telegram API ${method} failed: ${response.status}${detail}`);
+    }
+
+    if (!body || body.ok !== true) {
+      const detail = body?.description || 'Unknown Telegram API error';
+      throw new Error(`Telegram API ${method} failed: ${detail}`);
+    }
+
+    return body;
   }
 
   async sendMessage(chatId, text, replyMarkup = null, parseMode = 'HTML') {
@@ -29,9 +47,7 @@ export class TelegramClient {
       text,
       parse_mode: parseMode
     };
-    if (replyMarkup) {
-      payload.reply_markup = replyMarkup;
-    }
+    if (replyMarkup) payload.reply_markup = replyMarkup;
     return this.callApi('sendMessage', payload);
   }
 
@@ -42,16 +58,12 @@ export class TelegramClient {
       text,
       parse_mode: parseMode
     };
-    if (replyMarkup) {
-      payload.reply_markup = replyMarkup;
-    }
+    if (replyMarkup) payload.reply_markup = replyMarkup;
     return this.callApi('editMessageText', payload);
   }
 
   async answerCallbackQuery(callbackQueryId, text = '', showAlert = false) {
-    const payload = {
-      callback_query_id: callbackQueryId
-    };
+    const payload = { callback_query_id: callbackQueryId };
     if (text) payload.text = text;
     if (showAlert) payload.show_alert = showAlert;
     return this.callApi('answerCallbackQuery', payload);

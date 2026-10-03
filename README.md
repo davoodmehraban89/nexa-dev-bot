@@ -10,6 +10,7 @@
 - مشاهده Workflow Runها و Job/Stepهای GitHub Actions.
 - اجرای کنترل‌شده `Re-run failed jobs` و `Cancel workflow run` فقط بعد از تأیید صریح مالک در تلگرام.
 - Approval tokenهای کوتاه‌عمر، HMAC-signed، owner-bound و action-bound؛ callback تأیید داخل محدودیت ۶۴ بایتی Telegram نگه داشته می‌شود.
+- replay protection پایدار و cross-isolate با SQLite Durable Object برای جلوگیری از اجرای دوباره یک approval مصرف‌شده.
 - مرور فایل‌ها و پوشه‌ها و پیش‌نمایش فایل‌های متنی مناسب.
 - ناوبری callback به‌صورت stateless؛ مسیرها از `callback_data` بازسازی می‌شوند و session دائمی برای navigation داخل Worker نگهداری نمی‌شود.
 - `/start` یک پیام منوی جدید ایجاد می‌کند؛ حرکت داخل منو با `editMessageText` همان پیام را ویرایش می‌کند.
@@ -18,20 +19,22 @@
 
 ## معماری
 
-- `src/index.js` — مرز HTTP Worker، اعتبارسنجی webhook secret و owner، health/status و لاگ خطای redacted.
+- `src/index.js` — مرز HTTP Worker، اعتبارسنجی webhook secret و owner، health/status، export Durable Object و لاگ خطای redacted.
 - `src/bot.js` — مسیریابی command/callback و هماهنگی approval flow.
 - `src/core/action-policy.js` — سیاست مرکزی `READ` / `WRITE` / `DESTRUCTIVE`.
-- `src/core/approval.js` — صدور و اعتبارسنجی approval tokenهای امضاشده و جلوگیری از replay در سطح Worker isolate.
+- `src/core/approval.js` — صدور و اعتبارسنجی approval tokenهای امضاشده و اتصال consume به replay store پایدار.
+- `src/core/durable-replay-store.js` — adapter دسترسی Worker به Durable Object replay guard.
+- `src/durable/approval-replay-guard.js` — ثبت اتمیک مصرف approval و پاک‌سازی آن پس از expiry.
 - `src/core/router.js` — اجرای `resolve -> policy -> execute` و جلوگیری از provider call قبل از approval.
 - `src/plugins/github/` — manifest و adapter عملیات GitHub.
 - `src/telegram.js` — کلاینت Telegram Bot API.
 - `src/github.js` — کلاینت احراز هویت‌شده GitHub REST API.
 - `src/menu.js` — تولید نماها و Inline Keyboardها.
 - `src/config.js` — تنظیمات ثابت غیرحساس.
-- `test/` — تست‌های امنیت، approval، Worker، ناوبری، Telegram و GitHub.
+- `test/` — تست‌های امنیت، approval، replay protection، Worker، ناوبری، Telegram و GitHub.
 - `.github/workflows/ci.yml` — اجرای تست‌ها روی Node 22 با گارد کشف غیرصفر تست‌ها.
 - `.github/workflows/deploy.yml` — Deploy خودکار commit تأییدشده `main` به Cloudflare Workers پس از CI موفق.
-- `wrangler.jsonc` — پیکربندی Worker.
+- `wrangler.jsonc` — پیکربندی Worker و SQLite Durable Object binding.
 
 ## منوی ربات
 
@@ -74,6 +77,7 @@ npm start
 - `OWNER_TELEGRAM_ID` — شناسه عددی مالک مجاز
 - `GITHUB_TOKEN` — Secret؛ برای READ حداقل دسترسی خواندن و برای کنترل GitHub Actions مجوزهای لازم Actions لازم است
 - `GITHUB_OWNER` — اختیاری؛ در صورت نبود از owner پیش‌فرض برنامه استفاده می‌شود
+- `APPROVAL_REPLAY_GUARD` — Durable Object binding اعلام‌شده در `wrangler.jsonc`؛ نبود آن باعث fail-closed شدن consume عملیات WRITE می‌شود
 
 Webhook Production:
 
@@ -89,7 +93,8 @@ Telegram باید هدر `X-Telegram-Bot-Api-Secret-Token` را با مقدار 
 - `WRITE` و `DESTRUCTIVE` در اولین درخواست اجرا نمی‌شوند و ابتدا confirmation می‌خواهند.
 - تأیید معتبر فقط همان action، owner و target امضاشده را مجاز می‌کند.
 - لغو approval هیچ provider mutationی انجام نمی‌دهد و به نمای امن قبلی بازمی‌گردد.
-- replay protection فعلی در سطح یک Cloudflare Worker isolate برقرار است؛ durable cross-isolate replay protection در فاز Hardening نهایی می‌شود.
+- nonce مصرف‌شده در SQLite Durable Object ثبت می‌شود تا replay حتی بین Worker isolateهای مختلف هم دوباره provider mutation اجرا نکند.
+- اگر replay store پایدار در Runtime در دسترس نباشد، عملیات WRITE به‌صورت fail-closed اجرا نمی‌شود.
 - اگر GitHub token مجوز لازم برای Action write نداشته باشد، خطای provider صریح نمایش داده می‌شود و موفقیت ساختگی گزارش نمی‌شود.
 
 ## Deploy با GitHub Actions
@@ -101,7 +106,7 @@ Telegram باید هدر `X-Telegram-Bot-Api-Secret-Token` را با مقدار 
 
 توکن Cloudflare باید فقط مجوزهای لازم برای Deploy Worker را داشته باشد. مقدار هیچ Secretی نباید داخل README، کد، workflow یا لاگ ثبت شود.
 
-پس از موفقیت CI روی `main`، workflow استقرار همان commit تأییدشده را با Wrangler Deploy می‌کند. فایل پیکربندی معتبر پروژه `wrangler.jsonc` است.
+پس از موفقیت CI روی `main`، workflow استقرار همان commit تأییدشده را با Wrangler Deploy می‌کند. فایل پیکربندی معتبر پروژه `wrangler.jsonc` است و binding کلاس `ApprovalReplayGuard` را با storage نوع SQLite اعلام می‌کند.
 
 ## قواعد صحت و امنیت
 
@@ -109,4 +114,5 @@ Telegram باید هدر `X-Telegram-Bot-Api-Secret-Token` را با مقدار 
 - داده‌های GitHub در صورت خطای API نباید با fallback ساختگی جایگزین شوند.
 - درخواست‌های کاربران غیرمالک بدون افشای داده خصوصی نادیده گرفته می‌شوند.
 - عملیات GitHub write نباید قبل از approval provider call بزند.
+- approval مصرف‌شده نباید در isolate دیگری دوباره قابل‌مصرف باشد.
 - خطاهای Runtime ثبت‌شده نباید حاوی Token، Secret یا approval token باشند.

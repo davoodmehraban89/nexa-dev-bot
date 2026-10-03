@@ -25,6 +25,8 @@ test('ApprovalService issues and verifies a signed owner-bound token', async () 
     input: { repoId: 7, runId: 9 }
   });
 
+  assert.ok(`approve:${token}`.length <= 64, 'approval callback must fit Telegram callback_data');
+
   const payload = await service.verify(token, {
     ownerId: '42',
     pluginId: 'github',
@@ -61,7 +63,10 @@ test('ApprovalService rejects tampered, expired and mismatched tokens', async ()
 
   await assert.rejects(() => service.verify(`${token}x`, { ownerId: '42' }), /invalid approval/i);
   await assert.rejects(() => service.verify(token, { ownerId: '99' }), /owner/i);
-  await assert.rejects(() => service.verify(token, { actionId: 'github.workflow.run.rerun_failed' }), /action/i);
+  await assert.rejects(() => service.verify(token, {
+    ownerId: '42',
+    actionId: 'github.workflow.run.rerun_failed'
+  }), /action/i);
   now += 2000;
   await assert.rejects(() => service.verify(token, { ownerId: '42' }), /expired/i);
 });

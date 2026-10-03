@@ -177,7 +177,7 @@ export class WorkspaceStore {
   async #setPending(payload, now) {
     const workspace = await this.#requireWorkspace(payload.workspaceId, now);
     const mode = String(payload.mode || '');
-    if (!['draft', 'commit_message'].includes(mode)) throw new Error('Pending input mode is invalid');
+    if (!['draft', 'draft_file', 'commit_message'].includes(mode)) throw new Error('Pending input mode is invalid');
     const pending = { workspaceId: workspace.id, mode, expiresAt: workspace.expiresAt };
     await this.state.storage.put('pending', pending);
     await this.#schedule(pending.expiresAt);

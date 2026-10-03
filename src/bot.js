@@ -11,6 +11,11 @@ import { PluginRouter } from './core/router.js';
 import { createGitHubPlugin } from './plugins/github/plugin.js';
 
 const INTENT_ID_PATTERN = /^[A-Za-z0-9_-]{8}$/;
+const escapeHtml = value => String(value ?? '')
+  .replaceAll('&', '&amp;')
+  .replaceAll('<', '&lt;')
+  .replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;');
 
 function approvalSourceCallback(payload = {}) {
   const repoId = payload.input?.repoId;
@@ -86,7 +91,7 @@ function approvedActionFailedView(payload, error) {
   const detail = workspaceAction
     ? permissionDenied
       ? 'تأیید شما معتبر بود، اما GitHub درخواست Commit شاخه را با خطای 403 رد کرد. دسترسی Contents WRITE توکن فعلی را بررسی کنید.'
-      : `تأیید شما معتبر بود، اما Commit شاخه انجام نشد: ${reason}`
+      : `تأیید شما معتبر بود، اما Commit شاخه انجام نشد: ${escapeHtml(reason)}`
     : permissionDenied
       ? 'تأیید شما معتبر بود، اما GitHub درخواست را با خطای 403 رد کرد. دسترسی توکن فعلی برای GitHub Actions WRITE کافی نیست.'
       : 'تأیید شما معتبر بود، اما GitHub عملیات را موفق اعلام نکرد. وضعیت Run را بررسی کنید.';
@@ -266,11 +271,7 @@ export class NexaDevBot {
     }
 
     if (text === '/repos') {
-      const ownerId = message.from?.id;
-      const routed = await this.router.dispatchCommand(text, {
-        isOwner: true,
-        ownerId: ownerId === undefined || ownerId === null ? '' : String(ownerId)
-      });
+      const routed = await this.router.dispatchCommand(text, { isOwner: true });
       if (routed?.requiresApproval || routed?.denied || !routed) {
         return { ok: false, command: 'repos', error: routed?.reason || 'GitHub repository route unavailable' };
       }
@@ -285,32 +286,28 @@ export class NexaDevBot {
     }
 
     const ownerId = message.from?.id;
-    if (
-      typeof message.text === 'string' &&
-      ownerId !== undefined && ownerId !== null &&
-      this.workspaceStore.isConfigured()
-    ) {
-      const owner = String(ownerId);
-      const pending = await this.workspaceStore.getPendingInput({ ownerId: owner });
+    if (ownerId !== undefined && ownerId !== null && this.workspaceStore.isConfigured()) {
+      const pending = await this.workspaceStore.getPendingInput({ ownerId: String(ownerId) });
       if (pending) {
         const routed = await this.router.dispatchMessage(
           { pending, text: rawText },
-          { isOwner: true, ownerId: owner }
+          { isOwner: true, ownerId: String(ownerId) }
         );
         if (routed?.requiresApproval || routed?.denied || !routed) {
-          return {
-            ok: false,
-            workspaceInput: true,
-            error: routed?.reason || 'Workspace input route unavailable'
-          };
+          return { ok: false, error: routed?.reason || 'Workspace input route unavailable' };
         }
         const res = await this.telegram.sendMessage(chatId, routed.text, routed.reply_markup);
         return { ok: true, workspaceInput: true, res };
       }
     }
 
-    const defaultText = `💡 برای دسترسی به منوهای پروژه‌ها و ابزارهای Nexa Dev، دکمه زیر را لمس کنید:`;
-    const view = { text: defaultText, reply_markup: { inline_keyboard: [[{ text: '⚡ باز کردن منوی اصلی Nexa Dev', callback_data: 'menu:main' }]] } };
+    const defaultText = '💡 برای دسترسی به منوهای پروژه‌ها و ابزارهای Nexa Dev، دکمه زیر را لمس کنید:';
+    const view = {
+      text: defaultText,
+      reply_markup: {
+        inline_keyboard: [[{ text: '⚡ باز کردن منوی اصلی Nexa Dev', callback_data: 'menu:main' }]]
+      }
+    };
     const res = await this.telegram.sendMessage(chatId, view.text, view.reply_markup);
     return { ok: true, default: true, res };
   }

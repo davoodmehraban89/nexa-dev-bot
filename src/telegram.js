@@ -2,6 +2,7 @@ export class TelegramClient {
   constructor(botToken, options = {}) {
     this.botToken = botToken;
     this.baseUrl = options.baseUrl || `https://api.telegram.org/bot${botToken}`;
+    this.fileBaseUrl = options.fileBaseUrl || `https://api.telegram.org/file/bot${botToken}`;
     this.fetchFn = options.fetch || ((...args) => fetch(...args));
   }
 
@@ -39,6 +40,42 @@ export class TelegramClient {
     }
 
     return body;
+  }
+
+  async downloadTextFile(fileId, { maxBytes = 12000 } = {}) {
+    if (!this.botToken) throw new Error('TELEGRAM_BOT_TOKEN is not configured');
+    const id = String(fileId || '');
+    if (!id) throw new Error('Telegram file_id is required');
+    const limit = Number(maxBytes);
+    if (!Number.isFinite(limit) || limit <= 0) throw new Error('Telegram file size limit is invalid');
+
+    const metadata = await this.callApi('getFile', { file_id: id });
+    const filePath = String(metadata?.result?.file_path || '');
+    if (!filePath) throw new Error('Telegram getFile did not return file_path');
+    const announcedSize = Number(metadata?.result?.file_size);
+    if (Number.isFinite(announcedSize) && announcedSize > limit) {
+      throw new Error(`Telegram file exceeds ${limit} byte size limit`);
+    }
+
+    const safePath = filePath.split('/').map(segment => encodeURIComponent(segment)).join('/');
+    let response;
+    try {
+      response = await this.fetchFn(`${this.fileBaseUrl}/${safePath}`, { method: 'GET' });
+    } catch (err) {
+      throw new Error(`Telegram file download network failure: ${err.message}`);
+    }
+    if (!response.ok) throw new Error(`Telegram file download failed: ${response.status}`);
+
+    const bytes = await response.arrayBuffer();
+    if (bytes.byteLength > limit) throw new Error(`Telegram file exceeds ${limit} byte size limit`);
+
+    let text;
+    try {
+      text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    } catch {
+      throw new Error('Telegram file is not valid UTF-8 text');
+    }
+    return { text, byteLength: bytes.byteLength, filePath };
   }
 
   async sendMessage(chatId, text, replyMarkup = null, parseMode = 'HTML') {

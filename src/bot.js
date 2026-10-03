@@ -289,8 +289,48 @@ export class NexaDevBot {
     if (ownerId !== undefined && ownerId !== null && this.workspaceStore.isConfigured()) {
       const pending = await this.workspaceStore.getPendingInput({ ownerId: String(ownerId) });
       if (pending) {
+        let payload = { pending, text: rawText };
+        if (pending.mode === 'draft_file') {
+          const document = message.document;
+          if (!document?.file_id) {
+            const view = {
+              text: '📎 <b>یک فایل متنی ارسال کنید</b>\nاین Workspace در حالت بارگذاری فایل است. فایل باید UTF-8 معتبر و حداکثر 12,000 بایت باشد.',
+              reply_markup: { inline_keyboard: [[{ text: '↩️ بازگشت به Draft', callback_data: `ws:${pending.workspaceId}` }]] }
+            };
+            const res = await this.telegram.sendMessage(chatId, view.text, view.reply_markup);
+            return { ok: true, workspaceInput: true, inputRequired: 'document', res };
+          }
+          if (Number.isFinite(Number(document.file_size)) && Number(document.file_size) > 12000) {
+            const view = {
+              text: '⚠️ <b>فایل پذیرفته نشد</b>\nحجم فایل بیشتر از سقف 12,000 بایت است. Draft تغییر نکرد؛ یک فایل کوچک‌تر ارسال کنید.',
+              reply_markup: { inline_keyboard: [[{ text: '↩️ بازگشت به Draft', callback_data: `ws:${pending.workspaceId}` }]] }
+            };
+            const res = await this.telegram.sendMessage(chatId, view.text, view.reply_markup);
+            return { ok: false, workspaceInput: true, inputRejected: true, error: 'Telegram file exceeds 12000 byte size limit', res };
+          }
+          let downloaded;
+          try {
+            downloaded = await this.telegram.downloadTextFile(document.file_id, { maxBytes: 12000 });
+          } catch (error) {
+            const view = {
+              text: `⚠️ <b>فایل پذیرفته نشد</b>\n${escapeHtml(error?.message || 'Telegram file download failed')}\n\nDraft تغییر نکرد و می‌توانید فایل دیگری ارسال کنید.`,
+              reply_markup: { inline_keyboard: [[{ text: '↩️ بازگشت به Draft', callback_data: `ws:${pending.workspaceId}` }]] }
+            };
+            const res = await this.telegram.sendMessage(chatId, view.text, view.reply_markup);
+            return { ok: false, workspaceInput: true, inputRejected: true, error: error?.message || 'Telegram file download failed', res };
+          }
+          payload = {
+            pending,
+            file: {
+              name: String(document.file_name || 'uploaded.txt'),
+              text: downloaded.text,
+              byteLength: downloaded.byteLength
+            }
+          };
+        }
+
         const routed = await this.router.dispatchMessage(
-          { pending, text: rawText },
+          payload,
           { isOwner: true, ownerId: String(ownerId) }
         );
         if (routed?.requiresApproval || routed?.denied || !routed) {

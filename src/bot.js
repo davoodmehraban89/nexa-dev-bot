@@ -43,6 +43,34 @@ function approvalView({ label, token, repoId, runId }) {
   };
 }
 
+function approvalRejectedView(message, error) {
+  const reason = String(error?.message || 'Approval rejected');
+  const expired = /expired/i.test(reason);
+  const used = /already used|replay/i.test(reason);
+  const fallback = message?.reply_markup?.inline_keyboard
+    ?.flat()
+    .map(button => String(button?.callback_data || ''))
+    .find(callback => callback && !callback.startsWith('approve:')) || 'menu:main';
+
+  let detail = 'این تأیید معتبر نیست و هیچ تغییری اجرا نشد.';
+  if (expired) detail = 'مهلت این تأیید تمام شده است و هیچ تغییری اجرا نشد.';
+  if (used) detail = 'این تأیید قبلاً استفاده شده است و دوباره اجرا نمی‌شود.';
+
+  return {
+    text:
+`⚠️ <b>عملیات اجرا نشد</b>
+➖➖➖➖➖➖➖➖➖➖
+${detail}
+
+برای ادامه به صفحهٔ Run برگردید و در صورت نیاز یک تأیید تازه ایجاد کنید.`,
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '↩️ بازگشت به Run', callback_data: fallback }]
+      ]
+    }
+  };
+}
+
 export class NexaDevBot {
   constructor(env = {}) {
     this.env = env;
@@ -123,7 +151,21 @@ export class NexaDevBot {
             outcome: 'rejected',
             error: error?.message || 'Approval rejected'
           });
-          throw error;
+          const view = approvalRejectedView(message, error);
+          const res = await this.telegram.editMessageText(
+            chatId,
+            messageId,
+            view.text,
+            view.reply_markup
+          );
+          return {
+            ok: false,
+            approvalRejected: true,
+            error: error?.message || 'Approval rejected',
+            callbackAnswered,
+            edited: true,
+            res
+          };
         }
 
         this.audit.log({

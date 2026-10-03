@@ -10,19 +10,26 @@ import { AuditLogger } from './core/audit.js';
 import { PluginRouter } from './core/router.js';
 import { createGitHubPlugin } from './plugins/github/plugin.js';
 
+const INTENT_ID_PATTERN = /^[A-Za-z0-9_-]{8}$/;
+
 function approvalSourceCallback(payload = {}) {
   const repoId = payload.input?.repoId;
-  const runId = payload.input?.runId;
-  if (!Number.isSafeInteger(Number(repoId)) || !Number.isSafeInteger(Number(runId))) {
-    throw new Error('Approval input is invalid');
+  if (!Number.isSafeInteger(Number(repoId))) throw new Error('Approval input is invalid');
+
+  if (payload.actionId === 'github.workspace.commit_branch') {
+    const intentId = String(payload.input?.intentId || '');
+    if (!INTENT_ID_PATTERN.test(intentId)) throw new Error('Approval input is invalid');
+    return `wscommit:${repoId}:${intentId}`;
   }
 
+  const runId = payload.input?.runId;
+  if (!Number.isSafeInteger(Number(runId))) throw new Error('Approval input is invalid');
   if (payload.actionId === 'github.workflow.run.rerun_failed') return `rerun:${repoId}:${runId}`;
   if (payload.actionId === 'github.workflow.run.cancel') return `cancelrun:${repoId}:${runId}`;
   throw new Error('Approval action is not supported');
 }
 
-function approvalView({ label, token, repoId, runId }) {
+function approvalView({ label, token, cancelCallback = 'menu:main' }) {
   return {
     text:
 `⚠️ <b>تأیید عملیات لازم است</b>
@@ -34,7 +41,7 @@ function approvalView({ label, token, repoId, runId }) {
     reply_markup: {
       inline_keyboard: [
         [{ text: '✅ تأیید و اجرا', callback_data: `approve:${token}` }],
-        [{ text: '↩️ انصراف', callback_data: `run:${repoId}:${runId}` }]
+        [{ text: '↩️ انصراف', callback_data: cancelCallback }]
       ]
     }
   };
@@ -52,6 +59,7 @@ function approvalRejectedView(message, error) {
   let detail = 'این تأیید معتبر نیست و هیچ تغییری اجرا نشد.';
   if (expired) detail = 'مهلت این تأیید تمام شده است و هیچ تغییری اجرا نشد.';
   if (used) detail = 'این تأیید قبلاً استفاده شده است و دوباره اجرا نمی‌شود.';
+  const backText = fallback.startsWith('run:') ? '↩️ بازگشت به Run' : '↩️ بازگشت';
 
   return {
     text:
@@ -59,8 +67,8 @@ function approvalRejectedView(message, error) {
 ➖➖➖➖➖➖➖➖➖➖
 ${detail}
 
-برای ادامه به صفحهٔ Run برگردید و در صورت نیاز یک تأیید تازه ایجاد کنید.`,
-    reply_markup: { inline_keyboard: [[{ text: '↩️ بازگشت به Run', callback_data: fallback }]] }
+برای ادامه برگردید و در صورت نیاز یک تأیید تازه ایجاد کنید.`,
+    reply_markup: { inline_keyboard: [[{ text: backText, callback_data: fallback }]] }
   };
 }
 
@@ -69,12 +77,19 @@ function approvedActionFailedView(payload, error) {
   const permissionDenied = /403|resource not accessible by personal access token/i.test(reason);
   const repoId = payload?.input?.repoId;
   const runId = payload?.input?.runId;
-  const fallback = Number.isSafeInteger(Number(repoId)) && Number.isSafeInteger(Number(runId))
-    ? `run:${repoId}:${runId}`
-    : 'menu:main';
-  const detail = permissionDenied
-    ? 'تأیید شما معتبر بود، اما GitHub درخواست را با خطای 403 رد کرد. دسترسی توکن فعلی برای GitHub Actions WRITE کافی نیست.'
-    : 'تأیید شما معتبر بود، اما GitHub عملیات را موفق اعلام نکرد. وضعیت Run را بررسی کنید.';
+  const workspaceAction = payload?.actionId === 'github.workspace.commit_branch';
+  const fallback = workspaceAction && Number.isSafeInteger(Number(repoId))
+    ? `repo:${repoId}`
+    : Number.isSafeInteger(Number(repoId)) && Number.isSafeInteger(Number(runId))
+      ? `run:${repoId}:${runId}`
+      : 'menu:main';
+  const detail = workspaceAction
+    ? permissionDenied
+      ? 'تأیید شما معتبر بود، اما GitHub درخواست Commit شاخه را با خطای 403 رد کرد. دسترسی Contents WRITE توکن فعلی را بررسی کنید.'
+      : `تأیید شما معتبر بود، اما Commit شاخه انجام نشد: ${reason}`
+    : permissionDenied
+      ? 'تأیید شما معتبر بود، اما GitHub درخواست را با خطای 403 رد کرد. دسترسی توکن فعلی برای GitHub Actions WRITE کافی نیست.'
+      : 'تأیید شما معتبر بود، اما GitHub عملیات را موفق اعلام نکرد. وضعیت Run را بررسی کنید.';
   return {
     text:
 `⚠️ <b>اجرای عملیات در GitHub ناموفق بود</b>
@@ -82,7 +97,7 @@ function approvedActionFailedView(payload, error) {
 ${detail}
 
 این تأیید یک‌بار مصرف شده و با همان دکمه دوباره اجرا نمی‌شود.`,
-    reply_markup: { inline_keyboard: [[{ text: '↩️ بازگشت به Run', callback_data: fallback }]] }
+    reply_markup: { inline_keyboard: [[{ text: workspaceAction ? '↩️ بازگشت به پروژه' : '↩️ بازگشت به Run', callback_data: fallback }]] }
   };
 }
 
@@ -193,8 +208,15 @@ export class NexaDevBot {
       if (routed?.requiresApproval) {
         const approval = routed.approval;
         const repoId = approval?.input?.repoId;
+        if (!approval || !Number.isSafeInteger(Number(repoId))) throw new Error('Approval metadata is missing');
+        const workspaceApproval = routed.actionId === 'github.workspace.commit_branch';
         const runId = approval?.input?.runId;
-        if (!approval || !Number.isSafeInteger(Number(repoId)) || !Number.isSafeInteger(Number(runId))) throw new Error('Approval metadata is missing');
+        const intentId = String(approval?.input?.intentId || '');
+        if (workspaceApproval) {
+          if (!INTENT_ID_PATTERN.test(intentId)) throw new Error('Approval metadata is missing');
+        } else if (!Number.isSafeInteger(Number(runId))) {
+          throw new Error('Approval metadata is missing');
+        }
         if (ownerId === undefined || ownerId === null) throw new Error('Approval owner is required');
         if (!this.approvals.isReplayProtected()) throw new Error('Durable approval replay protection is not configured');
 
@@ -206,7 +228,8 @@ export class NexaDevBot {
           input: approval.input
         });
         this.audit.log({ event: 'approval_issued', pluginId: routed.pluginId, actionId: routed.actionId, risk: routed.risk, outcome: 'pending' });
-        const view = approvalView({ label: approval.label || routed.actionId, token, repoId, runId });
+        const cancelCallback = approval.cancelCallback || (Number.isSafeInteger(Number(runId)) ? `run:${repoId}:${runId}` : `repo:${repoId}`);
+        const view = approvalView({ label: approval.label || routed.actionId, token, cancelCallback });
         const res = await this.telegram.editMessageText(chatId, messageId, view.text, view.reply_markup);
         return { ok: true, approvalRequired: true, actionId: routed.actionId, risk: routed.risk, callbackAnswered, edited: true, res };
       }

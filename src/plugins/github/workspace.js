@@ -5,8 +5,12 @@ import {
   normalizeCommitMessage,
   validateEditableFile
 } from '../../core/workspace-policy.js';
+import { commitWorkspaceIntent } from './workspace-commit.js';
+
+export { commitWorkspaceIntent } from './workspace-commit.js';
 
 const HANDLE_10 = '[A-Za-z0-9_-]{10}';
+const INTENT_8 = '[A-Za-z0-9_-]{8}';
 const escapeHtml = value => String(value ?? '')
   .replaceAll('&', '&amp;')
   .replaceAll('<', '&lt;')
@@ -43,6 +47,13 @@ function parseCallback(data) {
   if (match) return { actionId: 'github.workspace.ready', kind: 'ready', workspaceId: match[1] };
   match = value.match(new RegExp(`^wcancel:(${HANDLE_10})$`));
   if (match) return { actionId: 'github.workspace.cancel', kind: 'cancel', workspaceId: match[1] };
+  match = value.match(new RegExp(`^wscommit:(\\d+):(${INTENT_8})$`));
+  if (match) return {
+    actionId: 'github.workspace.commit_branch',
+    kind: 'commit',
+    repoId: Number(match[1]),
+    intentId: match[2]
+  };
   return null;
 }
 
@@ -61,6 +72,20 @@ function workspaceButtons(workspace) {
       { text: '🔙 فایل‌ها', callback_data: `files:${workspace.repoId}` }
     ]
   ];
+}
+
+function workspaceCommitResultView(repoId, intent, result) {
+  const rows = [
+    [{ text: '🧪 CI / Actions', callback_data: `runs:${repoId}` }]
+  ];
+  if (intent?.workspaceId) {
+    rows.push([{ text: '📝 Workspace', callback_data: `ws:${intent.workspaceId}` }]);
+  }
+  rows.push([{ text: '📦 پروژه', callback_data: `repo:${repoId}` }]);
+  return {
+    text: `✅ <b>Commit روی branch جدید ایجاد شد</b>\nBranch: <code>${escapeHtml(result.branch)}</code>\nSHA: <code>${escapeHtml(result.commitSha)}</code>${result.idempotent ? '\nوضعیت: <b>reconciled / idempotent</b>' : ''}\n\nشاخهٔ پیش‌فرض تغییر نکرده است.`,
+    reply_markup: { inline_keyboard: rows }
+  };
 }
 
 export function createWorkspaceController({ github, workspaces } = {}) {
@@ -287,6 +312,47 @@ export function createWorkspaceController({ github, workspaces } = {}) {
     resolveCallback(data, context = {}) {
       const parsed = parseCallback(data);
       if (!parsed) return null;
+
+      if (parsed.kind === 'commit') {
+        return {
+          actionId: parsed.actionId,
+          approval: {
+            input: { repoId: parsed.repoId, intentId: parsed.intentId },
+            label: 'Commit روی branch جدید',
+            cancelCallback: `repo:${parsed.repoId}`
+          },
+          audit: { repoId: parsed.repoId, intentId: parsed.intentId },
+          execute: async () => {
+            const ownerId = ownerFrom(context);
+            const result = await commitWorkspaceIntent({
+              github,
+              workspaces,
+              ownerId,
+              repoId: parsed.repoId,
+              intentId: parsed.intentId
+            });
+            const intent = await workspaces.getIntent({ ownerId, intentId: parsed.intentId });
+            const view = workspaceCommitResultView(parsed.repoId, intent, result);
+            return {
+              ...view,
+              audit: {
+                repoId: parsed.repoId,
+                intentId: parsed.intentId,
+                workspaceId: intent?.workspaceId,
+                path: intent?.path,
+                contentDigest: intent?.contentDigest,
+                commitMessageDigest: intent?.commitMessageDigest,
+                baseHeadSha: intent?.baseHeadSha,
+                targetBranch: intent?.targetBranch,
+                commitSha: result.commitSha,
+                branch: result.branch,
+                idempotent: result.idempotent
+              }
+            };
+          }
+        };
+      }
+
       return {
         actionId: parsed.actionId,
         execute: async () => {

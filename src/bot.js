@@ -71,6 +71,34 @@ ${detail}
   };
 }
 
+function approvedActionFailedView(payload, error) {
+  const reason = String(error?.message || 'GitHub operation failed');
+  const permissionDenied = /403|resource not accessible by personal access token/i.test(reason);
+  const repoId = payload?.input?.repoId;
+  const runId = payload?.input?.runId;
+  const fallback = Number.isSafeInteger(Number(repoId)) && Number.isSafeInteger(Number(runId))
+    ? `run:${repoId}:${runId}`
+    : 'menu:main';
+
+  const detail = permissionDenied
+    ? 'تأیید شما معتبر بود، اما GitHub درخواست را با خطای 403 رد کرد. دسترسی توکن فعلی برای GitHub Actions WRITE کافی نیست.'
+    : 'تأیید شما معتبر بود، اما GitHub عملیات را موفق اعلام نکرد. وضعیت Run را بررسی کنید.';
+
+  return {
+    text:
+`⚠️ <b>اجرای عملیات در GitHub ناموفق بود</b>
+➖➖➖➖➖➖➖➖➖➖
+${detail}
+
+این تأیید یک‌بار مصرف شده و با همان دکمه دوباره اجرا نمی‌شود.`,
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '↩️ بازگشت به Run', callback_data: fallback }]
+      ]
+    }
+  };
+}
+
 export class NexaDevBot {
   constructor(env = {}) {
     this.env = env;
@@ -177,12 +205,33 @@ export class NexaDevBot {
         });
 
         const sourceCallback = approvalSourceCallback(payload);
-        const routed = await this.router.dispatchCallback(sourceCallback, {
-          isOwner: true,
-          approved: true
-        });
-        if (!routed || routed.requiresApproval || routed.denied) {
-          throw new Error('Approved action could not be dispatched');
+        let routed;
+        try {
+          routed = await this.router.dispatchCallback(sourceCallback, {
+            isOwner: true,
+            approved: true
+          });
+          if (!routed || routed.requiresApproval || routed.denied) {
+            throw new Error('Approved action could not be dispatched');
+          }
+        } catch (error) {
+          const view = approvedActionFailedView(payload, error);
+          const res = await this.telegram.editMessageText(
+            chatId,
+            messageId,
+            view.text,
+            view.reply_markup
+          );
+          return {
+            ok: false,
+            approved: true,
+            providerError: true,
+            actionId: payload.actionId,
+            error: error?.message || 'GitHub operation failed',
+            callbackAnswered,
+            edited: true,
+            res
+          };
         }
 
         const res = await this.telegram.editMessageText(

@@ -49,7 +49,7 @@ export class NexaDevBot {
     this.github = new GitHubService(env.GITHUB_TOKEN || '', env.GITHUB_OWNER || 'davoodmehraban89');
     this.menu = new MenuManager(this.github);
     this.approvals = new ApprovalService({
-      secret: env.APPROVAL_SIGNING_SECRET || ''
+      secret: env.APPROVAL_SIGNING_SECRET || env.TELEGRAM_WEBHOOK_SECRET || ''
     });
 
     this.githubPlugin = createGitHubPlugin({

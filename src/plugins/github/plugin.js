@@ -1,4 +1,5 @@
 import { githubPluginManifest } from './manifest.js';
+import { createWorkspaceController } from './workspace.js';
 
 const CALLBACK_ACTIONS = Object.freeze([
   ['files:', 'github.files.list'],
@@ -163,12 +164,8 @@ async function workflowRunView(github, repoId, runId) {
       { text: '📦 Artifacts', callback_data: `artifacts:${repoId}:${runId}` }
     ]
   ];
-  if (run.conclusion === 'failure') {
-    rows.push([{ text: '🔁 اجرای مجدد jobهای ناموفق', callback_data: `rerun:${repoId}:${runId}` }]);
-  }
-  if (run.status === 'in_progress' || run.status === 'queued') {
-    rows.push([{ text: '⏹ لغو Workflow', callback_data: `cancelrun:${repoId}:${runId}` }]);
-  }
+  if (run.conclusion === 'failure') rows.push([{ text: '🔁 اجرای مجدد jobهای ناموفق', callback_data: `rerun:${repoId}:${runId}` }]);
+  if (run.status === 'in_progress' || run.status === 'queued') rows.push([{ text: '⏹ لغو Workflow', callback_data: `cancelrun:${repoId}:${runId}` }]);
   rows.push([
     { text: '🔄 بروزرسانی', callback_data: `run:${repoId}:${runId}` },
     { text: '🔙 CI / Actions', callback_data: `runs:${repoId}` }
@@ -198,10 +195,7 @@ async function workflowJobsView(github, repoId, runId) {
     text: `👷 <b>Jobهای ${escapeHtml(run.name)} — ${escapeHtml(repo.name)}</b>\n➖➖➖➖➖➖➖➖➖➖\n${body}`,
     reply_markup: {
       inline_keyboard: [
-        ...jobs.slice(0, 20).map(job => [{
-          text: `${stateIcon(job.conclusion || job.status)} ${short(job.name, 40)}`,
-          callback_data: `job:${repoId}:${job.id}`
-        }]),
+        ...jobs.slice(0, 20).map(job => [{ text: `${stateIcon(job.conclusion || job.status)} ${short(job.name, 40)}`, callback_data: `job:${repoId}:${job.id}` }]),
         [{ text: '🔄 بروزرسانی', callback_data: `jobs:${repoId}:${runId}` }, { text: '🔙 Run', callback_data: `run:${repoId}:${runId}` }]
       ]
     }
@@ -245,32 +239,22 @@ async function workflowArtifactsView(github, repoId, runId, page = 1) {
   const refreshCallback = page === 1 ? `artifacts:${repoId}:${runId}` : `artifacts:${repoId}:${runId}:${page}`;
   return {
     text: `📦 <b>Artifacts — ${escapeHtml(repo.name)}</b>\nصفحه: <b>${page}</b>\n➖➖➖➖➖➖➖➖➖➖\n${body}`,
-    reply_markup: {
-      inline_keyboard: [
-        ...pairPagination('artifacts', repoId, runId, page, artifacts.length, 10),
-        [{ text: '🔄 بروزرسانی', callback_data: refreshCallback }, { text: '🔙 Run', callback_data: `run:${repoId}:${runId}` }]
-      ]
-    }
+    reply_markup: { inline_keyboard: [...pairPagination('artifacts', repoId, runId, page, artifacts.length, 10), [{ text: '🔄 بروزرسانی', callback_data: refreshCallback }, { text: '🔙 Run', callback_data: `run:${repoId}:${runId}` }]] }
   };
 }
 
 async function branchesView(github, repoId, page = 1) {
-  const [repo, branches] = await Promise.all([
-    github.getRepository(repoId),
-    github.listBranches(repoId, { perPage: 20, page })
-  ]);
+  const [repo, branches] = await Promise.all([github.getRepository(repoId), github.listBranches(repoId, { perPage: 20, page })]);
   const body = branches.length
     ? branches.slice(0, 20).map(branch => `🌿 <b>${escapeHtml(short(branch.name, 70))}</b>\n  <code>${escapeHtml(String(branch.sha).slice(0, 10))}</code>${branch.protected ? ' · 🛡 protected' : ''}`).join('\n\n')
     : '<i>Branchی یافت نشد.</i>';
   return {
     text: `🌿 <b>Branches — ${escapeHtml(repo.name)}</b>\nصفحه: <b>${page}</b>\n➖➖➖➖➖➖➖➖➖➖\n${body}`,
-    reply_markup: {
-      inline_keyboard: [
-        ...branches.slice(0, 20).filter(branch => /^[a-f0-9]{40}$/i.test(String(branch.sha))).map(branch => [{ text: `↔️ ${short(branch.name, 42)}`, callback_data: `compare:${repoId}:${branch.sha}` }]),
-        ...listPagination('branches', repoId, page, branches.length, 20),
-        [{ text: '🔙 پروژه', callback_data: `repo:${repoId}` }]
-      ]
-    }
+    reply_markup: { inline_keyboard: [
+      ...branches.slice(0, 20).filter(branch => /^[a-f0-9]{40}$/i.test(String(branch.sha))).map(branch => [{ text: `↔️ ${short(branch.name, 42)}`, callback_data: `compare:${repoId}:${branch.sha}` }]),
+      ...listPagination('branches', repoId, page, branches.length, 20),
+      [{ text: '🔙 پروژه', callback_data: `repo:${repoId}` }]
+    ] }
   };
 }
 
@@ -290,13 +274,11 @@ async function pullRequestsView(github, repoId, page = 1) {
     : '<i>Pull Requestی یافت نشد.</i>';
   return {
     text: `🔎 <b>Pull Requests — ${escapeHtml(repo.name)}</b>\nصفحه: <b>${page}</b>\n➖➖➖➖➖➖➖➖➖➖\n${body}`,
-    reply_markup: {
-      inline_keyboard: [
-        ...prs.slice(0, 10).map(pr => [{ text: `#${pr.number} ${short(pr.title, 42)}`, callback_data: `prdetail:${repoId}:${pr.number}` }]),
-        ...listPagination('prs', repoId, page, prs.length, 10),
-        [{ text: '🔙 پروژه', callback_data: `repo:${repoId}` }]
-      ]
-    }
+    reply_markup: { inline_keyboard: [
+      ...prs.slice(0, 10).map(pr => [{ text: `#${pr.number} ${short(pr.title, 42)}`, callback_data: `prdetail:${repoId}:${pr.number}` }]),
+      ...listPagination('prs', repoId, page, prs.length, 10),
+      [{ text: '🔙 پروژه', callback_data: `repo:${repoId}` }]
+    ] }
   };
 }
 
@@ -305,15 +287,7 @@ async function pullRequestDetailView(github, repoId, prNumber) {
   const body = escapeHtml(short(pr.body || '', 600));
   return {
     text: `🔎 <b>PR #${pr.number} — ${escapeHtml(repo.name)}</b>\n<b>${escapeHtml(pr.title)}</b>\n${pr.merged ? '🟣 merged' : `${stateIcon(pr.state)} ${escapeHtml(pr.state)}`} · ${escapeHtml(pr.author)}\n<code>${escapeHtml(pr.head || '-')}</code> → <code>${escapeHtml(pr.base || '-')}</code>\n+${pr.additions}/-${pr.deletions} · ${pr.changedFiles} files\n➖➖➖➖➖➖➖➖➖➖\n${body || '<i>بدون توضیح.</i>'}`,
-    reply_markup: {
-      inline_keyboard: [
-        [
-          { text: '🧩 فایل‌ها / Diff', callback_data: `prfiles:${repoId}:${prNumber}:1` },
-          { text: '✅ Checks', callback_data: `prchecks:${repoId}:${prNumber}:1` }
-        ],
-        [{ text: '🔙 PRها', callback_data: `prs:${repoId}` }]
-      ]
-    }
+    reply_markup: { inline_keyboard: [[{ text: '🧩 فایل‌ها / Diff', callback_data: `prfiles:${repoId}:${prNumber}:1` }, { text: '✅ Checks', callback_data: `prchecks:${repoId}:${prNumber}:1` }], [{ text: '🔙 PRها', callback_data: `prs:${repoId}` }]] }
   };
 }
 
@@ -325,12 +299,7 @@ async function pullRequestFilesView(github, repoId, prNumber, page = 1) {
   }).join('\n\n') : '<i>فایل تغییریافته‌ای یافت نشد.</i>';
   return {
     text: `🧩 <b>PR #${prNumber} Files / Diff</b>\nصفحه: <b>${page}</b>\n➖➖➖➖➖➖➖➖➖➖\n${body}`,
-    reply_markup: {
-      inline_keyboard: [
-        ...pairPagination('prfiles', repoId, prNumber, page, files.length, 8),
-        [{ text: '🔙 PR', callback_data: `prdetail:${repoId}:${prNumber}` }]
-      ]
-    }
+    reply_markup: { inline_keyboard: [...pairPagination('prfiles', repoId, prNumber, page, files.length, 8), [{ text: '🔙 PR', callback_data: `prdetail:${repoId}:${prNumber}` }]] }
   };
 }
 
@@ -342,32 +311,19 @@ async function pullRequestChecksView(github, repoId, prNumber, page = 1) {
     : '<i>Checkی یافت نشد.</i>';
   return {
     text: `✅ <b>PR #${prNumber} Checks</b>\nصفحه: <b>${page}</b>\n➖➖➖➖➖➖➖➖➖➖\n${body}`,
-    reply_markup: {
-      inline_keyboard: [
-        ...pairPagination('prchecks', repoId, prNumber, page, checks.length, 20),
-        [{ text: '🔙 PR', callback_data: `prdetail:${repoId}:${prNumber}` }]
-      ]
-    }
+    reply_markup: { inline_keyboard: [...pairPagination('prchecks', repoId, prNumber, page, checks.length, 20), [{ text: '🔙 PR', callback_data: `prdetail:${repoId}:${prNumber}` }]] }
   };
 }
 
 async function issuesView(github, repoId, page = 1) {
-  const [repo, issuePage] = await Promise.all([
-    github.getRepository(repoId),
-    github.listIssuesPage(repoId, { page })
-  ]);
+  const [repo, issuePage] = await Promise.all([github.getRepository(repoId), github.listIssuesPage(repoId, { page })]);
   const issues = issuePage.items || [];
   const body = issues.length
     ? issues.slice(0, 20).map(issue => `${stateIcon(issue.state)} <b>#${issue.number} ${escapeHtml(short(issue.title, 110))}</b>\n  ${escapeHtml(issue.author)} · ${issue.comments} comments`).join('\n\n')
     : '<i>Issueی یافت نشد.</i>';
   return {
     text: `🐛 <b>Issues — ${escapeHtml(repo.name)}</b>\nصفحه: <b>${page}</b>\n➖➖➖➖➖➖➖➖➖➖\n${body}`,
-    reply_markup: {
-      inline_keyboard: [
-        ...explicitPagination('issues', repoId, page, !!issuePage.hasMore),
-        [{ text: '🔙 پروژه', callback_data: `repo:${repoId}` }]
-      ]
-    }
+    reply_markup: { inline_keyboard: [...explicitPagination('issues', repoId, page, !!issuePage.hasMore), [{ text: '🔙 پروژه', callback_data: `repo:${repoId}` }]] }
   };
 }
 
@@ -393,52 +349,36 @@ function workflowActionResultView(repoId, runId, action) {
 function resolveReadCallback(data) {
   const value = String(data || '');
   if (value === 'menu:repos') return { actionId: 'github.repos.list', kind: 'legacy' };
-
   const repoId = numericSingle(value, 'repo');
   if (repoId !== null) return { actionId: 'github.repo.detail', kind: 'repo', repoId };
-
   const runs = workflowRunsPage(value);
   if (runs) return { actionId: 'github.workflow.runs.list', kind: 'runs', ...runs };
-
   const run = numericPair(value, 'run');
   if (run) return { actionId: 'github.workflow.run.detail', kind: 'run', ...run };
-
   const jobs = numericPair(value, 'jobs');
   if (jobs) return { actionId: 'github.workflow.jobs.list', kind: 'jobs', ...jobs };
-
   const job = numericPair(value, 'job');
   if (job) return { actionId: 'github.workflow.job.detail', kind: 'job', repoId: job.repoId, jobId: job.runId };
-
   const joblog = numericPair(value, 'joblog');
   if (joblog) return { actionId: 'github.workflow.job.log', kind: 'joblog', repoId: joblog.repoId, jobId: joblog.runId };
-
   const artifacts = pagedPair(value, 'artifacts');
   if (artifacts) return { actionId: 'github.workflow.artifacts.list', kind: 'artifacts', repoId: artifacts.repoId, runId: artifacts.itemId, page: artifacts.page };
-
   const branches = pagedSingle(value, 'branches');
   if (branches) return { actionId: 'github.branches.list', kind: 'branches', ...branches };
-
   const compare = compareRef(value);
   if (compare) return { actionId: 'github.compare.read', kind: 'compare', ...compare };
-
   const prs = pagedSingle(value, 'prs');
   if (prs) return { actionId: 'github.pr.advanced.list', kind: 'prs', ...prs };
-
   const prdetail = numericPair(value, 'prdetail');
   if (prdetail) return { actionId: 'github.pr.detail', kind: 'prdetail', repoId: prdetail.repoId, prNumber: prdetail.runId };
-
   const prfiles = numericTriple(value, 'prfiles');
   if (prfiles) return { actionId: 'github.pr.files.list', kind: 'prfiles', repoId: prfiles.repoId, prNumber: prfiles.itemId, page: prfiles.page };
-
   const prchecks = numericTriple(value, 'prchecks');
   if (prchecks) return { actionId: 'github.pr.checks.list', kind: 'prchecks', repoId: prchecks.repoId, prNumber: prchecks.itemId, page: prchecks.page };
-
   const issues = pagedSingle(value, 'issues');
   if (issues) return { actionId: 'github.issues.list', kind: 'issues', ...issues };
-
   const releases = pagedSingle(value, 'releases');
   if (releases) return { actionId: 'github.releases.list', kind: 'releases', ...releases };
-
   for (const [prefix, actionId] of CALLBACK_ACTIONS) {
     if (value.startsWith(prefix)) return { actionId, kind: 'legacy' };
   }
@@ -471,9 +411,10 @@ function resolveWriteCallback(data) {
   return null;
 }
 
-export function createGitHubPlugin({ github, menu } = {}) {
+export function createGitHubPlugin({ github, menu, workspaces } = {}) {
   if (!github) throw new Error('GitHub plugin requires github service');
   if (!menu) throw new Error('GitHub plugin requires menu manager');
+  const workspaceController = workspaces ? createWorkspaceController({ github, workspaces }) : null;
 
   return {
     manifest: githubPluginManifest,
@@ -483,13 +424,15 @@ export function createGitHubPlugin({ github, menu } = {}) {
       return { actionId: 'github.repos.list', execute: () => menu.getReposListView() };
     },
 
-    resolveCallback(data) {
+    resolveCallback(data, context = {}) {
       const write = resolveWriteCallback(data);
       if (write) return { actionId: write.actionId, approval: write.approval, execute: () => write.execute(github) };
 
+      const workspaceRoute = workspaceController?.resolveCallback(data, context);
+      if (workspaceRoute) return workspaceRoute;
+
       const read = resolveReadCallback(data);
       if (!read) return null;
-
       return {
         actionId: read.actionId,
         execute: async () => {

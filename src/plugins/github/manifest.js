@@ -1,7 +1,7 @@
 export const githubPluginManifest = Object.freeze({
   id: 'github',
   name: 'GitHub',
-  version: 5,
+  version: 6,
   commands: Object.freeze(['/repos']),
   actions: Object.freeze({
     'github.repos.list': Object.freeze({ risk: 'READ' }),
@@ -34,6 +34,7 @@ export const githubPluginManifest = Object.freeze({
     'github.workspace.diff': Object.freeze({ risk: 'READ' }),
     'github.workspace.ready': Object.freeze({ risk: 'READ' }),
     'github.workspace.cancel': Object.freeze({ risk: 'READ' }),
+    'github.workspace.commit_branch': Object.freeze({ risk: 'WRITE' }),
     'github.workflow.run.rerun_failed': Object.freeze({ risk: 'WRITE' }),
     'github.workflow.run.cancel': Object.freeze({ risk: 'WRITE' })
   })

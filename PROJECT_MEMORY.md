@@ -83,16 +83,26 @@ Conclusion:
 - Provider GREEN CI #158 / run `37100892060`: 19 test files, 87/87 pass, 0 fail/skip/cancelled.
 - Plugin RED CI #159 / run `37100960176`: 92 tests total, 87 pass / 5 expected failures for undeclared/unimplemented Advanced routes and views.
 - Plugin GREEN CI #161 / run `37101099153`: 20 test files, 92/92 pass, 0 fail/skip/cancelled.
+- Review hardening RED CI #164 / run `37101390354`: 95 tests total, 92 pass / 3 expected failures for artifact pagination, PR diff pagination and visible READ-provider errors.
+- Review hardening GREEN CI #166 / run `37101635682`: 21 test files, 95/95 pass, 0 fail/skip/cancelled.
+- Mixed Issue/PR pagination RED CI #167 / run `37101783124`: 97 tests total, 95 pass / 2 expected failures.
+- Final GREEN CI #170 / run `37102060845` at head `9fbd33f3ad436c9519d521d704b6f7b882a2bbdd`: 22 test files, 97/97 pass, 0 fail/skip/cancelled.
 
 ### Implemented in PR #19
 - Bounded raw workflow-job log tail with HTML escaping and visible truncation state.
 - Workflow job detail and per-job drill-down from run jobs.
-- Workflow artifact metadata view.
+- Workflow artifact metadata view with bounded pagination.
 - Branch list and compare-to-default using a validated 40-hex head SHA.
-- Advanced PR list/detail/files-diff/checks views.
-- Issues and releases views.
+- Advanced PR list/detail/files-diff/checks views; PR diff page size matches rendered page size so files are not silently skipped.
+- Issues and releases views; Issue pagination preserves GitHub raw-page continuation even when PR entries are filtered out.
 - Pagination is clamped to page 1..100 and page size <=20 where list pagination is exposed.
 - New READ callbacks resolve without provider calls before central policy evaluation; callback lengths are regression-tested against Telegram limits.
+- READ provider failures now visibly update Telegram, including least-privilege guidance for provider 403, instead of appearing silent.
+
+### Review evidence
+- PR patch reviewed after hardening: no new provider mutation endpoint was added; only the pre-existing approval-gated workflow rerun/cancel POSTs remain.
+- Secret-pattern scan over the PR patch found no `ghp_` or `github_pat_` material.
+- Callback/data bounds, raw-log bounds, patch bounds and pagination gaps are regression-tested.
 
 ### Not yet production-accepted
 - PR #19 is not merged at this checkpoint.
@@ -100,10 +110,10 @@ Conclusion:
 - Owner-device production smoke for the new Advanced READ paths is NOT VERIFIED until after deploy.
 
 ## Next Executable Actions
-1. Review PR #19 for accidental provider writes, secret leakage, callback limits, response bounds and pagination gaps.
-2. Run fresh final PR CI, mark ready, squash-merge the exact reviewed head.
-3. Verify exact post-merge `main` CI, deploy, active Cloudflare version and current-version telemetry.
-4. Perform owner-device READ smoke through Telegram for Branches/Compare, PR detail/files/checks, CI Run/Jobs/failed log/artifacts, Issues and Releases.
+1. Run one fresh final PR CI after this memory checkpoint, mark ready and squash-merge the exact reviewed head only if green.
+2. Verify exact post-merge `main` CI, deploy, active Cloudflare version and current-version telemetry.
+3. Perform owner-device READ smoke through Telegram for Branches/Compare, PR detail/files/checks, CI Run/Jobs/failed log/artifacts, Issues and Releases.
+4. If live Checks or Issues return 403, add only the specific missing fine-grained PAT READ permission; do not rotate the token unnecessarily.
 5. Then implement remaining GitHub Advanced WRITE items only where useful (workflow dispatch and/or specific-job rerun) as a separate Safe Approval slice.
 6. Continue to the Cloudflare Ops plugin and the broader roadmap.
 

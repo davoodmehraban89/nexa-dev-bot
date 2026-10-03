@@ -21,6 +21,7 @@
 - Plugin Registry + central Action Policy + Audit Logger + Plugin Router in `src/core/`.
 - HMAC approval tokens in `src/core/approval.js`.
 - Durable Object replay guard via `APPROVAL_REPLAY_GUARD` / `ApprovalReplayGuard`.
+- Owner-scoped Repository Workspace storage via `WORKSPACE_STORE` / `WorkspaceStore` on the implementation branch; production deployment is still NOT VERIFIED.
 - GitHub plugin in `src/plugins/github/`; provider adapter in `src/github.js`.
 - Exact-commit CI/deploy workflows under `.github/workflows/`.
 
@@ -30,7 +31,7 @@
 - Approval is owner/action/risk/target/expiry-bound and one-time consumed through Durable Object storage.
 - Provider mutation never executes before policy approval.
 - Provider errors are explicit; no fabricated success or fallback data.
-- Secrets and signed approval callback tokens must not appear in logs/docs.
+- Secrets, source/draft text and signed approval callback tokens must not appear in logs/docs.
 - Telegram callback data and rendered provider text must remain bounded.
 
 ## Production-Accepted Foundation
@@ -118,49 +119,66 @@ Conclusion:
 - Releases source-backed empty state: VERIFIED.
 - Telegram owner-device/runtime evidence: VERIFIED.
 
-## Current Design / Planning Work — Repository Workspace / Code Editor
-- Owner explicitly requires the ability to open a file in any accessible repository, edit it from the Nexa mobile control plane, review the change, commit it, and send it back to GitHub.
-- Owner approved the architectural direction and then explicitly approved the written spec on 2026-10-03.
+## Repository Workspace / Code Editor Phase 1 — PR #21 IN PROGRESS
 - Design spec: `docs/superpowers/specs/2026-10-03-repository-workspace-editor-design.md`.
 - Implementation plan: `docs/superpowers/plans/2026-10-03-repository-workspace-editor.md`.
-- Design/plan branch: `spec/repository-workspace-editor`.
-- Draft PR #21 contains design + plan only; no product implementation has been added yet.
-- Current plan head after self-review: `6990647df6b24120169e778800893d5e23a9bdb3` before this memory checkpoint commit.
+- Implementation branch: `spec/repository-workspace-editor`.
+- PR #21 targets `main` and now contains implementation work; it is no longer design-only.
+- Phase 1 remains branch-first only: no direct default-branch mutation, no force update, no automatic merge/rebase/conflict resolution.
 
-### Approved design direction
-- Phase 1: durable owner-scoped single-file text workspace, exact diff, conflict/staleness checks, branch-first GitHub commit, Safe Approval, commit SHA + CI handoff.
-- Commit engine is based on Git Data blobs/trees/commits/refs so Phase 2 can atomically commit multiple files without redesign.
-- Draft content is stored outside Telegram callback data/process memory in a dedicated `WORKSPACE_STORE` Durable Object; existing `APPROVAL_REPLAY_GUARD` remains dedicated to approval replay protection.
-- Commit intent is idempotent: committed result metadata/SHA is persisted so Telegram/network retries or a fresh approval cannot create a duplicate commit for the same unchanged workspace intent; ambiguous provider outcomes require ref reconciliation before retry.
-- Direct writes to `main` are out of scope for Phase 1 and may be added later only as an explicitly enabled high-risk path that respects GitHub protection rules.
-- Binary/LFS, automatic conflict resolution, secret/private-key-like files and arbitrary shell execution are out of scope for Phase 1.
-- Production acceptance requires owner-device evidence proving draft-only behavior before approval, exact diff, one approved commit, replay rejection, idempotent retry, and GitHub/Cloudflare evidence agreement.
+### Locked implementation constraints
+- Owner-scoped short navigation refs; raw long paths never appear in callback data.
+- Editable Phase-1 text ceiling: 3,000 Unicode code points and 12,000 UTF-8 bytes; overflow is rejected, never silently truncated.
+- Sensitive/private-key-like paths, binary-like content and Git LFS pointers are not editable.
+- Navigation/workspace handles are 10 URL-safe chars; commit-intent IDs are exactly 8 URL-safe chars.
+- Target branch is `nexa/edit-<workspaceId>`.
+- Draft/source content is never placed in callback data or audit metadata.
+- Repeated Ready on unchanged material reuses the existing immutable intent.
+- Provider Git commit creation is still NOT VERIFIED because Task 5/6 and production acceptance have not run.
 
-### Plan decisions locked by self-review
-- Path-safe navigation uses short owner-scoped Durable Object refs; raw long paths are never placed in callback data.
-- Phase-1 edit ceiling is 3,000 Unicode characters and 12,000 UTF-8 bytes; input over the limit is rejected rather than silently truncated.
-- Navigation/workspace handles are 10 URL-safe chars; commit-intent IDs are 8 URL-safe chars so compact approval tokens remain within the existing 56-character token ceiling.
-- Repeated Ready on unchanged material reuses the existing intent instead of minting a new intent.
-- Git commit request metadata is deterministic for idempotent retry; target refs are never force-updated in Phase 1.
-- Existing declarative Cloudflare Durable Object `exports` lifecycle is preserved; `WorkspaceStore` will be added as SQLite storage without introducing legacy `migrations`.
+### Task 1 — Workspace policy/diff primitives: COMPLETE
+- `src/core/workspace-policy.js` implements editable-file policy, commit-message normalization, target-branch normalization, SHA-256 digests and bounded unified diff with exact full-content counts.
+- RED evidence was captured before implementation.
+- GREEN checkpoint CI #185 completed with 105/105 passing at that task head.
 
-### Not yet implementation-complete
-- Implementation plan still requires owner review/acceptance before implementation starts.
-- No workspace storage binding/class has been deployed yet.
-- No editor WRITE action has been added yet.
-- No new GitHub commit mutation has been added yet.
-- No production editor smoke has been run yet.
+### Task 2 — Durable owner-scoped Workspace Store: COMPLETE
+- Added `WORKSPACE_STORE` / `WorkspaceStore` client + Durable Object state machine.
+- Owner isolation, navigation/workspace expiry, one-shot pending input, READY invalidation/reuse, COMMITTING/COMMITTED state and cancellation are covered by tests.
+- GREEN checkpoint CI #192 completed with 113/113 passing at that task head.
+- Production deployment of the new binding/class: NOT VERIFIED.
+
+### Task 3 — Path-safe repository browser/editor entry: COMPLETE
+- Workspace file navigation uses short Durable refs after policy; legacy tree/blob/path-bearing callbacks remain compatible.
+- Eligible file preview exposes Edit; sensitive/LFS/oversized files remain readable with edit disabled.
+- `wedit` pins current default-branch HEAD/tree and exact file/blob/content before creating a durable local draft.
+- Archived repositories cannot create editable drafts.
+- GREEN checkpoint CI #200 / run `37112677199`, job `111173499300`: 121/121 pass, 0 fail/skip/cancelled.
+
+### Task 4 — Telegram Draft Input, Diff and Sealed Intent UX: COMPLETE
+- RED CI #201 / run `37113613413`, job `111176071940`: 126 tests total, 121 pass / 5 expected failures for missing message routing and `wtext`/`wmsg`/`wdiff`/`wready` behavior.
+- Added policy-routed `dispatchMessage`; source text is not audit metadata.
+- Bot preserves `/start`/`/menu`/`/repos`/`/status` precedence, then owner pending workspace text is routed with the exact untrimmed message body.
+- Pending draft/message input is one-shot; rejected draft input does not mutate the prior draft.
+- Diff is HTML escaped and bounded while additions/deletions are computed over complete content.
+- READY requires changed content + normalized commit message, binds stable digests/base/path/branch/timestamp, reuses unchanged intent and emits only short `wscommit:<repoId>:<intentId>` callback data.
+- GREEN CI #207 / run `37114230736`, job `111177792978`: 27 test files, 127/127 pass, 0 fail/skip/cancelled.
+- No GitHub provider mutation exists in Tasks 1-4; provider commit remains NOT VERIFIED.
+
+### Remaining implementation tasks
+- Task 5: GitHub Git Data commit primitives with deterministic request bodies and no force-update primitive.
+- Task 6: compact workspace Safe Approval codec + idempotent commit orchestration + audit metadata.
+- Task 7: whole-branch review, merge, exact post-merge CI/deploy, Cloudflare binding verification and owner-device production acceptance.
 
 ## Next Executable Actions
-1. Owner reviews `docs/superpowers/plans/2026-10-03-repository-workspace-editor.md` and confirms it captures the desired implementation.
-2. Use the project's already-established native execution mode in this harness (no independent subagent tool is exposed) and implement task-by-task with TDD.
-3. Before implementation, merge the approved design/plan-only PR #21 to `main`, verify exact post-merge CI/deploy, then create an isolated implementation branch from that verified main.
-4. Execute Tasks 1-7 from the plan: policy/diff -> durable store -> path-safe editor entry -> draft/diff intent -> Git Data primitives -> Safe Approval/idempotent commit -> production acceptance.
-5. Only after Repository Workspace Phase 1 production acceptance, continue remaining useful GitHub Advanced WRITE operations and then Cloudflare Ops.
+1. Execute Task 5 RED -> GREEN for Git Data ref/blob/tree/commit/create-ref primitives.
+2. Execute Task 6 RED -> GREEN for Safe Approval/idempotent branch commit orchestration; no provider WRITE before approval.
+3. Run Task 7 exact whole-branch verification and secret-pattern scan; review PR #21 against the approved spec.
+4. Merge only a reviewed green head, verify exact `main` CI and Cloudflare deployment/bindings, then perform owner-device pre-approval and approved-commit smoke.
+5. Do not call Repository Workspace Phase 1 production-accepted until Telegram, GitHub and Cloudflare runtime evidence agree.
 
 ## Remaining Roadmap
 1. Repository Workspace / Code Editor Phase 1, then multi-file expansion.
-2. Remaining useful GitHub Advanced WRITE actions (for example workflow dispatch/specific-job rerun), always through Safe Approval.
+2. Remaining useful GitHub Advanced WRITE actions, always through Safe Approval.
 3. Cloudflare Ops plugin: deployments, versions, bindings, health, telemetry/runtime errors and approval-gated rollback/deploy operations.
 4. CI/CD Control Plane and release acceptance orchestration.
 5. Monitoring + Incident Manager.

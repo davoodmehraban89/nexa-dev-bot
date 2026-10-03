@@ -79,7 +79,6 @@ Conclusion:
 - Post-merge CI #172 / run `37102293956` succeeded on that exact SHA with 22 test files and 97/97 tests passing, 0 fail/skip/cancelled.
 - Deploy #108 / run `37102308006` succeeded from that exact SHA.
 - Active Cloudflare production version after deploy: `bc23d9e5-1490-429c-9369-4e751f173df5` at 100% traffic.
-- Cloudflare Observability issue summary after deploy showed 0 active issues and 0 active occurrences.
 
 ### TDD evidence
 - Provider RED CI #156 / run `37100585034`: 87 tests total, 82 pass / 5 expected failures for missing Advanced provider readers.
@@ -103,51 +102,62 @@ Conclusion:
 - New READ callbacks resolve without provider calls before central policy evaluation; callback lengths are regression-tested against Telegram limits.
 - READ provider failures visibly update Telegram instead of appearing silent.
 
-### Owner-device production smoke findings
-- Owner exercised the new Advanced READ menu on Telegram after production deploy; most tested paths rendered and navigated as expected.
-- `Issues` failed live with GitHub `403 Resource not accessible by personal access token`.
-- Cloudflare production audit confirmed `github.issues.list` passed central READ policy and then failed only at the GitHub provider boundary with that 403.
-- Root cause: the existing fine-grained PAT does not currently grant Repository permissions -> Issues -> Read. Existing visible permissions include Metadata Read plus Actions/Code/Pull requests Read and Write.
-- `Releases` did not fail: a direct GitHub releases read returned an empty list `[]`, proving this repository currently has no GitHub Releases. The old Telegram empty-state wording was merely ambiguous.
+## GitHub Advanced READ Production Acceptance — PR #20
+- Live owner-device smoke found two gaps: Issues returned GitHub 403 due missing `Issues: Read`, while Releases successfully returned an empty source-backed list.
+- PR #20 `fix: clarify Issues permission and empty Releases state` merged to `main` at `7c0df4c8616c6859a2dfc4c35b0e22d6e47215bc`.
+- Post-merge CI #177 / run `37106715317` completed successfully on that exact SHA with 23 test files and 99/99 tests passing, 0 fail/skip/cancelled.
+- Deploy #113 / run `37106727515` completed successfully after checking out that exact SHA.
+- Active Cloudflare production version after deploy: `5741faa0-720f-48d5-9e76-64726a5f5167` at 100% traffic.
+- Owner updated the existing fine-grained PAT to add only Repository permissions -> Issues -> Read-only; token value was not rotated/stored/logged.
+- Owner-device Telegram smoke after that permission change showed Issues no longer returns 403 and Releases renders the explicit no-published-release state.
+- Cloudflare production telemetry on version `5741faa0-720f-48d5-9e76-64726a5f5167` recorded `github.issues.list` with `outcome=success` and `github.releases.list` with `outcome=success` for the owner-device interactions.
 
-## Current Work — PR #20 Live-Smoke Findings Hardening
-- Branch: `fix/issues-permission-release-empty-ux`.
-- Draft PR #20: `fix: clarify Issues permission and empty Releases state`.
-- Scope is UI/error-guidance only; no new provider mutation is added.
-- Issues 403 feedback now tells the owner the exact least-privilege setting required: Fine-grained token -> Repository permissions -> Issues -> Read.
-- Empty Releases view now explicitly says that no GitHub Release is published for the repository instead of presenting an ambiguous not-found message.
+Conclusion:
+- GitHub Advanced READ production acceptance: VERIFIED.
+- Issues least-privilege provider authorization: VERIFIED.
+- Releases source-backed empty state: VERIFIED.
+- Telegram owner-device/runtime evidence: VERIFIED.
 
-### TDD evidence
-- RED CI #173 / run `37106220231`: 23 test files, 99 tests total, 97 pass / exactly 2 expected failures for the live Issues-permission guidance and empty Releases wording.
-- GREEN CI #175 / run `37106470008` at implementation head `d779c746dd4c0dadb652f9d2375ba7765ff5803b`: 23 test files, 99/99 pass, 0 fail/skip/cancelled.
-- A fresh final CI is still required after this memory checkpoint because this documentation commit moves the PR head.
+## Current Design Work — Repository Workspace / Code Editor
+- Owner explicitly requires the future ability to open a file in any accessible repository, edit it from the Nexa mobile control plane, review the change, commit it, and send it back to GitHub.
+- Owner approved the architectural direction: branch-first, diff-first, no provider commit without Safe Approval, single-file first with a multi-file-capable architecture.
+- Design spec path: `docs/superpowers/specs/2026-10-03-repository-workspace-editor-design.md`.
+- Design branch: `spec/repository-workspace-editor`.
+- This is an architectural subsystem and is not yet implementation-approved until the owner reviews the written spec.
 
-### Not yet production-accepted
-- PR #20 is not merged/deployed at this checkpoint.
-- Exact post-merge `main` CI and Cloudflare deployment for PR #20 are NOT VERIFIED.
-- Issues live success remains NOT VERIFIED until the owner adds only `Issues: Read` to the existing fine-grained token and repeats the Telegram Issues read.
-- Releases source-backed empty state is verified at the GitHub API boundary, but the revised Telegram wording is NOT VERIFIED on the owner device until PR #20 is deployed.
+### Approved design direction captured in the spec
+- Phase 1: durable owner-scoped single-file text workspace, exact diff, conflict/staleness checks, branch-first GitHub commit, Safe Approval, commit SHA + CI handoff.
+- Commit engine is based on Git Data blobs/trees/commits/refs so Phase 2 can atomically commit multiple files without redesign.
+- Draft content is stored outside Telegram callback data/process memory, preferably in a dedicated `WORKSPACE_STORE` Durable Object; existing `APPROVAL_REPLAY_GUARD` remains dedicated to approval replay protection.
+- Direct writes to `main` are out of scope for Phase 1 and may be added later only as an explicitly enabled high-risk path that respects GitHub protection rules.
+- Binary/LFS, automatic conflict resolution, secret/private-key-like files and arbitrary shell execution are out of scope for Phase 1.
+- Production acceptance requires owner-device evidence proving draft-only behavior before approval, exact diff, one approved commit, replay rejection, and GitHub/Cloudflare evidence agreement.
+
+### Not yet implementation-complete
+- Written spec requires owner review/approval before implementation planning.
+- No workspace storage binding/class has been added yet.
+- No editor WRITE action has been added yet.
+- No new GitHub commit mutation has been added yet.
+- No production editor smoke has been run yet.
 
 ## Next Executable Actions
-1. Run fresh final PR #20 CI after this checkpoint; review the exact diff and secret patterns.
-2. Mark PR #20 ready and squash-merge only the exact reviewed green head.
-3. Verify exact post-merge `main` CI, deploy, active Cloudflare version and production runtime/telemetry.
-4. Owner adds only `Repository permissions -> Issues -> Read` to the existing fine-grained GitHub token; do not regenerate or rotate the token unnecessarily.
-5. Owner repeats Telegram `Issues` and `Releases`; verify production audit records provider success for both reads.
-6. Close GitHub Advanced READ production acceptance only after that owner-device/runtime verification.
-7. Then implement remaining GitHub Advanced WRITE items only where operationally useful and always through Safe Approval, followed by Cloudflare Ops.
+1. Owner reviews `docs/superpowers/specs/2026-10-03-repository-workspace-editor-design.md` and approves or requests changes.
+2. After written-spec approval, create the implementation plan via the required planning workflow.
+3. Implement with TDD in vertical slices: workspace storage -> edit/diff UX -> Git Data commit engine -> Safe Approval integration -> CI handoff -> production smoke.
+4. Only after Repository Workspace Phase 1 production acceptance, continue remaining useful GitHub Advanced WRITE operations and then Cloudflare Ops.
 
 ## Remaining Roadmap
-1. Finish GitHub Advanced production acceptance; add workflow dispatch/specific-job rerun only if operationally useful and always via Safe Approval.
-2. Cloudflare Ops plugin: deployments, versions, bindings, health, telemetry/runtime errors and approval-gated rollback/deploy operations.
-3. CI/CD Control Plane and release acceptance orchestration.
-4. Monitoring + Incident Manager.
-5. Automation Engine with resumable/idempotent approval-aware workflows.
-6. AI Copilot with no direct production mutation.
-7. Browser QA real production smoke.
-8. Telegram Mini App backed by real APIs.
-9. Plugin ecosystem and multi-project control plane.
-10. Final hardening, recovery drills, docs and versioning.
+1. Repository Workspace / Code Editor Phase 1, then multi-file expansion.
+2. Remaining useful GitHub Advanced WRITE actions (for example workflow dispatch/specific-job rerun), always through Safe Approval.
+3. Cloudflare Ops plugin: deployments, versions, bindings, health, telemetry/runtime errors and approval-gated rollback/deploy operations.
+4. CI/CD Control Plane and release acceptance orchestration.
+5. Monitoring + Incident Manager.
+6. Automation Engine with resumable/idempotent approval-aware workflows.
+7. AI Copilot with no direct production mutation.
+8. Browser QA real production smoke.
+9. Telegram Mini App backed by the same workspace/control-plane APIs.
+10. Plugin ecosystem and multi-project control plane.
+11. Final hardening, recovery drills, docs and versioning.
 
 ## Project Boundaries
 - Nexa Dev Bot is independent from Finora / Factor-easy unless an explicit adapter is added.

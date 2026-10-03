@@ -31,7 +31,8 @@ export class PluginRouter {
       const action = registeredAction?.pluginId === pluginId ? registeredAction : null;
       const decision = this.policy.evaluate({
         action,
-        isOwner: context.isOwner === true
+        isOwner: context.isOwner === true,
+        approved: context.approved === true
       });
 
       this.audit.log({

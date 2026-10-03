@@ -8,3 +8,6 @@ Pre-flight: Task 3 provider-read/controller outputs feed Task 4 and Task 6; call
 Pre-flight: Task 4 sealed intent fields match Task 6 approval/orchestration inputs.
 Pre-flight: Task 5 Git Data primitives match Task 6 orchestration signatures.
 Pre-flight: Task 6 production behavior is consumed by Task 7 acceptance flow.
+
+Task 1: Ruling: the plan asked for a Unicode string under 3,000 characters but over 12,000 UTF-8 bytes; this is impossible because one Unicode code point encodes to at most 4 UTF-8 bytes. Test the 3,000/12,000 exact multibyte boundary and test the byte ceiling independently via provider-reported byteLength — cost if wrong: an edge-case size policy could be misclassified.
+Task 1 RED: CI #183 / run 37111334419, 105 tests total, 99 pass / 6 expected failures, all six on missing workspace-policy functions.

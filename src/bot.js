@@ -3,9 +3,44 @@ import { GitHubService } from './github.js';
 import { MenuManager } from './menu.js';
 import { PluginRegistry } from './core/plugin-registry.js';
 import { ActionPolicy } from './core/action-policy.js';
+import { ApprovalService } from './core/approval.js';
 import { AuditLogger } from './core/audit.js';
 import { PluginRouter } from './core/router.js';
 import { createGitHubPlugin } from './plugins/github/plugin.js';
+
+function approvalSourceCallback(payload = {}) {
+  const repoId = payload.input?.repoId;
+  const runId = payload.input?.runId;
+  if (!Number.isSafeInteger(Number(repoId)) || !Number.isSafeInteger(Number(runId))) {
+    throw new Error('Approval input is invalid');
+  }
+
+  if (payload.actionId === 'github.workflow.run.rerun_failed') {
+    return `rerun:${repoId}:${runId}`;
+  }
+  if (payload.actionId === 'github.workflow.run.cancel') {
+    return `cancelrun:${repoId}:${runId}`;
+  }
+  throw new Error('Approval action is not supported');
+}
+
+function approvalView({ label, token, repoId, runId }) {
+  return {
+    text:
+`⚠️ <b>تأیید عملیات لازم است</b>
+➖➖➖➖➖➖➖➖➖➖
+عملیات: <b>${label}</b>
+این عملیات روی GitHub تغییر ایجاد می‌کند و فقط پس از تأیید شما اجرا می‌شود.
+
+اگر مطمئن هستید، «تأیید و اجرا» را بزنید.`,
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '✅ تأیید و اجرا', callback_data: `approve:${token}` }],
+        [{ text: '↩️ انصراف', callback_data: `run:${repoId}:${runId}` }]
+      ]
+    }
+  };
+}
 
 export class NexaDevBot {
   constructor(env = {}) {
@@ -13,6 +48,9 @@ export class NexaDevBot {
     this.telegram = new TelegramClient(env.TELEGRAM_BOT_TOKEN || '');
     this.github = new GitHubService(env.GITHUB_TOKEN || '', env.GITHUB_OWNER || 'davoodmehraban89');
     this.menu = new MenuManager(this.github);
+    this.approvals = new ApprovalService({
+      secret: env.APPROVAL_SIGNING_SECRET || ''
+    });
 
     this.githubPlugin = createGitHubPlugin({
       github: this.github,
@@ -24,7 +62,8 @@ export class NexaDevBot {
       secrets: [
         env.TELEGRAM_BOT_TOKEN,
         env.TELEGRAM_WEBHOOK_SECRET,
-        env.GITHUB_TOKEN
+        env.GITHUB_TOKEN,
+        env.APPROVAL_SIGNING_SECRET
       ]
     });
     this.router = new PluginRouter({
@@ -61,6 +100,7 @@ export class NexaDevBot {
     const message = query.message;
     const chatId = message?.chat?.id;
     const messageId = message?.message_id;
+    const ownerId = query.from?.id;
 
     // Callback acknowledgement is best-effort. A stale/expired callback must not
     // block rendering and editing the existing menu message.
@@ -76,16 +116,82 @@ export class NexaDevBot {
     }
 
     try {
+      if (data.startsWith('approve:')) {
+        if (ownerId === undefined || ownerId === null) {
+          throw new Error('Approval owner is required');
+        }
+        const token = data.slice('approve:'.length);
+        const payload = await this.approvals.consume(token, {
+          ownerId: String(ownerId),
+          pluginId: 'github',
+          risk: 'WRITE'
+        });
+        const sourceCallback = approvalSourceCallback(payload);
+        const routed = await this.router.dispatchCallback(sourceCallback, {
+          isOwner: true,
+          approved: true
+        });
+        if (!routed || routed.requiresApproval || routed.denied) {
+          throw new Error('Approved action could not be dispatched');
+        }
+
+        const res = await this.telegram.editMessageText(
+          chatId,
+          messageId,
+          routed.text,
+          routed.reply_markup
+        );
+        return {
+          ok: true,
+          approved: true,
+          actionId: payload.actionId,
+          callbackAnswered,
+          edited: true,
+          res
+        };
+      }
+
       // GitHub callbacks pass through the plugin policy boundary. Non-GitHub
       // callbacks remain on the existing compatibility router in Foundation v1.
       const routed = await this.router.dispatchCallback(data, { isOwner: true });
       if (routed?.requiresApproval) {
+        const approval = routed.approval;
+        const repoId = approval?.input?.repoId;
+        const runId = approval?.input?.runId;
+        if (!approval || !Number.isSafeInteger(Number(repoId)) || !Number.isSafeInteger(Number(runId))) {
+          throw new Error('Approval metadata is missing');
+        }
+        if (ownerId === undefined || ownerId === null) {
+          throw new Error('Approval owner is required');
+        }
+
+        const token = await this.approvals.issue({
+          pluginId: routed.pluginId,
+          actionId: routed.actionId,
+          risk: routed.risk,
+          ownerId: String(ownerId),
+          input: approval.input
+        });
+        const view = approvalView({
+          label: approval.label || routed.actionId,
+          token,
+          repoId,
+          runId
+        });
+        const res = await this.telegram.editMessageText(
+          chatId,
+          messageId,
+          view.text,
+          view.reply_markup
+        );
         return {
-          ok: false,
+          ok: true,
           approvalRequired: true,
           actionId: routed.actionId,
           risk: routed.risk,
-          callbackAnswered
+          callbackAnswered,
+          edited: true,
+          res
         };
       }
       if (routed?.denied) {

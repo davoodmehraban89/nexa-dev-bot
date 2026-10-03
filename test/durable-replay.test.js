@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import worker, { ApprovalReplayGuard as ExportedApprovalReplayGuard } from '../src/index.js';
 import { DurableApprovalReplayStore } from '../src/core/durable-replay-store.js';
 import { ApprovalReplayGuard } from '../src/durable/approval-replay-guard.js';
 
@@ -110,4 +112,20 @@ test('ApprovalReplayGuard fails closed for expired requests and alarm removes st
   state.data.set('used', Date.now());
   await guard.alarm();
   assert.equal(state.data.size, 0);
+});
+
+test('Worker exports ApprovalReplayGuard and Wrangler declares SQLite durable binding', async () => {
+  assert.ok(worker && typeof worker.fetch === 'function');
+  assert.equal(ExportedApprovalReplayGuard, ApprovalReplayGuard);
+
+  const configText = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+  const config = JSON.parse(configText);
+  assert.deepEqual(config.durable_objects?.bindings, [{
+    name: 'APPROVAL_REPLAY_GUARD',
+    class_name: 'ApprovalReplayGuard'
+  }]);
+  assert.deepEqual(config.exports?.ApprovalReplayGuard, {
+    type: 'durable-object',
+    storage: 'sqlite'
+  });
 });

@@ -120,7 +120,11 @@ export class NexaDevBot {
       secret: env.APPROVAL_SIGNING_SECRET || env.TELEGRAM_WEBHOOK_SECRET || '',
       replayStore: this.replayStore
     });
-    this.githubPlugin = createGitHubPlugin({ github: this.github, menu: this.menu, workspaces: this.workspaceStore });
+    this.githubPlugin = createGitHubPlugin({
+      github: this.github,
+      menu: this.menu,
+      workspaces: this.workspaceStore.isConfigured() ? this.workspaceStore : null
+    });
     this.registry = new PluginRegistry([this.githubPlugin]);
     this.policy = new ActionPolicy();
     this.audit = new AuditLogger({

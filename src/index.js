@@ -17,7 +17,12 @@ function isOwnerUpdate(update, env) {
 
 function safeErrorMessage(error, env = {}) {
   let message = String(error?.message || 'Unknown error');
-  for (const secret of [env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_WEBHOOK_SECRET, env.GITHUB_TOKEN]) {
+  for (const secret of [
+    env.TELEGRAM_BOT_TOKEN,
+    env.TELEGRAM_WEBHOOK_SECRET,
+    env.GITHUB_TOKEN,
+    env.APPROVAL_SIGNING_SECRET
+  ]) {
     const value = String(secret || '');
     if (value) message = message.split(value).join('[REDACTED]');
   }

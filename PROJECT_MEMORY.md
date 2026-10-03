@@ -14,23 +14,26 @@
 3. Prefer live evidence over chat memory.
 4. Keep durable checkpoints documented here.
 5. Never store secrets, tokens or private keys in the repository.
+6. Never call a phase production-accepted from CI alone; deployment and live-runtime evidence are separate gates.
 
-## Architecture
-- `src/index.js` — Cloudflare Worker HTTP boundary; webhook secret, owner authorization, required Telegram transport checks and redacted runtime diagnostics.
-- `src/bot.js` — Telegram update/callback coordinator; constructs the plugin kernel, keeps callback acknowledgement best-effort, routes GitHub operations through policy, and retains compatibility paths for non-GitHub menus.
-- `src/core/plugin-registry.js` — validates plugin/action manifests and rejects duplicate IDs or invalid risk values.
-- `src/core/action-policy.js` — central `READ` / `WRITE` / `DESTRUCTIVE` policy evaluation.
-- `src/core/audit.js` — best-effort structured action audit with recursive secret redaction.
-- `src/core/router.js` — policy-enforcing plugin router using the security-critical `resolve -> policy -> execute` flow.
-- `src/plugins/github/manifest.js` — GitHub plugin capability/action declarations.
-- `src/plugins/github/plugin.js` — GitHub plugin adapter around existing `GitHubService` and `MenuManager` behavior.
-- `src/telegram.js` — Telegram Bot API client; explicit error propagation, fail-closed token handling and Cloudflare-safe default `fetch` invocation.
-- `src/github.js` — authenticated GitHub REST reader; explicit errors, numeric repository-id resolution, tree/blob access.
-- `src/menu.js` — hierarchical stateless inline menus, one-message editing, repository/file browser.
-- `src/config.js` — non-secret static config.
-- `.github/workflows/ci.yml` — Node 22 tests, official GitHub Actions v7 releases and non-zero test-discovery guard.
-- `.github/workflows/deploy.yml` — production Cloudflare Worker deploy after successful CI on `main`; deploys the exact verified commit.
-- `wrangler.jsonc` — Worker configuration; `keep_vars: true`, workers.dev enabled and observability enabled.
+## Current Architecture
+- `src/index.js` — Cloudflare Worker HTTP boundary; webhook-secret/owner checks, health/status, redacted runtime diagnostics, and named export of `ApprovalReplayGuard`.
+- `src/bot.js` — Telegram update/callback coordinator and Safe Actions confirmation lifecycle.
+- `src/core/plugin-registry.js` — plugin/action manifest validation.
+- `src/core/action-policy.js` — central `READ` / `WRITE` / `DESTRUCTIVE` policy.
+- `src/core/audit.js` — structured best-effort audit with recursive redaction.
+- `src/core/router.js` — security-critical `resolve -> policy -> execute` router; provider work must remain deferred until policy allows it.
+- `src/core/approval.js` — compact HMAC approval tokens, owner/action/risk/expiry binding, and fail-closed consume.
+- `src/core/durable-replay-store.js` — Worker-side adapter for persistent approval consume semantics.
+- `src/durable/approval-replay-guard.js` — Durable Object atomic one-time consume + expiry cleanup.
+- `src/plugins/github/manifest.js` — GitHub action/risk declarations.
+- `src/plugins/github/plugin.js` — GitHub repository/file/Actions UI and safe workflow controls.
+- `src/github.js` — authenticated GitHub REST client; read APIs plus controlled Actions write APIs.
+- `src/telegram.js` — Telegram Bot API client with explicit error propagation and Cloudflare-safe fetch invocation.
+- `src/menu.js` — bounded stateless inline views and file browser.
+- `.github/workflows/ci.yml` — Node 22 test gate with non-zero test-discovery guard.
+- `.github/workflows/deploy.yml` — exact-commit Cloudflare deployment after successful `main` CI.
+- `wrangler.jsonc` — Worker config plus SQLite Durable Object binding `APPROVAL_REPLAY_GUARD` -> `ApprovalReplayGuard`.
 
 ## Runtime Configuration
 Worker runtime names:
@@ -39,201 +42,140 @@ Worker runtime names:
 - `OWNER_TELEGRAM_ID`
 - `GITHUB_TOKEN`
 - optional `GITHUB_OWNER`
+- optional `APPROVAL_SIGNING_SECRET`; approval falls back to `TELEGRAM_WEBHOOK_SECRET` when absent
+- `APPROVAL_REPLAY_GUARD` Durable Object binding from Wrangler config
 
 GitHub Actions deployment secrets:
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
 
-## Verified Security / Data Trust
-- Webhook only at `POST /telegram/webhook`.
-- Missing webhook secret, owner ID or bot token fails closed.
-- Wrong Telegram secret returns 403.
+## Security / Data-Trust Invariants
+- Telegram webhook is `POST /telegram/webhook`; missing required security/transport configuration fails closed.
 - Non-owner updates are ignored before private-data access.
-- GitHub token absence and GitHub API failures are explicit errors; no fabricated fallback data.
-- Telegram network/API failures propagate; fake transport success is prohibited.
-- Runtime diagnostic logs redact Telegram, webhook and GitHub secrets.
-- Temporary setup/diagnostic exposure is disabled in source/tests.
-- Operational UI does not invent SLA, latency or external health claims.
-- Plugin manifests must declare action risk as `READ`, `WRITE`, or `DESTRUCTIVE`.
-- Undeclared/unknown plugin actions are denied.
-- `WRITE` and `DESTRUCTIVE` plugin actions are not executed before an approval flow exists.
-- Plugin route resolvers must be side-effect-free; provider/view work is deferred to `execute()` after policy evaluation.
+- Missing GitHub token/provider failures are explicit; no fabricated fallback data or fabricated success.
+- Runtime diagnostics and audit records must not disclose Telegram/GitHub/webhook/approval signing secrets or signed approval callback tokens.
+- Plugin route resolution must be side-effect-free; provider/view work happens only inside deferred `execute()` after policy evaluation.
+- `READ` executes for the authorized owner.
+- `WRITE` and `DESTRUCTIVE` do not execute on the first request; they require a verified owner-bound approval.
+- Approval token is short-lived, HMAC-signed, action-bound, owner-bound and target-bound.
+- Approval consume fails closed without persistent replay protection.
+- `(ownerId, nonce)` is consumed atomically through the Durable Object, preventing cross-isolate replay.
+- GitHub workflow write endpoints never run before approval.
 
-## Telegram UX / GitHub Reader
-- `/start` creates the initial menu message.
-- Callback navigation uses `editMessageText` on the same Telegram message.
-- Callback acknowledgement failure/staleness no longer blocks in-place navigation.
-- Main sections: Repositories, Status, Tools, Settings, Security.
-- Repository sections: Files, Pull Requests, Commits, Actions status, Back.
-- Back navigation and breadcrumb-style text exist.
-- Repository callbacks use numeric GitHub repository IDs.
-- Folder navigation uses `tree:<repoId>:<sha>` and file previews use `blob:<repoId>:<sha>`.
-- Tree/blob SHA input is validated.
-- File previews are HTML-escaped and bounded; oversized/non-base64 blobs are not rendered directly.
-- Directory interactive entries are capped at 30 and omitted counts are disclosed.
+## Telegram / GitHub Capabilities
+Existing READ navigation remains backward compatible:
+- `/start`, `/menu`, `/repos`, `/status`
+- repository detail, files/tree/blob preview, PRs, commits, status
+- same-message callback navigation via `editMessageText`
+- stale `answerCallbackQuery` failure does not block navigation
 
-## Production Deploy Automation — Verified 2026-10-02
-- PR `#10` added `.github/workflows/deploy.yml` and merged to `main` at `c86b86ec8f5678b9223b7bcb6a73e0377116e670`.
-- GitHub repository secrets for Cloudflare deployment are configured.
-- Re-run of deployment workflow `37057406559` passed credential preflight and deployed successfully.
-- Automatic deploy runs after successful `main` CI and uses the exact verified commit.
+Safe GitHub Operator additions in PR #15:
+- repository -> `🧪 CI / Actions`
+- list workflow runs
+- inspect workflow run status/branch/SHA/event
+- inspect jobs and steps
+- request `Re-run failed jobs`
+- request `Cancel workflow run`
+- both WRITE actions render explicit Confirm/Cancel UI before provider mutation
+- malformed/expired/wrong-owner/mismatched/replayed approval fails closed
 
-## Full Repository Audit + Telegram Runtime Incident — Verified 2026-10-02
-Audit scope covered the full recursive repository tree, including workflows, Worker config, all `src/` modules, all tests, README/project memory and package metadata.
+## Historical Accepted Milestones
+### Runtime incident fixes — 2026-10-02
+- PR #11 added redacted diagnostics; squash merge `cfd7a0b4803b13c76646b71666e7e0c66e023c99`.
+- PR #12 fixed Cloudflare `fetch` receiver / `Illegal invocation`; squash merge `bd01d8ede44331f50e1115d569095fb12246331d`.
+- PR #13 hardened callback resilience and documentation; squash merge `6c90cbb8384c9591ba89367b48e4ce7e785ce72f`.
+- Production telemetry after the fix showed current-version Telegram webhook HTTP 200 / outcome `ok`.
 
-### Root cause
-- Telegram requests were reaching the production Worker, so webhook registration, secret header and owner gate were not the blocker.
-- Production observability showed `POST /telegram/webhook` returning HTTP 400 with `Telegram API sendMessage network failure: Illegal invocation: function called with incorrect this reference`.
-- Root defect was in `src/telegram.js`: the platform-global `fetch` had been stored directly as an instance property and later called with the wrong receiver.
-- Node unit tests had previously missed this platform-specific semantic difference.
-
-### PR #11 — redacted runtime diagnostics
-- RED commit `079f9b7977e1120d1bcdbbcd75d91e6a322e5a49`.
-- Implementation commit `2851c7045141aaeff501564d4a6bf8f22e333754`.
-- PR CI `37064293599` = 30/30 pass.
-- Squash merge `cfd7a0b4803b13c76646b71666e7e0c66e023c99`.
-- Post-merge CI `37064405261` and deploy `37064436885` succeeded.
-
-### PR #12 — Cloudflare fetch receiver fix
-- RED commit `99cf3468f820eb06390b7001c1d1eb5e5fb4ebbd`.
-- Fix commit `c487727c968e4f00aecf0985a38b152f58e3b9b4`.
-- Default transport now uses `(...args) => fetch(...args)` instead of storing bare platform `fetch`.
-- PR CI `37064953868` = 31/31 pass.
-- Squash merge `bd01d8ede44331f50e1115d569095fb12246331d`.
-- Post-merge CI `37065054623` and deploy `37065141745` succeeded.
-- Cloudflare telemetry showed current-version Telegram webhook requests returning HTTP 200; `Illegal invocation` existed only on the older Worker version.
-
-### PR #13 — callback resilience + documentation alignment
-- RED commit `13daeb442d6a2e1189a5cec2148aab9c2ea7c338`.
-- Callback fix commit `28e2e6b619c646796600048a34616138fbbc207c`.
-- README alignment commit `67b04e04214e334a88aea0ecdc4598bc5fbd027c`.
-- PR CI `37065725004` = 32/32 pass.
-- Squash merge `6c90cbb8384c9591ba89367b48e4ce7e785ce72f`.
-- Post-merge CI `37065832210` and deploy `37065860268` succeeded.
-- Cloudflare deployment `13a5abdc-92a0-415f-b30b-ab422ae8b8ce`, version `812c52f7-f0b3-48bf-917c-151f4618dabd`, served 100% traffic.
-- Live Telegram webhook on that Worker version returned HTTP 200 / outcome `ok`.
-
-## Plugin Foundation v1 — Production Accepted 2026-10-03
-
-### Approved design and plan
+### Plugin Foundation v1 — Production Accepted 2026-10-03
 - Design: `docs/superpowers/specs/2026-10-03-nexa-plugin-foundation-design.md`.
-- Design commit: `adabadefd74de656b20d112c325be4defcbf2103`.
 - Plan: `docs/superpowers/plans/2026-10-03-nexa-plugin-foundation.md`.
-- Initial plan commit: `5f9a1991dbc3a1e79f5c04dfbe591c4d35e74a97`.
-- Feature branch: `feat/plugin-foundation-v1`.
-- PR: `#14`.
+- PR #14 squash merge: `9d95a18659cead269ffa98af08d6bbf041c6135f`.
+- Post-merge CI `37071695354` succeeded.
+- Verified suite at acceptance: 12 test files, 52/52 pass, 0 fail/skip.
+- Deploy `37071717251` succeeded; later documentation checkpoint also passed CI/deploy.
+- Owner-device production smoke completed.
+- Smoke telemetry on Worker version `425d7418-1efa-498e-8615-1718596943d9`: 35 webhook events, zero observed webhook errors, sampled HTTP 200/outcome `ok`, 22 redacted GitHub READ audit events.
 
-### Architecture implemented
-- Plugin Registry with manifest/action validation.
-- Central Action Policy with owner READ allow and WRITE/DESTRUCTIVE approval-required decisions.
-- Recursive-redaction Audit Logger.
-- Plugin Router enforcing `resolve -> policy -> execute`.
-- GitHub manifest and plugin adapter.
-- `/repos` and GitHub callbacks migrated through the plugin kernel.
-- `/start`, `/status`, tools/settings/security and other non-GitHub menu flows remain compatibility routes in Foundation v1.
+## Safe Actions + GitHub Advanced — PR #15 Pre-Merge Checkpoint 2026-10-03
+### Scope
+- Branch: `feat/safe-github-ops`
+- PR: `#15` — `feat: add safe GitHub operator foundation`
+- Design: `docs/superpowers/specs/2026-10-03-safe-github-ops-design.md`
+- Plan: `docs/superpowers/plans/2026-10-03-safe-github-ops.md`
 
-### Security-critical design correction during implementation
-The initial plan described a handler returning an already-produced view/result. TDD review identified that this could allow provider/view work before policy. The implemented contract is safer: route resolution returns `{ actionId, execute }`; resolution must be side-effect-free, policy is evaluated next, and only then may `execute()` run. Tests prove denied, undeclared, WRITE and DESTRUCTIVE actions do not call `execute()`.
+### Implemented
+- HMAC approval service with compact Telegram-safe callback tokens.
+- Policy support for verified approved WRITE/DESTRUCTIVE execution.
+- Router approved context while preserving `resolve -> policy -> execute`.
+- Persistent cross-isolate replay prevention with SQLite Durable Object.
+- Fail-closed behavior if `APPROVAL_REPLAY_GUARD` is unavailable.
+- Approval lifecycle audit events without signed token leakage.
+- GitHub Actions read APIs: runs, run detail, jobs/steps.
+- GitHub Actions controlled write APIs: rerun failed jobs, cancel run.
+- Telegram Confirm/Cancel workflow and second approved dispatch.
+- `npm start` now uses Wrangler local Worker development rather than `node src/index.js`.
+- README/spec/plan aligned to durable replay architecture.
 
-### TDD evidence
-- Registry RED `2460b0854f6dbd99a80cfb9561850fdd23f1ac0e` / CI `37069219176`; GREEN `3f644caef41a9136cb5f0a78b0c66798238a257d` / CI `37069339637`.
-- Policy RED `77efe66f008fcb417b0b66f22b186885d3fecdd3` / CI `37069430240`; GREEN `cbdba6b1b70342d6325d229cec1725c05862a537` / CI `37069629741`.
-- Audit RED `a6f9735185f7a0ce45fe744b9a13b1fa3d885681` / CI `37069736330`; GREEN `92dfcba318f5199e6c9e54da5fbba91a15122ca3` / CI `37069824796`.
-- Router RED `4e3fca87139310c24c3c83a5181fc638f887882d` / CI `37069955642`; GREEN `00fcd1041e2f8074dc34727635395896eace0cba` / CI `37070015843`.
-- GitHub adapter RED `ae6829729779c2f656e99958a379c805eb1bebc4` / CI `37070181121`; GREEN adapter head `c9aed93bc1a3bd8ac047a3639722633bcd9c624e` / CI `37070481981`.
-- Bot migration RED `f1ee926320dc918d0d0c8b21d60710077a9d119b` / CI `37070633843`; GREEN integration `d628a4ed0b07dfa4c748b6161515565b1eef3073` / CI `37070778956`.
-- Final PR head `c44b557e64d2c3bb9a181f663833385abfb50ad3`; PR CI `37071349162` passed.
+### TDD / verification evidence
+- Earlier RED/GREEN cycles covered approval token semantics, policy, router, GitHub service, plugin views and Telegram approval flow.
+- Durable replay tests cover missing namespace fail-closed, owner+nonce scoping, duplicate rejection, expiry cleanup, and Wrangler export/binding contract.
+- A deliberate config/export RED run `37094233142` had 73 tests with exactly 1 expected failure for missing production binding/export.
+- Export and Wrangler SQLite Durable Object config then fixed that failure.
+- PR CI `37094394332`: **15 test files; 78 tests; 78 pass; 0 fail; 0 skipped/cancelled**.
+- Final documentation-aligned head `53a766ac9a2fab49a2bde29d0c5ae9b586f4c555` passed fresh PR CI `37094713808`.
+- Fresh PR patch reviewed after documentation corrections; no out-of-scope provider mutations were added.
+- Secret-pattern scan found no `ghp_` or `github_pat_` token material; no production secret values are intentionally stored in the patch.
 
-### Merge / main / deploy evidence
-- PR #14 squash-merged to `main` at `9d95a18659cead269ffa98af08d6bbf041c6135f`.
-- Post-merge `main` CI run `37071695354` succeeded.
-- CI logs were inspected in full: **12 test files discovered; 52 tests, 52 pass, 0 fail, 0 skipped/cancelled/todo**.
-- Cloudflare deploy workflow `37071717251` succeeded; credential preflight, exact verified commit checkout and deploy steps all succeeded.
-- Documentation checkpoint `c35e153179cdab9096b77c07807fb36cad3a247c` also passed `main` CI `37072163496` and deploy workflow `37072185739`.
-- The Worker version serving the owner-device smoke was `425d7418-1efa-498e-8615-1718596943d9`.
+### Not yet production-accepted
+- PR #15 is not yet merged at this checkpoint.
+- Post-merge `main` CI is not yet verified.
+- Cloudflare deployment of the Durable Object binding is not yet verified.
+- Active-production `APPROVAL_REPLAY_GUARD`/SQLite class is not yet verified through Cloudflare runtime evidence.
+- Owner-device production READ path `/start -> Repositories -> project -> CI / Actions` is not yet smoke-tested on the new deployment.
+- Live GitHub WRITE provider smoke is **NOT VERIFIED** and must only occur through an actual owner confirmation in Telegram; no secret rotation is performed automatically.
 
-### Production runtime acceptance
-Owner-device smoke was completed after deployment using `/start` and GitHub-backed navigation.
-Cloudflare observability for the smoke window showed:
-- **35** `POST /telegram/webhook` events on Worker version `425d7418-1efa-498e-8615-1718596943d9`.
-- Webhook series reported **0 errors** and sampled requests returned **HTTP 200 / outcome `ok`**.
-- `telegram_webhook_error` search returned **0 events**.
-- **22** `nexa_audit` events were emitted during the smoke path.
-- Audit evidence included GitHub `READ` actions such as `github.repos.list`, `github.repo.detail`, and `github.status.read`, with `action_attempt` = `allowed` (`owner_read_allowed`) followed by `action_result` = `success`.
-- Observed secret-bearing request headers remained redacted in telemetry.
-
-VERIFIED:
-- Plugin registry validation.
-- READ/WRITE/DESTRUCTIVE policy semantics.
-- Recursive audit redaction and non-breaking sink failure.
-- Undeclared and approval-required actions do not execute provider code.
-- GitHub callback/command ownership mapping.
-- Existing `/start`, same-message navigation, stale callback handling, security gates, GitHub fail-closed behavior and Cloudflare fetch-receiver regression remain green in automated tests.
-- PR CI, main CI, deploy workflow and Cloudflare rollout are green.
-- Live owner-device Telegram smoke is complete.
-- Current-version production webhook traffic is HTTP 200 / outcome `ok` with zero observed webhook errors in the smoke window.
-- GitHub plugin READ paths produced expected redacted audit events and completed successfully.
+## Acceptance Rules
+A phase is complete only after `IMPLEMENTED -> VERIFIED -> FIXED IF NEEDED -> RE-VERIFIED`.
+Minimum gates:
+- Non-zero discovered tests and security regressions green.
+- Plugin/policy/audit/router tests green.
+- Telegram navigation and Cloudflare fetch-receiver regressions green.
+- PR review clean and secrets not leaked.
+- Merge exact reviewed head.
+- Post-merge `main` CI green.
+- Exact-commit Cloudflare deploy green.
+- Production telemetry confirms successful webhook behavior on current version.
+- Any external WRITE smoke requires the Safe Actions confirmation path; anything not actually executed is explicitly `NOT VERIFIED`.
 
 ## Current Work / Last Checkpoint
 WHERE WE ARE:
-- **Plugin Foundation v1 is production-accepted and complete.**
-- Code is merged to `main`, automated suite is fully green at 52/52, deploy automation is healthy, and real Telegram/GitHub navigation was verified against Cloudflare telemetry.
-- No Foundation acceptance gate remains open.
+- Foundation v1 remains production-accepted.
+- Safe Actions + GitHub Advanced implementation is complete on PR #15 and final PR CI is green at head `53a766ac9a2fab49a2bde29d0c5ae9b586f4c555` / run `37094713808`.
+- Durable replay protection is implemented in code/config and tested, but production deployment verification is still pending.
 
-WHAT REMAINS:
-1. Begin the next explicitly approved plugin phase when requested.
-2. For the first write-capable plugin, implement the Telegram confirmation UX before any `WRITE` or `DESTRUCTIVE` action can execute.
+NEXT EXECUTABLE ACTIONS:
+1. Run CI once more if this memory checkpoint changes PR head.
+2. Mark PR #15 ready for review and squash-merge only if the new head is green and mergeable.
+3. Verify exact post-merge `main` CI.
+4. Verify Cloudflare deploy and active Durable Object binding/version.
+5. Inspect current-version Cloudflare telemetry.
+6. Request owner-device READ smoke only if live external interaction is still needed for acceptance.
+7. Do not perform GitHub workflow WRITE smoke without the owner pressing the Telegram Confirm button.
 
-## Acceptance Rules
-A checkpoint is complete only after `IMPLEMENTED -> VERIFIED -> FIXED IF NEEDED -> RE-VERIFIED`.
-Minimum automated/runtime gates:
-- Non-zero discovered test files.
-- Security tests green.
-- Navigation/bot/menu/index tests green.
-- Plugin registry/policy/audit/router tests green.
-- GitHub plugin/fail-closed/data-trust tests green.
-- Telegram missing-token/API-error and Cloudflare fetch-receiver regression tests green.
-- Production deploy workflow green.
-- Cloudflare telemetry must show successful production webhook behavior before runtime is called verified.
-
-## Known Gaps / Low-Priority Technical Debt
-- `package.json` still has `"start": "node src/index.js"`, which is not a useful local Cloudflare Worker development command; it does not affect production deployment.
-- Extremely long path-based refresh callback data could theoretically approach Telegram's 64-byte callback-data limit; normal deep navigation uses SHA-based callbacks.
-- Persistent navigation/session storage is intentionally not required for the current stateless callback flow.
-- Foundation v1 establishes approval-required policy results but intentionally does not implement the Telegram confirmation UX; that belongs to the first write-capable plugin phase.
+## Remaining Roadmap After PR #15 Acceptance
+Proceed as separate verified vertical slices, not one mega-PR:
+1. Cloudflare Ops plugin: deployments, versions, logs, health and safe rollback controls.
+2. Broader CI/CD control and release acceptance orchestration.
+3. AI Copilot adapter: code/PR/log/CI analysis, test/fix proposals; no autonomous production mutation.
+4. Browser QA: real DOM smoke, screenshots and production-flow checks behind explicit runtime configuration.
+5. Monitoring + Incident Manager.
+6. Automation Engine with approval-aware durable workflows.
+7. Telegram Mini App control center.
+8. Plugin ecosystem adapters as useful: Supabase, Sentry, Notion, Linear/Jira, Railway/Render; no cross-project assumptions.
+9. Multi-project control plane.
+10. Final hardening: permission penetration tests, rate limiting, replay/idempotency drills, rollback/recovery drill, documentation and release/versioning.
 
 ## Project Boundaries
-- Nexa Dev Bot is independent from Finora / Factor-easy and has no Supabase requirement in this project.
-- Do not mix state or migrations from other projects.
+- Nexa Dev Bot is independent from Finora / Factor-easy unless a future explicit multi-project adapter is added.
+- Do not mix Supabase state/migrations from other projects into Nexa by default.
 - Keep secrets out of code, logs and documentation.
-
-## Important Paths
-- `PROJECT_MEMORY.md`
-- `README.md`
-- `docs/superpowers/specs/2026-10-03-nexa-plugin-foundation-design.md`
-- `docs/superpowers/plans/2026-10-03-nexa-plugin-foundation.md`
-- `src/index.js`
-- `src/bot.js`
-- `src/core/plugin-registry.js`
-- `src/core/action-policy.js`
-- `src/core/audit.js`
-- `src/core/router.js`
-- `src/plugins/github/manifest.js`
-- `src/plugins/github/plugin.js`
-- `src/menu.js`
-- `src/telegram.js`
-- `src/github.js`
-- `test/plugin-registry.test.js`
-- `test/action-policy.test.js`
-- `test/audit.test.js`
-- `test/plugin-router.test.js`
-- `test/github-plugin.test.js`
-- `test/security.test.js`
-- `test/navigation.test.js`
-- `test/bot.test.js`
-- `.github/workflows/ci.yml`
-- `.github/workflows/deploy.yml`
-- `wrangler.jsonc`
-
-## Next Executable Action
-Foundation v1 is closed. Start the next plugin phase only from the user's next explicit instruction; preserve `resolve -> policy -> execute`, redacted audit logging, TDD, main-CI and production telemetry gates.

@@ -1,3 +1,41 @@
+const AUDIT_METADATA_KEYS = Object.freeze(new Set([
+  'repoId',
+  'workspaceId',
+  'intentId',
+  'path',
+  'contentDigest',
+  'commitMessageDigest',
+  'baseHeadSha',
+  'targetBranch',
+  'commitSha',
+  'branch',
+  'idempotent'
+]));
+
+function sanitizeAuditMetadata(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const safe = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (!AUDIT_METADATA_KEYS.has(key)) continue;
+    if (typeof raw === 'number' && Number.isSafeInteger(raw)) {
+      safe[key] = raw;
+      continue;
+    }
+    if (typeof raw === 'boolean') {
+      safe[key] = raw;
+      continue;
+    }
+    if (typeof raw === 'string') safe[key] = raw.slice(0, 240);
+  }
+  return safe;
+}
+
+function withoutAuditMetadata(result) {
+  if (!result || typeof result !== 'object' || Array.isArray(result) || !Object.hasOwn(result, 'audit')) return result;
+  const { audit, ...publicResult } = result;
+  return publicResult;
+}
+
 export class PluginRouter {
   constructor({ registry, policy, audit } = {}) {
     if (!registry) throw new Error('PluginRouter registry is required');
@@ -38,6 +76,7 @@ export class PluginRouter {
         isOwner: context.isOwner === true,
         approved: context.approved === true
       });
+      const routeAudit = sanitizeAuditMetadata(route.audit);
 
       this.audit.log({
         event: 'action_attempt',
@@ -47,7 +86,8 @@ export class PluginRouter {
         outcome: decision.allowed
           ? 'allowed'
           : (decision.requiresApproval ? 'approval_required' : 'denied'),
-        reason: decision.reason
+        reason: decision.reason,
+        ...routeAudit
       });
 
       if (!decision.allowed) {
@@ -74,9 +114,11 @@ export class PluginRouter {
           pluginId,
           actionId,
           risk: decision.risk,
-          outcome: 'success'
+          outcome: 'success',
+          ...routeAudit,
+          ...sanitizeAuditMetadata(result?.audit)
         });
-        return result;
+        return withoutAuditMetadata(result);
       } catch (error) {
         this.audit.log({
           event: 'action_result',
@@ -84,7 +126,8 @@ export class PluginRouter {
           actionId,
           risk: decision.risk,
           outcome: 'error',
-          error: error?.message || 'Unknown plugin error'
+          error: error?.message || 'Unknown plugin error',
+          ...routeAudit
         });
         throw error;
       }

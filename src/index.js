@@ -1,4 +1,5 @@
 import { NexaDevBot } from './bot.js';
+export { ApprovalReplayGuard } from './durable/approval-replay-guard.js';
 
 const jsonResponse = (payload, status = 200) => new Response(JSON.stringify(payload), {
   status,

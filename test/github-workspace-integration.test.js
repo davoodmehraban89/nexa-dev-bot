@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { NexaDevBot } from '../src/bot.js';
 import { PluginRouter } from '../src/core/router.js';
 import { PluginRegistry } from '../src/core/plugin-registry.js';
 import { ActionPolicy } from '../src/core/action-policy.js';
@@ -167,7 +168,7 @@ test('oversized multibyte draft input is visibly rejected without mutating the o
   await plugin.resolveCallback(`wtext:${WORKSPACE_ID}`, { ownerId: OWNER }).execute();
   const before = workspaces.workspace.draftText;
   const pending = await workspaces.getPendingInput({ ownerId: OWNER });
-  const route = plugin.resolveMessage({ pending, text: '😀'.repeat(3000) }, { ownerId: OWNER });
+  const route = plugin.resolveMessage({ pending, text: '😀'.repeat(3001) }, { ownerId: OWNER });
   const view = await route.execute();
   assert.match(view.text, /12,000|12000|3,000|3000|مجاز|حد/i);
   assert.equal(workspaces.workspace.draftText, before);
@@ -220,4 +221,38 @@ test('READY rejects no-change, reuses identical material and mints a new intent 
   const commit3 = flatten(ready3).find(button => button.callback_data?.startsWith('wscommit:'))?.callback_data;
   assert.notEqual(commit3, commit1);
   assert.deepEqual(github.calls, []);
+});
+
+test('bot preserves command precedence and routes raw pending workspace text exactly once', async () => {
+  const bot = new NexaDevBot({});
+  const calls = [];
+  bot.telegram = {
+    async sendMessage(chatId, text, replyMarkup) {
+      calls.push(['sendMessage', chatId, text, replyMarkup]);
+      return { ok: true };
+    }
+  };
+  bot.workspaceStore = {
+    isConfigured: () => true,
+    async getPendingInput({ ownerId }) {
+      calls.push(['getPendingInput', ownerId]);
+      return { workspaceId: WORKSPACE_ID, mode: 'draft' };
+    }
+  };
+  bot.router = {
+    async dispatchMessage(payload, context) {
+      calls.push(['dispatchMessage', structuredClone(payload), structuredClone(context)]);
+      return { text: 'workspace accepted', reply_markup: { inline_keyboard: [] } };
+    }
+  };
+
+  await bot.handleMessage({ chat: { id: 7 }, from: { id: 42 }, text: '/status' });
+  assert.equal(calls.some(call => call[0] === 'getPendingInput'), false);
+  assert.equal(calls.some(call => call[0] === 'dispatchMessage'), false);
+
+  calls.length = 0;
+  await bot.handleMessage({ chat: { id: 7 }, from: { id: 42 }, text: '  exact draft text  \n' });
+  const dispatch = calls.find(call => call[0] === 'dispatchMessage');
+  assert.equal(dispatch[1].text, '  exact draft text  \n');
+  assert.deepEqual(dispatch[2], { isOwner: true, ownerId: OWNER });
 });

@@ -18,8 +18,8 @@
 - No GitHub Git Data write may start before the approval token is consumed successfully.
 - Draft/source text must never be placed in Telegram callback data, audit logs, or error logs.
 - Approval callback data must remain within Telegram's 64-byte limit; existing `ApprovalService.maxTokenLength=56` remains the token ceiling.
-- Workspace IDs and navigation refs are random non-secret handles; every store operation is owner-scoped.
-- Workspace draft TTL is 30 minutes; navigation-ref TTL is 15 minutes; existing approval TTL remains 120 seconds.
+- Navigation refs are 10 URL-safe random characters, workspace IDs are 10 URL-safe random characters, and commit-intent IDs are exactly 8 URL-safe random characters; all are non-secret and owner-scoped.
+- Workspace draft TTL is 30 minutes; navigation-ref TTL is 15 minutes; committed intent/result metadata is retained for 24 hours; existing approval TTL remains 120 seconds.
 - Phase 1 editable content is UTF-8 text with a maximum of 3,000 Unicode characters and 12,000 UTF-8 bytes; over-limit content remains readable but the Edit control is disabled with an explicit reason.
 - Reject editor writes for Git LFS pointer content and sensitive paths matching `.env`, `.env.*`, `id_rsa`, `id_ed25519`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `credentials.json`, or `service-account*.json` case-insensitively.
 - Generated target branch is `nexa/edit-<workspaceId>` and Phase 1 fails closed if that ref already exists unexpectedly.
@@ -74,10 +74,10 @@
 
 **Interfaces:**
 - Produces: `validateEditableFile({ path, text, byteLength? }) -> { editable, reason, text, charLength, byteLength }`.
-- Produces: `normalizeCommitMessage(value) -> string` with non-empty, single bounded message <= 120 characters.
+- Produces: `normalizeCommitMessage(value) -> string` with non-empty normalized message <= 120 characters.
 - Produces: `makeTargetBranch(workspaceId) -> string` returning `nexa/edit-<workspaceId>` after safe-handle validation.
 - Produces: `digestText(value) -> Promise<string>` returning lowercase 64-hex SHA-256.
-- Produces: `buildUnifiedDiff({ path, before, after, maxChars = 2600 }) -> { text, additions, deletions, truncated }` with exact line counts and bounded rendered text.
+- Produces: `buildUnifiedDiff({ path, before, after, maxChars = 2600 }) -> { text, additions, deletions, truncated }` with exact line counts and bounded raw diff text. HTML escaping belongs to the Telegram view layer, not this pure function.
 
 - [ ] **Step 1: Write policy RED tests**
 
@@ -86,7 +86,7 @@ Add tests named:
 - `editable file policy rejects sensitive paths binary markers LFS and both size ceilings`.
 - `editable file policy counts multibyte UTF-8 bytes instead of JavaScript characters`.
 - `commit message and target branch normalization fail closed on empty or unsafe values`.
-- `unified diff reports exact additions deletions escapes no data and marks bounded truncation`.
+- `unified diff reports exact additions deletions and marks bounded truncation without changing counts`.
 - `digestText is stable for identical content and changes with content`.
 
 Assert exact limits from Global Constraints, including a multibyte string that is under 3,000 characters but over 12,000 UTF-8 bytes.
@@ -99,7 +99,7 @@ Expected: FAIL because `src/core/workspace-policy.js` and exported functions do 
 
 - [ ] **Step 3: Implement the pure policy module**
 
-Implement the signatures above without third-party dependencies. `buildUnifiedDiff` operates on line arrays, counts the full before/after change exactly, and bounds only the rendered diff text; it never truncates input before calculating counts/digest.
+Implement the signatures above without third-party dependencies. `buildUnifiedDiff` operates on complete line arrays, calculates exact additions/deletions before bounding the rendered diff, and returns raw text for the UI to escape.
 
 - [ ] **Step 4: Run focused + full regression tests**
 
@@ -132,10 +132,10 @@ Commit: `feat: add workspace edit policy and diff`
 - `resolveNavigationRef({ ownerId, refId }) -> ref | null`.
 - `createWorkspace({ ownerId, repoId, repoFullName, baseBranch, baseHeadSha, baseTreeSha, path, blobSha, originalText, originalDigest, expiresAt }) -> workspace`.
 - `getWorkspace({ ownerId, workspaceId }) -> workspace | null`.
-- `updateDraft({ ownerId, workspaceId, text, digest }) -> workspace` and invalidates any previously sealed pending intent for later approval.
+- `updateDraft({ ownerId, workspaceId, text, digest }) -> workspace`; only a materially changed draft invalidates an existing READY intent.
 - `setPendingInput({ ownerId, workspaceId, mode })`, `getPendingInput({ ownerId })`, `consumePendingInput({ ownerId, workspaceId, mode })` where mode is `draft` or `commit_message` and consume is one-time.
-- `setCommitMessage({ ownerId, workspaceId, message, digest }) -> workspace`.
-- `sealIntent({ ownerId, workspaceId, intent }) -> intent` creates immutable `intent:<intentId>` and moves workspace to `READY`.
+- `setCommitMessage({ ownerId, workspaceId, message, digest }) -> workspace`; only a materially changed message invalidates an existing READY intent.
+- `sealIntent({ ownerId, workspaceId, intent }) -> intent` creates immutable `intent:<intentId>` and moves workspace to `READY`; when the canonical material digest is unchanged, it reuses the existing READY/COMMITTED intent instead of minting a new intent ID.
 - `getIntent({ ownerId, intentId }) -> intent | null`.
 - `beginCommit({ ownerId, intentId }) -> { disposition: 'start'|'resume'|'committed', intent }` atomically moves `READY -> COMMITTING`, returns `resume` for existing `COMMITTING`, and returns recorded result for `COMMITTED`.
 - `setCandidateCommit({ ownerId, intentId, commitSha })`.
@@ -149,8 +149,9 @@ Cover:
 - owner A cannot resolve owner B refs/workspaces;
 - expired refs/workspaces read as missing and cleanup is scheduled;
 - pending input is consumed once and duplicate/late messages are rejected;
-- updateDraft invalidates old READY intent state;
-- sealIntent is immutable;
+- materially changed draft/message invalidates old READY intent while identical values do not;
+- sealing identical material twice returns the same intent ID;
+- sealIntent is immutable after creation;
 - beginCommit is atomic and returns `committed` after success;
 - committed result retains exact SHA/branch for idempotent retries;
 - missing `WORKSPACE_STORE` fails closed.
@@ -163,7 +164,7 @@ Expected: FAIL because store/client/binding do not exist.
 
 - [ ] **Step 3: Implement client + Durable Object**
 
-Use one owner-named Durable Object instance. Store keys as `ref:<id>`, `ws:<id>`, `intent:<id>`, and one `pending` record. Generate navigation/workspace/intent handles with `crypto.getRandomValues`; do not use source text in IDs. Alarm cleanup removes expired refs/workspaces while retaining committed intent metadata for 24 hours to support reconciliation/idempotent retry.
+Use one owner-named Durable Object instance. Store keys as `ref:<id>`, `ws:<id>`, `intent:<id>`, and one `pending` record. Generate 10-character navigation/workspace handles and 8-character intent handles from cryptographically random URL-safe bytes; do not use source text in IDs. Alarm cleanup removes expired refs/workspaces while retaining committed intent metadata for 24 hours to support reconciliation/idempotent retry.
 
 - [ ] **Step 4: Wire Worker configuration**
 
@@ -205,7 +206,7 @@ Commit: `feat: add durable repository workspace store`
 - [ ] **Step 1: Write navigation/draft RED tests**
 
 Cover:
-- `files:<repoId>` is routed after policy to the new path-safe browser;
+- exact `files:<repoId>` is routed after policy to the new path-safe browser;
 - visible file/directory buttons contain short refs, never raw long paths;
 - a nested directory resolves through `wnav:<refId>` and still preserves full path server-side;
 - an eligible text file view shows `✏️ Edit`;
@@ -213,7 +214,7 @@ Cover:
 - `wedit:<refId>` pins current default-branch HEAD/tree and file blob/content before durable draft creation;
 - archived repositories cannot create editable drafts;
 - callbacks remain <=64 bytes;
-- old `tree:`/`blob:` Telegram callbacks continue to render through the legacy MenuManager path.
+- old `tree:`/`blob:` and old path-bearing `files:` Telegram callbacks continue to render through the legacy MenuManager path.
 
 - [ ] **Step 2: Run RED tests**
 
@@ -223,7 +224,7 @@ Expected: FAIL on missing workspace routes/provider readers.
 
 - [ ] **Step 3: Implement provider read helpers**
 
-`getBranchSnapshot` reads `git/ref/heads/<branch>` then the referenced Git commit to obtain `tree.sha`. `getFileAtRef` requests `/contents/<path>?ref=<full head SHA>` and rejects directory/non-file responses. Preserve raw blob SHA and decode only after editable-file validation.
+`getBranchSnapshot` reads `git/ref/heads/<branch>` then the referenced Git commit to obtain `tree.sha`. `getFileAtRef` requests `/contents/<path>?ref=<full head SHA>`, rejects directory/non-file responses, checks path and provider-reported size first, then decodes base64 with fatal UTF-8 handling, and finally runs content/LFS/edit-size policy. Preserve the provider blob SHA.
 
 - [ ] **Step 4: Implement path-safe browser/controller**
 
@@ -263,7 +264,7 @@ Commit: `feat: add path-safe editor workspace entry`
 - `plugin.resolveMessage({ pending, text }, context)` owns only pending workspace input modes.
 - `wtext:<workspaceId>` sets pending mode `draft`; the next owner text replaces the whole Phase-1 draft exactly if it satisfies the 3,000-char/12,000-byte bounds.
 - `wmsg:<workspaceId>` sets pending mode `commit_message`; next owner text passes `normalizeCommitMessage`.
-- `wdiff:<workspaceId>` returns bounded exact diff with additions/deletions and no provider mutation.
+- `wdiff:<workspaceId>` returns bounded exact diff with additions/deletions and no provider mutation; the Telegram view HTML-escapes `buildUnifiedDiff().text` before rendering.
 - `wready:<workspaceId>` requires non-empty changed draft + commit message, computes/stores content/message/intent digests, fixed commit timestamp, target branch and immutable intent, then renders `✅ تأیید و Commit` with `wscommit:<repoId>:<intentId>`.
 
 - [ ] **Step 1: Extend RED tests for text input and ready state**
@@ -274,8 +275,9 @@ Assert:
 - multibyte/oversized input is visibly rejected without mutating the old draft;
 - diff HTML is escaped and rendered text is bounded while counts/digest use complete content;
 - no-change draft cannot become READY;
-- changing draft or commit message after READY invalidates old intent;
-- `wready` creates an immutable intent and renders only a short `wscommit` callback.
+- materially changing draft or commit message after READY invalidates old intent;
+- pressing Ready twice without material changes reuses the same intent ID;
+- `wready` renders only a short `wscommit` callback.
 
 - [ ] **Step 2: Run RED**
 
@@ -338,7 +340,7 @@ Reuse `getRepositoryContext`, `requestJson`, full-SHA validation and URL path-se
 
 - [ ] **Step 4: Verify deterministic retry primitives**
 
-Test that the same parent/tree/message/timestamp produces identical Git commit request bodies, allowing retries to resolve the same Git object SHA from GitHub.
+Test that the same parent/tree/message/timestamp produces identical Git commit request bodies. Blob/tree/commit creation can therefore be retried after an ambiguous transport result without changing the intended Git object identity.
 
 - [ ] **Step 5: Run focused + full tests**
 
@@ -370,7 +372,7 @@ Commit: `feat: add github workspace commit primitives`
 **Interfaces:**
 - Add compact codec for `github.workspace.commit_branch` with action code `e`, `repoId` as base36 and exactly 8-character URL-safe `intentId`; preserve existing `r`/`c` codecs and the 56-character token maximum.
 - `approvalSourceCallback(payload)` supports workspace input `{ repoId, intentId }` -> `wscommit:<repoId>:<intentId>`.
-- Generalize approval UI metadata to accept `cancelCallback`; workflow-run approvals keep their existing Run fallback, workspace approval falls back to `ws:<workspaceId>` via immutable intent metadata resolved before issuing approval.
+- Generalize approval UI metadata to accept `cancelCallback`; workflow-run approvals keep their existing Run fallback, while the workspace write route uses `repo:<repoId>` as its cancel fallback so approval preparation needs no pre-policy Durable Object read.
 - Register `github.workspace.commit_branch` as `WRITE`.
 - `commitWorkspaceIntent({ github, workspaces, ownerId, repoId, intentId }) -> { commitSha, branch, idempotent }`.
 - Plugin route `wscommit:<repoId>:<intentId>` returns approval metadata before execution; provider calls remain deferred until approved dispatch.
@@ -399,7 +401,7 @@ Expected: FAIL on codec, route and commit orchestration.
 
 - [ ] **Step 3: Add compact approval codec without regressing Actions approvals**
 
-Implement a dedicated workspace-intent compact encoding branch rather than expanding generic JSON. Reject malformed/non-8-char intent IDs. Re-run existing `test/approval*.test.js` together with workspace approval tests.
+Implement a dedicated workspace-intent compact encoding branch rather than expanding generic JSON. Reject malformed/non-8-character intent IDs. Re-run existing `test/approval*.test.js` together with workspace approval tests and assert the final callback data remains <=64 bytes.
 
 - [ ] **Step 4: Implement commit orchestration**
 
@@ -407,17 +409,18 @@ Algorithm:
 1. load immutable owner-scoped intent and call `beginCommit`;
 2. return recorded result immediately for `COMMITTED`;
 3. re-read base branch snapshot and require exact `baseHeadSha` before object creation;
-4. read target ref and fail if it exists unless it already points to the stored deterministic candidate commit;
-5. create content blob, tree and deterministic commit; persist candidate commit SHA before ref creation;
-6. create target branch ref;
-7. on provider ambiguity, re-read ref and accept only exact candidate SHA;
-8. persist `COMMITTED` result before returning Telegram success.
+4. if a stored candidate commit exists, read target ref first and reconcile exact SHA before any further ref write;
+5. otherwise require the target ref to be absent before object creation;
+6. create content blob, tree and deterministic commit; persist candidate commit SHA before ref creation;
+7. create target branch ref;
+8. on provider ambiguity, re-read ref and accept only exact candidate SHA;
+9. persist `COMMITTED` result before returning Telegram success.
 
 No force update, default-branch update or retry with changed material is allowed.
 
-- [ ] **Step 5: Generalize approval UI/fallback and add CI handoff**
+- [ ] **Step 5: Generalize approval/error UI and add CI handoff**
 
-Success view shows exact provider commit SHA + branch and buttons for `🧪 CI / Actions` and workspace view. Failure/stale views show explicit reason and never claim commit success.
+Success view shows exact provider commit SHA + branch and buttons for `🧪 CI / Actions` and repository/workspace navigation. Workspace stale/provider-failure views show explicit reason and never use the old Actions-specific 403 copy.
 
 - [ ] **Step 6: Run all security, approval and integration tests**
 
@@ -465,7 +468,7 @@ Verify deploy checked out the exact main merge SHA. Verify active Worker version
 
 - [ ] **Step 5: Owner-device pre-approval smoke on a safe branch-only edit**
 
-Use Telegram to open `davoodmehraban89/nexa-dev-bot` -> Files -> an eligible harmless text file (recommended `README.md`) -> Edit. Replace a tiny bounded portion so the diff is unmistakable; set a commit message such as `test: verify nexa mobile editor`.
+Use Telegram to open `davoodmehraban89/nexa-dev-bot` -> Files -> an eligible harmless text file (recommended `README.md`) -> Edit. Replace a tiny bounded portion so the diff is unmistakable; set commit message `test: verify nexa mobile editor`.
 
 Before pressing Confirm, verify from GitHub that `nexa/edit-<workspaceId>` does not exist and `main` is unchanged. Verify Cloudflare audit shows draft/diff/approval-issued metadata only and no `github.workspace.commit_branch` success/provider mutation.
 
@@ -475,7 +478,7 @@ Owner presses `✅ تأیید و Commit` while the 120-second approval is valid.
 
 - [ ] **Step 7: Verify replay and fresh-retry idempotency**
 
-Reusing the same approval callback must be rejected by `APPROVAL_REPLAY_GUARD`. Re-opening the already committed workspace and requesting a fresh confirmation for the unchanged intent must return the recorded commit SHA without a second commit/ref movement. Compare GitHub branch history before/after.
+Reusing the same approval callback must be rejected by `APPROVAL_REPLAY_GUARD`. Re-opening the already committed workspace and requesting confirmation again for unchanged material must reuse the same intent and return the recorded commit SHA without a second commit/ref movement. Compare GitHub branch history before/after.
 
 - [ ] **Step 8: Verify Cloudflare runtime/audit agreement**
 

@@ -424,6 +424,10 @@ export function createGitHubPlugin({ github, menu, workspaces } = {}) {
       return { actionId: 'github.repos.list', execute: () => menu.getReposListView() };
     },
 
+    resolveMessage(payload, context = {}) {
+      return workspaceController?.resolveMessage(payload, context) || null;
+    },
+
     resolveCallback(data, context = {}) {
       const write = resolveWriteCallback(data);
       if (write) return { actionId: write.actionId, approval: write.approval, execute: () => write.execute(github) };

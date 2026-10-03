@@ -111,6 +111,13 @@ function listPagination(prefix, repoId, page, count, pageSize) {
   return row.length ? [row] : [];
 }
 
+function explicitPagination(prefix, repoId, page, hasMore) {
+  const row = [];
+  if (page > 1) row.push({ text: '⬅️ جدیدتر', callback_data: `${prefix}:${repoId}:${page - 1}` });
+  if (hasMore && page < 100) row.push({ text: 'قدیمی‌تر ➡️', callback_data: `${prefix}:${repoId}:${page + 1}` });
+  return row.length ? [row] : [];
+}
+
 function pairPagination(prefix, repoId, itemId, page, count, pageSize) {
   const row = [];
   if (page > 1) row.push({ text: '⬅️ جدیدتر', callback_data: `${prefix}:${repoId}:${itemId}:${page - 1}` });
@@ -345,13 +352,22 @@ async function pullRequestChecksView(github, repoId, prNumber, page = 1) {
 }
 
 async function issuesView(github, repoId, page = 1) {
-  const [repo, issues] = await Promise.all([github.getRepository(repoId), github.listIssues(repoId, { perPage: 10, page })]);
+  const [repo, issuePage] = await Promise.all([
+    github.getRepository(repoId),
+    github.listIssuesPage(repoId, { page })
+  ]);
+  const issues = issuePage.items || [];
   const body = issues.length
-    ? issues.slice(0, 10).map(issue => `${stateIcon(issue.state)} <b>#${issue.number} ${escapeHtml(short(issue.title, 110))}</b>\n  ${escapeHtml(issue.author)} · ${issue.comments} comments`).join('\n\n')
+    ? issues.slice(0, 20).map(issue => `${stateIcon(issue.state)} <b>#${issue.number} ${escapeHtml(short(issue.title, 110))}</b>\n  ${escapeHtml(issue.author)} · ${issue.comments} comments`).join('\n\n')
     : '<i>Issueی یافت نشد.</i>';
   return {
     text: `🐛 <b>Issues — ${escapeHtml(repo.name)}</b>\nصفحه: <b>${page}</b>\n➖➖➖➖➖➖➖➖➖➖\n${body}`,
-    reply_markup: { inline_keyboard: [...listPagination('issues', repoId, page, issues.length, 10), [{ text: '🔙 پروژه', callback_data: `repo:${repoId}` }]] }
+    reply_markup: {
+      inline_keyboard: [
+        ...explicitPagination('issues', repoId, page, !!issuePage.hasMore),
+        [{ text: '🔙 پروژه', callback_data: `repo:${repoId}` }]
+      ]
+    }
   };
 }
 

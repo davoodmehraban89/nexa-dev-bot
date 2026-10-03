@@ -113,7 +113,7 @@ Audit scope covered the full recursive repository tree, including workflows, Wor
 - Cloudflare deployment `13a5abdc-92a0-415f-b30b-ab422ae8b8ce`, version `812c52f7-f0b3-48bf-917c-151f4618dabd`, served 100% traffic.
 - Live Telegram webhook on that Worker version returned HTTP 200 / outcome `ok`.
 
-## Plugin Foundation v1 — Merged and Deployed 2026-10-03
+## Plugin Foundation v1 — Production Accepted 2026-10-03
 
 ### Approved design and plan
 - Design: `docs/superpowers/specs/2026-10-03-nexa-plugin-foundation-design.md`.
@@ -149,12 +149,18 @@ The initial plan described a handler returning an already-produced view/result. 
 - Post-merge `main` CI run `37071695354` succeeded.
 - CI logs were inspected in full: **12 test files discovered; 52 tests, 52 pass, 0 fail, 0 skipped/cancelled/todo**.
 - Cloudflare deploy workflow `37071717251` succeeded; credential preflight, exact verified commit checkout and deploy steps all succeeded.
-- Cloudflare deployment `c5a3bed8-485d-43e9-b898-ded3d3ea3623` activated Worker version `c5d933f1-e8b5-4eb9-b264-2ef7dfee22ee` at **100% traffic**.
+- Documentation checkpoint `c35e153179cdab9096b77c07807fb36cad3a247c` also passed `main` CI `37072163496` and deploy workflow `37072185739`.
+- The Worker version serving the owner-device smoke was `425d7418-1efa-498e-8615-1718596943d9`.
 
-### Production runtime verification state
-- Observability was queried from the Foundation deployment time onward for `/telegram/webhook`, `telegram_webhook_error`, and `nexa_audit`.
-- At the time of the query there had been **no post-deploy Telegram webhook traffic**, so no current-version live Telegram interaction can honestly be marked verified yet.
-- No `telegram_webhook_error` event was found in that post-deploy timeframe, but absence of traffic is not a successful smoke test.
+### Production runtime acceptance
+Owner-device smoke was completed after deployment using `/start` and GitHub-backed navigation.
+Cloudflare observability for the smoke window showed:
+- **35** `POST /telegram/webhook` events on Worker version `425d7418-1efa-498e-8615-1718596943d9`.
+- Webhook series reported **0 errors** and sampled requests returned **HTTP 200 / outcome `ok`**.
+- `telegram_webhook_error` search returned **0 events**.
+- **22** `nexa_audit` events were emitted during the smoke path.
+- Audit evidence included GitHub `READ` actions such as `github.repos.list`, `github.repo.detail`, and `github.status.read`, with `action_attempt` = `allowed` (`owner_read_allowed`) followed by `action_result` = `success`.
+- Observed secret-bearing request headers remained redacted in telemetry.
 
 VERIFIED:
 - Plugin registry validation.
@@ -163,24 +169,20 @@ VERIFIED:
 - Undeclared and approval-required actions do not execute provider code.
 - GitHub callback/command ownership mapping.
 - Existing `/start`, same-message navigation, stale callback handling, security gates, GitHub fail-closed behavior and Cloudflare fetch-receiver regression remain green in automated tests.
-- PR CI, main CI, deploy workflow and Cloudflare 100% rollout are green.
-
-NOT YET VERIFIED:
-- Live owner-device Telegram `/start` after the Foundation deployment.
-- Live GitHub-plugin path after deployment: Repositories -> project -> Files / PR / Commits / Status -> Back.
-- Post-interaction Cloudflare telemetry showing the current Worker version serving those webhook requests successfully and emitting expected redacted `nexa_audit` events.
+- PR CI, main CI, deploy workflow and Cloudflare rollout are green.
+- Live owner-device Telegram smoke is complete.
+- Current-version production webhook traffic is HTTP 200 / outcome `ok` with zero observed webhook errors in the smoke window.
+- GitHub plugin READ paths produced expected redacted audit events and completed successfully.
 
 ## Current Work / Last Checkpoint
 WHERE WE ARE:
-- Foundation v1 code is merged to `main` and deployed to Cloudflare at 100% traffic.
-- Automated suite is fully green at 52/52.
-- The only remaining Foundation acceptance gate is real owner Telegram interaction on the deployed version plus telemetry confirmation.
+- **Plugin Foundation v1 is production-accepted and complete.**
+- Code is merged to `main`, automated suite is fully green at 52/52, deploy automation is healthy, and real Telegram/GitHub navigation was verified against Cloudflare telemetry.
+- No Foundation acceptance gate remains open.
 
 WHAT REMAINS:
-1. Owner sends `/start` in Telegram.
-2. Owner opens `Repositories`, opens one project, and opens at least one GitHub-backed view such as Files or Commits.
-3. Re-query Cloudflare telemetry for current Worker version HTTP 200 webhook events, expected `nexa_audit` READ events, and absence of new `telegram_webhook_error`.
-4. Mark Foundation v1 production acceptance complete and then begin the next plugin phase.
+1. Begin the next explicitly approved plugin phase when requested.
+2. For the first write-capable plugin, implement the Telegram confirmation UX before any `WRITE` or `DESTRUCTIVE` action can execute.
 
 ## Acceptance Rules
 A checkpoint is complete only after `IMPLEMENTED -> VERIFIED -> FIXED IF NEEDED -> RE-VERIFIED`.
@@ -195,7 +197,6 @@ Minimum automated/runtime gates:
 - Cloudflare telemetry must show successful production webhook behavior before runtime is called verified.
 
 ## Known Gaps / Low-Priority Technical Debt
-- Post-Foundation owner-device visual/interactive smoke remains the final UI acceptance gate.
 - `package.json` still has `"start": "node src/index.js"`, which is not a useful local Cloudflare Worker development command; it does not affect production deployment.
 - Extremely long path-based refresh callback data could theoretically approach Telegram's 64-byte callback-data limit; normal deep navigation uses SHA-based callbacks.
 - Persistent navigation/session storage is intentionally not required for the current stateless callback flow.
@@ -235,4 +236,4 @@ Minimum automated/runtime gates:
 - `wrangler.jsonc`
 
 ## Next Executable Action
-Run `/start` on the owner Telegram account, open `Repositories`, open one project and one GitHub-backed view. Then verify current-version Cloudflare webhook/audit telemetry and close Foundation v1 production acceptance.
+Foundation v1 is closed. Start the next plugin phase only from the user's next explicit instruction; preserve `resolve -> policy -> execute`, redacted audit logging, TDD, main-CI and production telemetry gates.

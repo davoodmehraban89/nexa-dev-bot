@@ -1,5 +1,10 @@
 const encoder = new TextEncoder();
 
+// Shared within a Worker isolate so approval replay state survives across
+// separate NexaDevBot instances created for individual webhook requests.
+// A durable cross-isolate store is wired in the hardening phase.
+const sharedUsedNonces = new Set();
+
 const DEFAULT_CODECS = new Map([
   ['github.workflow.run.rerun_failed', {
     code: 'r',
@@ -66,14 +71,18 @@ export class ApprovalService {
     now = () => Date.now(),
     ttlMs = 120_000,
     maxTokenLength = 56,
-    signatureBytes = 12
+    signatureBytes = 12,
+    replayStore = sharedUsedNonces
   } = {}) {
     this.secret = String(secret || '');
     this.now = now;
     this.ttlMs = ttlMs;
     this.maxTokenLength = maxTokenLength;
     this.signatureBytes = signatureBytes;
-    this.usedNonces = new Set();
+    if (!replayStore || typeof replayStore.has !== 'function' || typeof replayStore.add !== 'function') {
+      throw new Error('Approval replay store is invalid');
+    }
+    this.replayStore = replayStore;
     this.keyPromise = null;
   }
 
@@ -136,8 +145,8 @@ export class ApprovalService {
 
   async consume(token, expectations = {}) {
     const payload = await this.verify(token, expectations);
-    if (this.usedNonces.has(payload.nonce)) throw new Error('Approval token already used');
-    this.usedNonces.add(payload.nonce);
+    if (this.replayStore.has(payload.nonce)) throw new Error('Approval token already used');
+    this.replayStore.add(payload.nonce);
     return payload;
   }
 

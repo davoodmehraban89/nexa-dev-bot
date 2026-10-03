@@ -189,3 +189,57 @@ test('WRITE approval falls back to the configured Telegram webhook secret when n
     mock.restore();
   }
 });
+
+test('approval lifecycle is audited without logging signed callback tokens', async () => {
+  const mock = installMock();
+  const originalLog = console.log;
+  const logs = [];
+  console.log = (...args) => logs.push(args.map(String).join(' '));
+
+  try {
+    const menuMessage = { message_id: 703, chat: { id: 123 } };
+    await sendUpdate({
+      callback_query: {
+        id: 'audit-issue',
+        from: { id: 123 },
+        data: 'rerun:1001:55',
+        message: menuMessage
+      }
+    });
+
+    const approvalEdit = mock.telegramCalls
+      .filter(call => call.method === 'editMessageText')
+      .at(-1);
+    const approveButton = approvalEdit.body.reply_markup.inline_keyboard
+      .flat()
+      .find(button => String(button.callback_data || '').startsWith('approve:'));
+    assert.ok(approveButton);
+
+    await sendUpdate({
+      callback_query: {
+        id: 'audit-verify',
+        from: { id: 123 },
+        data: approveButton.callback_data,
+        message: menuMessage
+      }
+    });
+
+    await sendUpdate({
+      callback_query: {
+        id: 'audit-reject',
+        from: { id: 123 },
+        data: approveButton.callback_data,
+        message: menuMessage
+      }
+    });
+
+    const auditText = logs.filter(line => line.startsWith('nexa_audit ')).join('\n');
+    assert.match(auditText, /"event":"approval_issued"/);
+    assert.match(auditText, /"event":"approval_verified"/);
+    assert.match(auditText, /"event":"approval_rejected"/);
+    assert.doesNotMatch(auditText, new RegExp(approveButton.callback_data.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  } finally {
+    console.log = originalLog;
+    mock.restore();
+  }
+});

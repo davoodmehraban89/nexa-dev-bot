@@ -123,7 +123,7 @@ Conclusion:
 - Design spec: `docs/superpowers/specs/2026-10-03-repository-workspace-editor-design.md`.
 - Implementation plan: `docs/superpowers/plans/2026-10-03-repository-workspace-editor.md`.
 - Implementation branch: `spec/repository-workspace-editor`.
-- PR #21 targets `main` and now contains implementation work; it is no longer design-only.
+- PR #21 targets `main` and contains the complete Phase-1 implementation pending merge/deploy/owner-device acceptance.
 - Phase 1 remains branch-first only: no direct default-branch mutation, no force update, no automatic merge/rebase/conflict resolution.
 
 ### Locked implementation constraints
@@ -134,7 +134,7 @@ Conclusion:
 - Target branch is `nexa/edit-<workspaceId>`.
 - Draft/source content is never placed in callback data or audit metadata.
 - Repeated Ready on unchanged material reuses the existing immutable intent.
-- Provider Git commit creation remains NOT VERIFIED live until Task 6 is completed and owner-device production acceptance passes.
+- Provider Git commit creation remains NOT VERIFIED live until owner-device production acceptance passes.
 
 ### Task 1 — Workspace policy/diff primitives: COMPLETE
 - `src/core/workspace-policy.js` implements editable-file policy, commit-message normalization, target-branch normalization, SHA-256 digests and bounded unified diff with exact full-content counts.
@@ -165,7 +165,7 @@ Conclusion:
 
 ### Task 5 — GitHub Git Data commit primitives: COMPLETE
 - RED CI #209 / run `37114394075`, job `111178254379`: 132 tests total, 127 pass / 5 expected failures for missing Git Data primitives.
-- `requestJson` now supports opt-in `allowNotFound`; only HTTP 404 may return `null`, while 403/409/422 and other provider errors remain explicit.
+- `requestJson` supports opt-in `allowNotFound`; only HTTP 404 may return `null`, while 403/409/422 and other provider errors remain explicit.
 - Added `getGitRef`, `createGitBlob`, multi-file-capable `createGitTree`, deterministic `createGitCommit`, and create-only `createGitBranchRef`.
 - Branch paths containing `/` are safely encoded for ref reads; every provider/object SHA is full 40-hex validated.
 - Commit author/committer identity and timestamp are deterministic, making ambiguous Git object creation retries material-stable.
@@ -173,18 +173,44 @@ Conclusion:
 - GREEN CI #210 / run `37114509763`, job `111178575800`: 28 test files, 132/132 pass, 0 fail/skip/cancelled.
 - These Git Data writes are verified only against mocked provider contracts; live GitHub branch commit remains NOT VERIFIED.
 
-### Remaining implementation tasks
-- Task 6: compact workspace Safe Approval codec + idempotent commit orchestration + safe audit metadata.
-- Task 7: whole-branch review, merge, exact post-merge CI/deploy, Cloudflare binding verification and owner-device production acceptance.
+### Task 6 — Safe Approval + idempotent branch commit orchestration: COMPLETE IN CI
+- Workspace commit approval uses a compact owner/action/risk/repo/8-char-intent-bound HMAC token; full Telegram `approve:` callback is regression-tested within the 64-byte limit.
+- `wscommit` returns approval metadata before execution; pre-approval route evaluation performs zero GitHub Git Data writes.
+- Approved orchestration revalidates immutable workspace material, exact base HEAD and target-branch absence before object creation.
+- Commit flow is blob -> tree -> deterministic commit -> persist candidate SHA -> create-only branch ref -> durable `COMMITTED` result.
+- `COMMITTING` and already `COMMITTED` retries reconcile idempotently; ambiguous create-ref failures are accepted only if the target ref resolves to the exact recorded candidate SHA.
+- Audit metadata is allowlisted and excludes source/draft text and signed token material.
+- Existing workflow-run Safe Approval behavior and replay protection remain covered.
+- GREEN CI #219 / run `37115479051`, job `111181371564`: 30 test files, 141/141 pass, 0 fail/skip/cancelled.
+- Live Repository Workspace provider mutation remains NOT VERIFIED.
+
+### Task 7 — Whole-branch review/hardening: IN PROGRESS
+- Review found one visible-error gap: approved workspace provider error text was inserted into Telegram HTML without escaping.
+- RED CI #220 / run `37115793196`, job `111182246421`: 31 test files, 142 tests total, 141 pass / exactly 1 expected failure on that regression.
+- Fix escapes provider error text before Telegram rendering.
+- GREEN CI #221 / run `37115965768`, job `111182732367`: 31 test files, 142/142 pass, 0 fail/skip/cancelled.
+- Secret-pattern review found no actual PAT/Telegram secret in the PR diff; occurrences of `ghp_` / `github_pat_` are only the documented scan-pattern names. `approve:` occurrences are expected callback construction/parsing and explicit negative audit tests, not logged live tokens.
+- A fresh CI is still required after this durable checkpoint because the documentation commits move the PR head.
+
+### Not yet production-accepted
+- PR #21 is not yet merged/deployed at this checkpoint.
+- Exact post-merge `main` CI: NOT VERIFIED.
+- Production `WORKSPACE_STORE` / `WorkspaceStore` binding/runtime: NOT VERIFIED.
+- Live owner-device browse/edit/diff/READY pre-approval smoke: NOT VERIFIED.
+- Live proof of zero provider WRITE before workspace approval: NOT VERIFIED for this new action.
+- Live approved branch-only GitHub commit and exact provider SHA feedback: NOT VERIFIED.
+- Main/default branch remaining unchanged after the branch-only commit: NOT VERIFIED live.
 
 ## Next Executable Actions
-1. Execute Task 6 RED -> GREEN for Safe Approval/idempotent branch commit orchestration; no provider WRITE before approval.
-2. Run Task 7 exact whole-branch verification and secret-pattern scan; review PR #21 against the approved spec.
-3. Merge only a reviewed green head, verify exact `main` CI and Cloudflare deployment/bindings, then perform owner-device pre-approval and approved-commit smoke.
-4. Do not call Repository Workspace Phase 1 production-accepted until Telegram, GitHub and Cloudflare runtime evidence agree.
+1. Run fresh CI on the final checkpoint head and review exact PR #21 diff/metadata.
+2. Mark PR #21 ready and merge only that reviewed green head.
+3. Verify exact post-merge `main` CI, deploy SHA, active Cloudflare version and both Durable Object bindings/classes.
+4. Perform owner-device production smoke up to the Approval screen; verify no target branch/provider WRITE exists before confirmation.
+5. Owner confirms the fresh Safe Approval; verify the new `nexa/edit-*` branch, exact commit SHA, main unchanged, Cloudflare audit success and Telegram success feedback.
+6. Do not call Repository Workspace Phase 1 production-accepted until Telegram, GitHub and Cloudflare runtime evidence agree.
 
 ## Remaining Roadmap
-1. Repository Workspace / Code Editor Phase 1, then multi-file expansion.
+1. Repository Workspace / Code Editor Phase 1 production acceptance, then multi-file expansion.
 2. Remaining useful GitHub Advanced WRITE actions, always through Safe Approval.
 3. Cloudflare Ops plugin: deployments, versions, bindings, health, telemetry/runtime errors and approval-gated rollback/deploy operations.
 4. CI/CD Control Plane and release acceptance orchestration.

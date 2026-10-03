@@ -3,6 +3,18 @@ import assert from 'node:assert/strict';
 
 const approvalModule = await import('../src/core/approval.js').catch(() => null);
 
+function makeReplayStore() {
+  const used = new Set();
+  return {
+    async consume({ ownerId, nonce }) {
+      const key = `${ownerId}:${nonce}`;
+      if (used.has(key)) return false;
+      used.add(key);
+      return true;
+    }
+  };
+}
+
 test('ApprovalService module exists', () => {
   assert.ok(approvalModule, 'ApprovalService module must exist');
   assert.equal(typeof approvalModule?.ApprovalService, 'function');
@@ -75,7 +87,8 @@ test('ApprovalService consume is one-time and rejects replay', async () => {
   assert.ok(approvalModule?.ApprovalService, 'ApprovalService module must exist');
   const service = new approvalModule.ApprovalService({
     secret: 'test-signing-secret',
-    now: () => 1_700_000_000_000
+    now: () => 1_700_000_000_000,
+    replayStore: makeReplayStore()
   });
   const token = await service.issue({
     pluginId: 'github',
@@ -88,6 +101,22 @@ test('ApprovalService consume is one-time and rejects replay', async () => {
   const first = await service.consume(token, { ownerId: '42' });
   assert.equal(first.actionId, 'github.workflow.run.cancel');
   await assert.rejects(() => service.consume(token, { ownerId: '42' }), /already used/i);
+});
+
+test('ApprovalService fails closed for missing replay protection on consume', async () => {
+  const service = new approvalModule.ApprovalService({
+    secret: 'test-signing-secret',
+    now: () => 1_700_000_000_000
+  });
+  const token = await service.issue({
+    pluginId: 'github',
+    actionId: 'github.workflow.run.cancel',
+    risk: 'WRITE',
+    ownerId: '42',
+    input: { repoId: 7, runId: 9 }
+  });
+
+  await assert.rejects(() => service.consume(token, { ownerId: '42' }), /replay protection is not configured/i);
 });
 
 test('ApprovalService fails closed for missing secret and oversized callback token', async () => {

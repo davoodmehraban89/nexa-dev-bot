@@ -36,6 +36,16 @@ const numericTriple = (value, prefix) => {
   };
 };
 
+const pagedPair = (value, prefix) => {
+  const match = String(value || '').match(new RegExp(`^${prefix}:(\\d+):(\\d+)(?::(\\d+))?$`));
+  if (!match) return null;
+  return {
+    repoId: Number(match[1]),
+    itemId: Number(match[2]),
+    page: Math.max(1, Math.min(100, Number(match[3]) || 1))
+  };
+};
+
 const numericSingle = (value, prefix) => {
   const match = String(value || '').match(new RegExp(`^${prefix}:(\\d+)$`));
   return match ? Number(match[1]) : null;
@@ -217,17 +227,23 @@ async function workflowJobLogView(github, repoId, jobId) {
   };
 }
 
-async function workflowArtifactsView(github, repoId, runId) {
+async function workflowArtifactsView(github, repoId, runId, page = 1) {
   const [repo, artifacts] = await Promise.all([
     github.getRepository(repoId),
-    github.listWorkflowArtifacts(repoId, runId, { perPage: 20, page: 1 })
+    github.listWorkflowArtifacts(repoId, runId, { perPage: 10, page })
   ]);
   const body = artifacts.length
-    ? artifacts.slice(0, 20).map(item => `📦 <b>${escapeHtml(item.name)}</b>\n  ${item.expired ? 'منقضی شده' : 'فعال'} · ${Number(item.size || 0).toLocaleString()} bytes\n  expires: ${escapeHtml(item.expiresAt || '-')}`).join('\n\n')
+    ? artifacts.slice(0, 10).map(item => `📦 <b>${escapeHtml(item.name)}</b>\n  ${item.expired ? 'منقضی شده' : 'فعال'} · ${Number(item.size || 0).toLocaleString()} bytes\n  expires: ${escapeHtml(item.expiresAt || '-')}`).join('\n\n')
     : '<i>Artifactی برای این Run یافت نشد.</i>';
+  const refreshCallback = page === 1 ? `artifacts:${repoId}:${runId}` : `artifacts:${repoId}:${runId}:${page}`;
   return {
-    text: `📦 <b>Artifacts — ${escapeHtml(repo.name)}</b>\n➖➖➖➖➖➖➖➖➖➖\n${body}`,
-    reply_markup: { inline_keyboard: [[{ text: '🔄 بروزرسانی', callback_data: `artifacts:${repoId}:${runId}` }, { text: '🔙 Run', callback_data: `run:${repoId}:${runId}` }]] }
+    text: `📦 <b>Artifacts — ${escapeHtml(repo.name)}</b>\nصفحه: <b>${page}</b>\n➖➖➖➖➖➖➖➖➖➖\n${body}`,
+    reply_markup: {
+      inline_keyboard: [
+        ...pairPagination('artifacts', repoId, runId, page, artifacts.length, 10),
+        [{ text: '🔄 بروزرسانی', callback_data: refreshCallback }, { text: '🔙 Run', callback_data: `run:${repoId}:${runId}` }]
+      ]
+    }
   };
 }
 
@@ -295,7 +311,7 @@ async function pullRequestDetailView(github, repoId, prNumber) {
 }
 
 async function pullRequestFilesView(github, repoId, prNumber, page = 1) {
-  const files = await github.listPullRequestFiles(repoId, prNumber, { perPage: 20, page });
+  const files = await github.listPullRequestFiles(repoId, prNumber, { perPage: 8, page });
   const body = files.length ? files.slice(0, 8).map(file => {
     const patch = escapeHtml(short(file.patch || '', 220));
     return `🧩 <code>${escapeHtml(short(file.filename, 100))}</code> · ${escapeHtml(file.status)} · +${file.additions}/-${file.deletions}${patch ? `\n<pre>${patch}</pre>` : ''}`;
@@ -304,7 +320,7 @@ async function pullRequestFilesView(github, repoId, prNumber, page = 1) {
     text: `🧩 <b>PR #${prNumber} Files / Diff</b>\nصفحه: <b>${page}</b>\n➖➖➖➖➖➖➖➖➖➖\n${body}`,
     reply_markup: {
       inline_keyboard: [
-        ...pairPagination('prfiles', repoId, prNumber, page, files.length, 20),
+        ...pairPagination('prfiles', repoId, prNumber, page, files.length, 8),
         [{ text: '🔙 PR', callback_data: `prdetail:${repoId}:${prNumber}` }]
       ]
     }
@@ -380,8 +396,8 @@ function resolveReadCallback(data) {
   const joblog = numericPair(value, 'joblog');
   if (joblog) return { actionId: 'github.workflow.job.log', kind: 'joblog', repoId: joblog.repoId, jobId: joblog.runId };
 
-  const artifacts = numericPair(value, 'artifacts');
-  if (artifacts) return { actionId: 'github.workflow.artifacts.list', kind: 'artifacts', ...artifacts };
+  const artifacts = pagedPair(value, 'artifacts');
+  if (artifacts) return { actionId: 'github.workflow.artifacts.list', kind: 'artifacts', repoId: artifacts.repoId, runId: artifacts.itemId, page: artifacts.page };
 
   const branches = pagedSingle(value, 'branches');
   if (branches) return { actionId: 'github.branches.list', kind: 'branches', ...branches };
@@ -467,7 +483,7 @@ export function createGitHubPlugin({ github, menu } = {}) {
           if (read.kind === 'jobs') return workflowJobsView(github, read.repoId, read.runId);
           if (read.kind === 'job') return workflowJobView(github, read.repoId, read.jobId);
           if (read.kind === 'joblog') return workflowJobLogView(github, read.repoId, read.jobId);
-          if (read.kind === 'artifacts') return workflowArtifactsView(github, read.repoId, read.runId);
+          if (read.kind === 'artifacts') return workflowArtifactsView(github, read.repoId, read.runId, read.page);
           if (read.kind === 'branches') return branchesView(github, read.repoId, read.page);
           if (read.kind === 'compare') return compareView(github, read.repoId, read.sha);
           if (read.kind === 'prs') return pullRequestsView(github, read.repoId, read.page);

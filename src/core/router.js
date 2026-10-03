@@ -17,6 +17,10 @@ export class PluginRouter {
     return this.#dispatch('resolveCallback', data, context);
   }
 
+  async dispatchMessage(payload, context = {}) {
+    return this.#dispatch('resolveMessage', payload, context);
+  }
+
   async #dispatch(resolverName, input, context) {
     for (const plugin of this.registry.getPlugins()) {
       const resolver = plugin?.[resolverName];

@@ -28,6 +28,7 @@ function makeGitHub() {
     async listPullRequestFiles() { return hit('listPullRequestFiles', [{ filename: 'src/x.js', status: 'modified', additions: 3, deletions: 1, changes: 4, patch: '+x' }]); },
     async listCommitChecks() { return hit('listCommitChecks', [{ id: 7, name: 'CI', status: 'completed', conclusion: 'success' }]); },
     async listIssues() { return hit('listIssues', [{ number: 4, title: 'Bug', state: 'open', author: 'u', comments: 2 }]); },
+    async listIssuesPage() { return hit('listIssuesPage', { items: [{ number: 4, title: 'Bug', state: 'open', author: 'u', comments: 2 }], hasMore: false }); },
     async listReleases() { return hit('listReleases', [{ id: 6, tag: 'v1.2.0', name: 'Release 1.2', draft: false, prerelease: false, publishedAt: '2026-10-03T00:00:00Z' }]); },
     async rerunFailedWorkflowRun() {},
     async cancelWorkflowRun() {}

@@ -13,6 +13,29 @@ const fullSha = (value, label = 'Git commit') => {
   if (!/^[a-f0-9]{40}$/i.test(text)) throw new Error(`Invalid ${label} SHA`);
   return text;
 };
+const gitBranch = value => {
+  const branch = String(value || '');
+  if (!branch || branch.includes('..') || branch.startsWith('/') || branch.endsWith('/') || branch.includes('\0')) {
+    throw new Error('Invalid Git branch');
+  }
+  return branch;
+};
+const encodedBranch = value => gitBranch(value).split('/').map(encodeURIComponent).join('/');
+const encodedPath = value => String(value || '').split('/').filter(Boolean).map(encodeURIComponent).join('/');
+const decodeBase64Utf8 = value => {
+  let binary;
+  try {
+    binary = atob(String(value || '').replace(/\s/g, ''));
+  } catch {
+    throw new Error('GitHub file content is not valid base64');
+  }
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error('GitHub file content is not valid UTF-8 text');
+  }
+};
 
 export class GitHubService {
   constructor(token = '', owner = DEFAULT_CONFIG.defaultOwner) {
@@ -35,7 +58,7 @@ export class GitHubService {
     };
   }
 
-  async requestJson(url, label, { method = 'GET', body, allowEmpty = false } = {}) {
+  async requestJson(url, label, { method = 'GET', body, allowEmpty = false, allowNotFound = false } = {}) {
     const headers = this.getHeaders();
     const options = { method, headers };
     if (body !== undefined) {
@@ -49,6 +72,7 @@ export class GitHubService {
       try { parsed = JSON.parse(raw); } catch { parsed = null; }
     }
     if (!res.ok) {
+      if (allowNotFound && res.status === 404) return null;
       const providerMessage = parsed?.message || raw.slice(0, 240);
       const detail = providerMessage ? ` ${providerMessage}` : '';
       throw new Error(`${label} failed: ${res.status}${detail}`);
@@ -192,12 +216,109 @@ export class GitHubService {
     return (data.check_runs || []).map(check => ({ id: check.id, name: check.name || 'Check', status: check.status || '', conclusion: check.conclusion || null, url: check.html_url || '' }));
   }
 
-  async listFiles(repoRef, path = '') {
+  async listFiles(repoRef, path = '', { ref } = {}) {
     const { apiBase } = await this.getRepositoryContext(repoRef);
-    const suffix = path ? `/contents/${path.split('/').map(encodeURIComponent).join('/')}` : '/contents';
-    const data = await this.requestJson(`${apiBase}${suffix}`, 'GitHub contents');
+    const suffix = path ? `/contents/${encodedPath(path)}` : '/contents';
+    const query = ref ? `?ref=${encodeURIComponent(String(ref))}` : '';
+    const data = await this.requestJson(`${apiBase}${suffix}${query}`, 'GitHub contents');
     if (!Array.isArray(data)) throw new Error('GitHub contents response is not a directory listing');
     return data.map(item => ({ name: item.name, path: item.path, type: item.type === 'dir' ? 'dir' : 'file', size: item.size ?? 0, sha: item.sha || '' }));
+  }
+
+  async getGitRef(repoRef, branch, { allowMissing = false } = {}) {
+    const branchName = gitBranch(branch);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/git/ref/heads/${encodedBranch(branchName)}`,
+      'GitHub branch ref',
+      { allowNotFound: allowMissing }
+    );
+    if (data === null) return null;
+    return { branch: branchName, sha: fullSha(data?.object?.sha, 'Git branch head') };
+  }
+
+  async getBranchSnapshot(repoRef, branch) {
+    const branchName = gitBranch(branch);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const ref = await this.requestJson(`${apiBase}/git/ref/heads/${encodedBranch(branchName)}`, 'GitHub branch ref');
+    const headSha = fullSha(ref?.object?.sha, 'Git branch head');
+    const commit = await this.requestJson(`${apiBase}/git/commits/${headSha}`, 'GitHub branch commit');
+    const treeSha = fullSha(commit?.tree?.sha, 'Git tree');
+    return { branch: branchName, headSha, treeSha };
+  }
+
+  async getFileAtRef(repoRef, path, ref) {
+    const filePath = String(path || '');
+    if (!filePath || filePath.startsWith('/') || filePath.includes('\0')) throw new Error('Invalid GitHub file path');
+    const commitRef = fullSha(ref);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(`${apiBase}/contents/${encodedPath(filePath)}?ref=${commitRef}`, 'GitHub file');
+    if (!data || Array.isArray(data) || data.type !== 'file') throw new Error('GitHub contents response is not a file');
+    if (data.encoding !== 'base64') throw new Error('GitHub file encoding is not supported');
+    const content = decodeBase64Utf8(data.content || '');
+    return {
+      path: data.path || filePath,
+      sha: String(data.sha || ''),
+      size: Number(data.size) || 0,
+      encoding: 'utf-8',
+      content
+    };
+  }
+
+  async createGitBlob(repoRef, text) {
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(`${apiBase}/git/blobs`, 'GitHub create blob', {
+      method: 'POST',
+      body: { content: String(text ?? ''), encoding: 'utf-8' }
+    });
+    return { sha: fullSha(data?.sha, 'Git blob') };
+  }
+
+  async createGitTree(repoRef, { baseTreeSha, entries } = {}) {
+    const base = fullSha(baseTreeSha, 'Git base tree');
+    if (!Array.isArray(entries)) throw new Error('Git tree entries are required');
+    const tree = entries.map(entry => {
+      const path = String(entry?.path || '');
+      if (!path || path.startsWith('/') || path.includes('\0')) throw new Error('Invalid Git tree path');
+      if (entry?.mode !== '100644' || entry?.type !== 'blob') throw new Error('Unsupported Git tree entry');
+      return { path, mode: '100644', type: 'blob', sha: fullSha(entry.sha, 'Git blob') };
+    });
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(`${apiBase}/git/trees`, 'GitHub create tree', {
+      method: 'POST',
+      body: { base_tree: base, tree }
+    });
+    return { sha: fullSha(data?.sha, 'Git tree') };
+  }
+
+  async createGitCommit(repoRef, { message, treeSha, parentSha, timestamp } = {}) {
+    const commitMessage = String(message || '');
+    if (!commitMessage) throw new Error('Git commit message is required');
+    const tree = fullSha(treeSha, 'Git tree');
+    const parent = fullSha(parentSha, 'Git parent commit');
+    const date = new Date(String(timestamp || ''));
+    if (Number.isNaN(date.getTime()) || date.toISOString() !== String(timestamp)) throw new Error('Invalid Git commit timestamp');
+    const identity = { name: 'Nexa Dev Bot', email: 'nexa-dev-bot@users.noreply.github.com', date: String(timestamp) };
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(`${apiBase}/git/commits`, 'GitHub create commit', {
+      method: 'POST',
+      body: { message: commitMessage, tree, parents: [parent], author: identity, committer: identity }
+    });
+    return { sha: fullSha(data?.sha, 'Git commit') };
+  }
+
+  async createGitBranchRef(repoRef, { branch, sha } = {}) {
+    const branchName = gitBranch(branch);
+    const commitSha = fullSha(sha, 'Git commit');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(`${apiBase}/git/refs`, 'GitHub create branch ref', {
+      method: 'POST',
+      body: { ref: `refs/heads/${branchName}`, sha: commitSha }
+    });
+    return {
+      ref: String(data?.ref || `refs/heads/${branchName}`),
+      sha: fullSha(data?.object?.sha || commitSha, 'Git commit')
+    };
   }
 
   async listTree(repoRef, sha) {

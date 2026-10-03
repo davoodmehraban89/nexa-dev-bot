@@ -13,11 +13,19 @@
       {
         "name": "APPROVAL_REPLAY_GUARD",
         "class_name": "ApprovalReplayGuard"
+      },
+      {
+        "name": "WORKSPACE_STORE",
+        "class_name": "WorkspaceStore"
       }
     ]
   },
   "exports": {
     "ApprovalReplayGuard": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "WorkspaceStore": {
       "type": "durable-object",
       "storage": "sqlite"
     }

@@ -120,10 +120,9 @@ test('Worker exports ApprovalReplayGuard and Wrangler declares SQLite durable bi
 
   const configText = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
   const config = JSON.parse(configText);
-  assert.deepEqual(config.durable_objects?.bindings, [{
-    name: 'APPROVAL_REPLAY_GUARD',
-    class_name: 'ApprovalReplayGuard'
-  }]);
+  assert.ok(config.durable_objects?.bindings?.some(binding =>
+    binding.name === 'APPROVAL_REPLAY_GUARD' && binding.class_name === 'ApprovalReplayGuard'
+  ));
   assert.deepEqual(config.exports?.ApprovalReplayGuard, {
     type: 'durable-object',
     storage: 'sqlite'

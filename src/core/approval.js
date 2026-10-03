@@ -1,16 +1,25 @@
 const encoder = new TextEncoder();
 const SIGNING_DOMAIN = 'nexa-approval-v1';
+const INTENT_ID_PATTERN = /^[A-Za-z0-9_-]{8}$/;
 
 const DEFAULT_CODECS = new Map([
   ['github.workflow.run.rerun_failed', {
     code: 'r',
     pluginId: 'github',
-    risk: 'WRITE'
+    risk: 'WRITE',
+    target: 'run'
   }],
   ['github.workflow.run.cancel', {
     code: 'c',
     pluginId: 'github',
-    risk: 'WRITE'
+    risk: 'WRITE',
+    target: 'run'
+  }],
+  ['github.workspace.commit_branch', {
+    code: 'e',
+    pluginId: 'github',
+    risk: 'WRITE',
+    target: 'intent'
   }]
 ]);
 
@@ -161,19 +170,29 @@ export class ApprovalService {
   #encodeBody(payload) {
     const codec = compactCodecFor(payload.actionId);
     const repoId = payload.input?.repoId;
-    const runId = payload.input?.runId;
     if (
       codec &&
       codec.pluginId === payload.pluginId &&
       codec.risk === payload.risk &&
-      Number.isSafeInteger(Number(repoId)) &&
-      Number.isSafeInteger(Number(runId))
+      Number.isSafeInteger(Number(repoId))
     ) {
+      let target;
+      if (codec.target === 'run') {
+        const runId = payload.input?.runId;
+        if (!Number.isSafeInteger(Number(runId))) return `j.${textToBase64Url(JSON.stringify(payload))}`;
+        target = toBase36Int(runId);
+      } else if (codec.target === 'intent') {
+        const intentId = String(payload.input?.intentId || '');
+        if (!INTENT_ID_PATTERN.test(intentId)) throw new Error('Invalid approval intent ID');
+        target = intentId;
+      } else {
+        return `j.${textToBase64Url(JSON.stringify(payload))}`;
+      }
       return [
         '1',
         codec.code,
         toBase36Int(repoId),
-        toBase36Int(runId),
+        target,
         toBase36Int(payload.expiresAt),
         payload.nonce
       ].join('.');
@@ -196,20 +215,26 @@ export class ApprovalService {
 
     const parts = body.split('.');
     if (parts.length !== 6 || parts[0] !== '1') throw new Error('Invalid approval payload');
-    const [, code, repoPart, runPart, expiryPart, nonce] = parts;
+    const [, code, repoPart, targetPart, expiryPart, nonce] = parts;
     const codec = compactCodecByCode(code);
     if (!codec) throw new Error('Invalid approval action');
     const expiresAt = fromBase36Int(expiryPart);
+    const input = { repoId: fromBase36Int(repoPart) };
+    if (codec.target === 'run') {
+      input.runId = fromBase36Int(targetPart);
+    } else if (codec.target === 'intent') {
+      if (!INTENT_ID_PATTERN.test(targetPart)) throw new Error('Invalid approval intent ID');
+      input.intentId = targetPart;
+    } else {
+      throw new Error('Invalid approval target');
+    }
     return {
       v: 1,
       pluginId: codec.pluginId,
       actionId: codec.actionId,
       risk: codec.risk,
       ownerId,
-      input: {
-        repoId: fromBase36Int(repoPart),
-        runId: fromBase36Int(runPart)
-      },
+      input,
       issuedAt: expiresAt - this.ttlMs,
       expiresAt,
       nonce

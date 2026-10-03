@@ -21,6 +21,7 @@
 - Plugin Registry + central Action Policy + Audit Logger + Plugin Router in `src/core/`.
 - HMAC approval tokens in `src/core/approval.js`.
 - Durable Object replay guard via `APPROVAL_REPLAY_GUARD` / `ApprovalReplayGuard`.
+- Owner-scoped Repository Workspace storage via `WORKSPACE_STORE` / `WorkspaceStore` on the implementation branch; production deployment is still NOT VERIFIED.
 - GitHub plugin in `src/plugins/github/`; provider adapter in `src/github.js`.
 - Exact-commit CI/deploy workflows under `.github/workflows/`.
 
@@ -30,7 +31,7 @@
 - Approval is owner/action/risk/target/expiry-bound and one-time consumed through Durable Object storage.
 - Provider mutation never executes before policy approval.
 - Provider errors are explicit; no fabricated success or fallback data.
-- Secrets and signed approval callback tokens must not appear in logs/docs.
+- Secrets, source/draft text and signed approval callback tokens must not appear in logs/docs.
 - Telegram callback data and rendered provider text must remain bounded.
 
 ## Production-Accepted Foundation
@@ -79,7 +80,6 @@ Conclusion:
 - Post-merge CI #172 / run `37102293956` succeeded on that exact SHA with 22 test files and 97/97 tests passing, 0 fail/skip/cancelled.
 - Deploy #108 / run `37102308006` succeeded from that exact SHA.
 - Active Cloudflare production version after deploy: `bc23d9e5-1490-429c-9369-4e751f173df5` at 100% traffic.
-- Cloudflare Observability issue summary after deploy showed 0 active issues and 0 active occurrences.
 
 ### TDD evidence
 - Provider RED CI #156 / run `37100585034`: 87 tests total, 82 pass / 5 expected failures for missing Advanced provider readers.
@@ -103,51 +103,124 @@ Conclusion:
 - New READ callbacks resolve without provider calls before central policy evaluation; callback lengths are regression-tested against Telegram limits.
 - READ provider failures visibly update Telegram instead of appearing silent.
 
-### Owner-device production smoke findings
-- Owner exercised the new Advanced READ menu on Telegram after production deploy; most tested paths rendered and navigated as expected.
-- `Issues` failed live with GitHub `403 Resource not accessible by personal access token`.
-- Cloudflare production audit confirmed `github.issues.list` passed central READ policy and then failed only at the GitHub provider boundary with that 403.
-- Root cause: the existing fine-grained PAT does not currently grant Repository permissions -> Issues -> Read. Existing visible permissions include Metadata Read plus Actions/Code/Pull requests Read and Write.
-- `Releases` did not fail: a direct GitHub releases read returned an empty list `[]`, proving this repository currently has no GitHub Releases. The old Telegram empty-state wording was merely ambiguous.
+## GitHub Advanced READ Production Acceptance — PR #20
+- Live owner-device smoke found two gaps: Issues returned GitHub 403 due missing `Issues: Read`, while Releases successfully returned an empty source-backed list.
+- PR #20 `fix: clarify Issues permission and empty Releases state` merged to `main` at `7c0df4c8616c6859a2dfc4c35b0e22d6e47215bc`.
+- Post-merge CI #177 / run `37106715317` completed successfully on that exact SHA with 23 test files and 99/99 tests passing, 0 fail/skip/cancelled.
+- Deploy #113 / run `37106727515` completed successfully after checking out that exact SHA.
+- Active Cloudflare production version after deploy: `5741faa0-720f-48d5-9e76-64726a5f5167` at 100% traffic.
+- Owner updated the existing fine-grained PAT to add only Repository permissions -> Issues -> Read-only; token value was not rotated/stored/logged.
+- Owner-device Telegram smoke after that permission change showed Issues no longer returns 403 and Releases renders the explicit no-published-release state.
+- Cloudflare production telemetry on version `5741faa0-720f-48d5-9e76-64726a5f5167` recorded `github.issues.list` with `outcome=success` and `github.releases.list` with `outcome=success` for the owner-device interactions.
 
-## Current Work — PR #20 Live-Smoke Findings Hardening
-- Branch: `fix/issues-permission-release-empty-ux`.
-- Draft PR #20: `fix: clarify Issues permission and empty Releases state`.
-- Scope is UI/error-guidance only; no new provider mutation is added.
-- Issues 403 feedback now tells the owner the exact least-privilege setting required: Fine-grained token -> Repository permissions -> Issues -> Read.
-- Empty Releases view now explicitly says that no GitHub Release is published for the repository instead of presenting an ambiguous not-found message.
+Conclusion:
+- GitHub Advanced READ production acceptance: VERIFIED.
+- Issues least-privilege provider authorization: VERIFIED.
+- Releases source-backed empty state: VERIFIED.
+- Telegram owner-device/runtime evidence: VERIFIED.
 
-### TDD evidence
-- RED CI #173 / run `37106220231`: 23 test files, 99 tests total, 97 pass / exactly 2 expected failures for the live Issues-permission guidance and empty Releases wording.
-- GREEN CI #175 / run `37106470008` at implementation head `d779c746dd4c0dadb652f9d2375ba7765ff5803b`: 23 test files, 99/99 pass, 0 fail/skip/cancelled.
-- A fresh final CI is still required after this memory checkpoint because this documentation commit moves the PR head.
+## Repository Workspace / Code Editor Phase 1 — PR #21 IN PROGRESS
+- Design spec: `docs/superpowers/specs/2026-10-03-repository-workspace-editor-design.md`.
+- Implementation plan: `docs/superpowers/plans/2026-10-03-repository-workspace-editor.md`.
+- Implementation branch: `spec/repository-workspace-editor`.
+- PR #21 targets `main` and contains the complete Phase-1 implementation pending merge/deploy/owner-device acceptance.
+- Phase 1 remains branch-first only: no direct default-branch mutation, no force update, no automatic merge/rebase/conflict resolution.
+
+### Locked implementation constraints
+- Owner-scoped short navigation refs; raw long paths never appear in callback data.
+- Editable Phase-1 text ceiling: 3,000 Unicode code points and 12,000 UTF-8 bytes; overflow is rejected, never silently truncated.
+- Sensitive/private-key-like paths, binary-like content and Git LFS pointers are not editable.
+- Navigation/workspace handles are 10 URL-safe chars; commit-intent IDs are exactly 8 URL-safe chars.
+- Target branch is `nexa/edit-<workspaceId>`.
+- Draft/source content is never placed in callback data or audit metadata.
+- Repeated Ready on unchanged material reuses the existing immutable intent.
+- Provider Git commit creation remains NOT VERIFIED live until owner-device production acceptance passes.
+
+### Task 1 — Workspace policy/diff primitives: COMPLETE
+- `src/core/workspace-policy.js` implements editable-file policy, commit-message normalization, target-branch normalization, SHA-256 digests and bounded unified diff with exact full-content counts.
+- RED evidence was captured before implementation.
+- GREEN checkpoint CI #185 completed with 105/105 passing at that task head.
+
+### Task 2 — Durable owner-scoped Workspace Store: COMPLETE
+- Added `WORKSPACE_STORE` / `WorkspaceStore` client + Durable Object state machine.
+- Owner isolation, navigation/workspace expiry, one-shot pending input, READY invalidation/reuse, COMMITTING/COMMITTED state and cancellation are covered by tests.
+- GREEN checkpoint CI #192 completed with 113/113 passing at that task head.
+- Production deployment of the new binding/class: NOT VERIFIED.
+
+### Task 3 — Path-safe repository browser/editor entry: COMPLETE
+- Workspace file navigation uses short Durable refs after policy; legacy tree/blob/path-bearing callbacks remain compatible.
+- Eligible file preview exposes Edit; sensitive/LFS/oversized files remain readable with edit disabled.
+- `wedit` pins current default-branch HEAD/tree and exact file/blob/content before creating a durable local draft.
+- Archived repositories cannot create editable drafts.
+- GREEN checkpoint CI #200 / run `37112677199`, job `111173499300`: 121/121 pass, 0 fail/skip/cancelled.
+
+### Task 4 — Telegram Draft Input, Diff and Sealed Intent UX: COMPLETE
+- RED CI #201 / run `37113613413`, job `111176071940`: 126 tests total, 121 pass / 5 expected failures for missing message routing and `wtext`/`wmsg`/`wdiff`/`wready` behavior.
+- Added policy-routed `dispatchMessage`; source text is not audit metadata.
+- Bot preserves `/start`/`/menu`/`/repos`/`/status` precedence, then owner pending workspace text is routed with the exact untrimmed message body.
+- Pending draft/message input is one-shot; rejected draft input does not mutate the prior draft.
+- Diff is HTML escaped and bounded while additions/deletions are computed over complete content.
+- READY requires changed content + normalized commit message, binds stable digests/base/path/branch/timestamp, reuses unchanged intent and emits only short `wscommit:<repoId>:<intentId>` callback data.
+- GREEN CI #207 / run `37114230736`, job `111177792978`: 27 test files, 127/127 pass, 0 fail/skip/cancelled.
+
+### Task 5 — GitHub Git Data commit primitives: COMPLETE
+- RED CI #209 / run `37114394075`, job `111178254379`: 132 tests total, 127 pass / 5 expected failures for missing Git Data primitives.
+- `requestJson` supports opt-in `allowNotFound`; only HTTP 404 may return `null`, while 403/409/422 and other provider errors remain explicit.
+- Added `getGitRef`, `createGitBlob`, multi-file-capable `createGitTree`, deterministic `createGitCommit`, and create-only `createGitBranchRef`.
+- Branch paths containing `/` are safely encoded for ref reads; every provider/object SHA is full 40-hex validated.
+- Commit author/committer identity and timestamp are deterministic, making ambiguous Git object creation retries material-stable.
+- Phase 1 intentionally exposes no update-ref/force-ref primitive.
+- GREEN CI #210 / run `37114509763`, job `111178575800`: 28 test files, 132/132 pass, 0 fail/skip/cancelled.
+- These Git Data writes are verified only against mocked provider contracts; live GitHub branch commit remains NOT VERIFIED.
+
+### Task 6 — Safe Approval + idempotent branch commit orchestration: COMPLETE IN CI
+- Workspace commit approval uses a compact owner/action/risk/repo/8-char-intent-bound HMAC token; full Telegram `approve:` callback is regression-tested within the 64-byte limit.
+- `wscommit` returns approval metadata before execution; pre-approval route evaluation performs zero GitHub Git Data writes.
+- Approved orchestration revalidates immutable workspace material, exact base HEAD and target-branch absence before object creation.
+- Commit flow is blob -> tree -> deterministic commit -> persist candidate SHA -> create-only branch ref -> durable `COMMITTED` result.
+- `COMMITTING` and already `COMMITTED` retries reconcile idempotently; ambiguous create-ref failures are accepted only if the target ref resolves to the exact recorded candidate SHA.
+- Audit metadata is allowlisted and excludes source/draft text and signed token material.
+- Existing workflow-run Safe Approval behavior and replay protection remain covered.
+- GREEN CI #219 / run `37115479051`, job `111181371564`: 30 test files, 141/141 pass, 0 fail/skip/cancelled.
+- Live Repository Workspace provider mutation remains NOT VERIFIED.
+
+### Task 7 — Whole-branch review/hardening: IN PROGRESS
+- Review found one visible-error gap: approved workspace provider error text was inserted into Telegram HTML without escaping.
+- RED CI #220 / run `37115793196`, job `111182246421`: 31 test files, 142 tests total, 141 pass / exactly 1 expected failure on that regression.
+- Fix escapes provider error text before Telegram rendering.
+- GREEN CI #221 / run `37115965768`, job `111182732367`: 31 test files, 142/142 pass, 0 fail/skip/cancelled.
+- Secret-pattern review found no actual PAT/Telegram secret in the PR diff; occurrences of `ghp_` / `github_pat_` are only the documented scan-pattern names. `approve:` occurrences are expected callback construction/parsing and explicit negative audit tests, not logged live tokens.
+- A fresh CI is still required after this durable checkpoint because the documentation commits move the PR head.
 
 ### Not yet production-accepted
-- PR #20 is not merged/deployed at this checkpoint.
-- Exact post-merge `main` CI and Cloudflare deployment for PR #20 are NOT VERIFIED.
-- Issues live success remains NOT VERIFIED until the owner adds only `Issues: Read` to the existing fine-grained token and repeats the Telegram Issues read.
-- Releases source-backed empty state is verified at the GitHub API boundary, but the revised Telegram wording is NOT VERIFIED on the owner device until PR #20 is deployed.
+- PR #21 is not yet merged/deployed at this checkpoint.
+- Exact post-merge `main` CI: NOT VERIFIED.
+- Production `WORKSPACE_STORE` / `WorkspaceStore` binding/runtime: NOT VERIFIED.
+- Live owner-device browse/edit/diff/READY pre-approval smoke: NOT VERIFIED.
+- Live proof of zero provider WRITE before workspace approval: NOT VERIFIED for this new action.
+- Live approved branch-only GitHub commit and exact provider SHA feedback: NOT VERIFIED.
+- Main/default branch remaining unchanged after the branch-only commit: NOT VERIFIED live.
 
 ## Next Executable Actions
-1. Run fresh final PR #20 CI after this checkpoint; review the exact diff and secret patterns.
-2. Mark PR #20 ready and squash-merge only the exact reviewed green head.
-3. Verify exact post-merge `main` CI, deploy, active Cloudflare version and production runtime/telemetry.
-4. Owner adds only `Repository permissions -> Issues -> Read` to the existing fine-grained GitHub token; do not regenerate or rotate the token unnecessarily.
-5. Owner repeats Telegram `Issues` and `Releases`; verify production audit records provider success for both reads.
-6. Close GitHub Advanced READ production acceptance only after that owner-device/runtime verification.
-7. Then implement remaining GitHub Advanced WRITE items only where operationally useful and always through Safe Approval, followed by Cloudflare Ops.
+1. Run fresh CI on the final checkpoint head and review exact PR #21 diff/metadata.
+2. Mark PR #21 ready and merge only that reviewed green head.
+3. Verify exact post-merge `main` CI, deploy SHA, active Cloudflare version and both Durable Object bindings/classes.
+4. Perform owner-device production smoke up to the Approval screen; verify no target branch/provider WRITE exists before confirmation.
+5. Owner confirms the fresh Safe Approval; verify the new `nexa/edit-*` branch, exact commit SHA, main unchanged, Cloudflare audit success and Telegram success feedback.
+6. Do not call Repository Workspace Phase 1 production-accepted until Telegram, GitHub and Cloudflare runtime evidence agree.
 
 ## Remaining Roadmap
-1. Finish GitHub Advanced production acceptance; add workflow dispatch/specific-job rerun only if operationally useful and always via Safe Approval.
-2. Cloudflare Ops plugin: deployments, versions, bindings, health, telemetry/runtime errors and approval-gated rollback/deploy operations.
-3. CI/CD Control Plane and release acceptance orchestration.
-4. Monitoring + Incident Manager.
-5. Automation Engine with resumable/idempotent approval-aware workflows.
-6. AI Copilot with no direct production mutation.
-7. Browser QA real production smoke.
-8. Telegram Mini App backed by real APIs.
-9. Plugin ecosystem and multi-project control plane.
-10. Final hardening, recovery drills, docs and versioning.
+1. Repository Workspace / Code Editor Phase 1 production acceptance, then multi-file expansion.
+2. Remaining useful GitHub Advanced WRITE actions, always through Safe Approval.
+3. Cloudflare Ops plugin: deployments, versions, bindings, health, telemetry/runtime errors and approval-gated rollback/deploy operations.
+4. CI/CD Control Plane and release acceptance orchestration.
+5. Monitoring + Incident Manager.
+6. Automation Engine with resumable/idempotent approval-aware workflows.
+7. AI Copilot with no direct production mutation.
+8. Browser QA real production smoke.
+9. Telegram Mini App backed by the same workspace/control-plane APIs.
+10. Plugin ecosystem and multi-project control plane.
+11. Final hardening, recovery drills, docs and versioning.
 
 ## Project Boundaries
 - Nexa Dev Bot is independent from Finora / Factor-easy unless an explicit adapter is added.

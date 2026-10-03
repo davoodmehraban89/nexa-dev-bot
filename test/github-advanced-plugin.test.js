@@ -123,3 +123,35 @@ test('branches, PRs, issues and releases provide useful drill-down and paginatio
   const releases = await plugin.resolveCallback('releases:123').execute();
   assert.match(releases.text, /v1\.2\.0/);
 });
+
+test('artifacts support bounded page navigation instead of silently stopping at the first page', async () => {
+  const calls = [];
+  const github = makeGitHub();
+  github.listWorkflowArtifacts = async (repoId, runId, options) => {
+    calls.push({ repoId, runId, options });
+    return Array.from({ length: 10 }, (_, i) => ({ id: i + 1, name: `artifact-${i + 1}`, size: 1, expired: false }));
+  };
+  const plugin = createGitHubPlugin({ github, menu: makeMenu() });
+  const route = plugin.resolveCallback('artifacts:123:77:2');
+  assert.equal(route?.actionId, 'github.workflow.artifacts.list');
+  const view = await route.execute();
+  assert.deepEqual(calls[0], { repoId: 123, runId: 77, options: { perPage: 10, page: 2 } });
+  assert.ok(callbacks(view).includes('artifacts:123:77:1'));
+  assert.ok(callbacks(view).includes('artifacts:123:77:3'));
+});
+
+test('PR diff pages request only the number of files they can render and expose the next page', async () => {
+  const calls = [];
+  const github = makeGitHub();
+  github.listPullRequestFiles = async (repoId, prNumber, options) => {
+    calls.push({ repoId, prNumber, options });
+    return Array.from({ length: 8 }, (_, i) => ({
+      filename: `src/file-${i + 1}.js`, status: 'modified', additions: 1, deletions: 0, changes: 1, patch: '+x'
+    }));
+  };
+  const plugin = createGitHubPlugin({ github, menu: makeMenu() });
+  const view = await plugin.resolveCallback('prfiles:123:19:1').execute();
+  assert.deepEqual(calls[0], { repoId: 123, prNumber: 19, options: { perPage: 8, page: 1 } });
+  assert.match(view.text, /file-8\.js/);
+  assert.ok(callbacks(view).includes('prfiles:123:19:2'));
+});

@@ -271,11 +271,13 @@ export class GitHubService {
     };
   }
 
-  async listWorkflowRuns(repoRef, { perPage = 10 } = {}) {
+  async listWorkflowRuns(repoRef, { perPage = 10, page = 1 } = {}) {
     const count = Math.max(1, Math.min(20, Number(perPage) || 10));
+    const pageNumber = Math.max(1, Math.min(100, Number(page) || 1));
     const { apiBase } = await this.getRepositoryContext(repoRef);
+    const pageQuery = pageNumber > 1 ? `&page=${pageNumber}` : '';
     const data = await this.requestJson(
-      `${apiBase}/actions/runs?per_page=${count}`,
+      `${apiBase}/actions/runs?per_page=${count}${pageQuery}`,
       'GitHub workflow runs'
     );
     return (data.workflow_runs || []).map(run => this.mapWorkflowRun(run));

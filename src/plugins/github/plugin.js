@@ -26,6 +26,13 @@ const numericSingle = (value, prefix) => {
   return match ? Number(match[1]) : null;
 };
 
+const workflowRunsPage = value => {
+  const match = String(value || '').match(/^runs:(\d+)(?::(\d+))?$/);
+  if (!match) return null;
+  const page = Math.max(1, Math.min(100, Number(match[2]) || 1));
+  return { repoId: Number(match[1]), page };
+};
+
 const runIcon = run => {
   if (run.conclusion === 'success') return '✅';
   if (run.conclusion === 'failure') return '❌';
@@ -47,25 +54,35 @@ const addCiButton = (view, repoId) => {
   };
 };
 
-async function workflowRunsView(github, repoId) {
+async function workflowRunsView(github, repoId, page = 1) {
   const [repo, runs] = await Promise.all([
     github.getRepository(repoId),
-    github.listWorkflowRuns(repoId)
+    github.listWorkflowRuns(repoId, { perPage: 10, page })
   ]);
   const body = runs.length
     ? runs.slice(0, 10).map(run => `${runIcon(run)} <b>${escapeHtml(run.name)}</b> #${run.runNumber ?? '-'}\n  └ ${escapeHtml(run.branch || '-')} · <code>${escapeHtml(run.sha || '-')}</code> · ${escapeHtml(run.conclusion || run.status || 'unknown')}`).join('\n\n')
     : '<i>Workflow runی یافت نشد.</i>';
 
+  const pagination = [];
+  if (page > 1) {
+    pagination.push({ text: '⬅️ جدیدتر', callback_data: `runs:${repoId}:${page - 1}` });
+  }
+  if (runs.length === 10 && page < 100) {
+    pagination.push({ text: 'قدیمی‌تر ➡️', callback_data: `runs:${repoId}:${page + 1}` });
+  }
+  const refreshCallback = page === 1 ? `runs:${repoId}` : `runs:${repoId}:${page}`;
+
   return {
-    text: `🧪 <b>CI / Actions — ${escapeHtml(repo.name)}</b>\n➖➖➖➖➖➖➖➖➖➖\n${body}`,
+    text: `🧪 <b>CI / Actions — ${escapeHtml(repo.name)}</b>\nصفحه: <b>${page}</b>\n➖➖➖➖➖➖➖➖➖➖\n${body}`,
     reply_markup: {
       inline_keyboard: [
         ...runs.slice(0, 10).map(run => [{
           text: `${runIcon(run)} ${run.name} #${run.runNumber ?? run.id}`,
           callback_data: `run:${repoId}:${run.id}`
         }]),
+        ...(pagination.length ? [pagination] : []),
         [
-          { text: '🔄 بروزرسانی', callback_data: `runs:${repoId}` },
+          { text: '🔄 بروزرسانی', callback_data: refreshCallback },
           { text: '🔙 پروژه', callback_data: `repo:${repoId}` }
         ]
       ]
@@ -147,8 +164,8 @@ function resolveReadCallback(data) {
   const repoId = numericSingle(value, 'repo');
   if (repoId !== null) return { actionId: 'github.repo.detail', kind: 'repo', repoId };
 
-  const runsRepoId = numericSingle(value, 'runs');
-  if (runsRepoId !== null) return { actionId: 'github.workflow.runs.list', kind: 'runs', repoId: runsRepoId };
+  const runs = workflowRunsPage(value);
+  if (runs) return { actionId: 'github.workflow.runs.list', kind: 'runs', ...runs };
 
   const run = numericPair(value, 'run');
   if (run) return { actionId: 'github.workflow.run.detail', kind: 'run', ...run };
@@ -229,7 +246,7 @@ export function createGitHubPlugin({ github, menu } = {}) {
           if (read.kind === 'repo') {
             return addCiButton(await menu.renderByCallback(data), read.repoId);
           }
-          if (read.kind === 'runs') return workflowRunsView(github, read.repoId);
+          if (read.kind === 'runs') return workflowRunsView(github, read.repoId, read.page);
           if (read.kind === 'run') return workflowRunView(github, read.repoId, read.runId);
           if (read.kind === 'jobs') return workflowJobsView(github, read.repoId, read.runId);
           return menu.renderByCallback(data);

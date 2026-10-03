@@ -232,7 +232,8 @@ export class NexaDevBot {
 
   async handleMessage(message) {
     const chatId = message.chat?.id;
-    const text = (message.text || '').trim();
+    const rawText = typeof message.text === 'string' ? message.text : '';
+    const text = rawText.trim();
     if (!chatId) return { ok: false, error: 'Missing chat_id' };
 
     if (text === '/start' || text === '/menu' || text.startsWith('/start')) {
@@ -258,6 +259,31 @@ export class NexaDevBot {
       const view = this.menu.getServiceStatusView();
       const res = await this.telegram.sendMessage(chatId, view.text, view.reply_markup);
       return { ok: true, command: 'status', res };
+    }
+
+    const ownerId = message.from?.id;
+    if (
+      typeof message.text === 'string' &&
+      ownerId !== undefined && ownerId !== null &&
+      this.workspaceStore.isConfigured()
+    ) {
+      const owner = String(ownerId);
+      const pending = await this.workspaceStore.getPendingInput({ ownerId: owner });
+      if (pending) {
+        const routed = await this.router.dispatchMessage(
+          { pending, text: rawText },
+          { isOwner: true, ownerId: owner }
+        );
+        if (routed?.requiresApproval || routed?.denied || !routed) {
+          return {
+            ok: false,
+            workspaceInput: true,
+            error: routed?.reason || 'Workspace input route unavailable'
+          };
+        }
+        const res = await this.telegram.sendMessage(chatId, routed.text, routed.reply_markup);
+        return { ok: true, workspaceInput: true, res };
+      }
     }
 
     const defaultText = `💡 برای دسترسی به منوهای پروژه‌ها و ابزارهای Nexa Dev، دکمه زیر را لمس کنید:`;

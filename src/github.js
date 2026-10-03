@@ -1,5 +1,19 @@
 import { DEFAULT_CONFIG } from './config.js';
 
+const clampPage = value => Math.max(1, Math.min(100, Number(value) || 1));
+const clampPerPage = (value, fallback = 10) => Math.max(1, Math.min(20, Number(value) || fallback));
+const boundedPatch = value => String(value || '').slice(0, 1200);
+const numericId = (value, label) => {
+  const text = String(value ?? '');
+  if (!/^\d+$/.test(text)) throw new Error(`Invalid ${label} ID`);
+  return text;
+};
+const fullSha = (value, label = 'Git commit') => {
+  const text = String(value || '');
+  if (!/^[a-f0-9]{40}$/i.test(text)) throw new Error(`Invalid ${label} SHA`);
+  return text;
+};
+
 export class GitHubService {
   constructor(token = '', owner = DEFAULT_CONFIG.defaultOwner) {
     this.token = token;
@@ -57,6 +71,20 @@ export class GitHubService {
       throw new Error(`${label} failed: invalid JSON response`);
     }
     return parsed;
+  }
+
+  async requestText(url, label, { maxChars = 12000 } = {}) {
+    const res = await fetch(url, { method: 'GET', headers: this.getHeaders() });
+    const raw = await res.text();
+    if (!res.ok) {
+      const detail = raw ? ` ${raw.slice(0, 240)}` : '';
+      throw new Error(`${label} failed: ${res.status}${detail}`);
+    }
+    const limit = Math.max(100, Math.min(20000, Number(maxChars) || 12000));
+    return {
+      text: raw.length > limit ? raw.slice(-limit) : raw,
+      truncated: raw.length > limit
+    };
   }
 
   repoUrl(repo, suffix = '') {
@@ -136,6 +164,17 @@ export class GitHubService {
     };
   }
 
+  mapPullRequestFile(file = {}) {
+    return {
+      filename: file.filename || '',
+      status: file.status || '',
+      additions: file.additions ?? 0,
+      deletions: file.deletions ?? 0,
+      changes: file.changes ?? 0,
+      patch: boundedPatch(file.patch)
+    };
+  }
+
   async listRepositories() {
     const data = await this.requestJson(
       `${this.baseUrl}/user/repos?sort=updated&per_page=20&affiliation=owner,collaborator,organization_member`,
@@ -156,10 +195,12 @@ export class GitHubService {
     return this.mapRepository(raw);
   }
 
-  async listPullRequests(repoRef) {
+  async listPullRequests(repoRef, { perPage = 10, page = 1 } = {}) {
+    const count = clampPerPage(perPage, 10);
+    const pageNumber = clampPage(page);
     const { apiBase } = await this.getRepositoryContext(repoRef);
     const data = await this.requestJson(
-      `${apiBase}/pulls?state=all&per_page=10`,
+      `${apiBase}/pulls?state=all&per_page=${count}&page=${pageNumber}`,
       'GitHub pull requests'
     );
 
@@ -174,6 +215,39 @@ export class GitHubService {
     }));
   }
 
+  async getPullRequest(repoRef, prNumber) {
+    const number = numericId(prNumber, 'pull request');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const pr = await this.requestJson(`${apiBase}/pulls/${number}`, 'GitHub pull request');
+    return {
+      number: pr.number,
+      title: pr.title || '',
+      author: pr.user?.login || 'unknown',
+      state: pr.state || '',
+      merged: !!(pr.merged ?? pr.merged_at),
+      body: pr.body || '',
+      url: pr.html_url || '',
+      head: pr.head?.ref || '',
+      headSha: pr.head?.sha || '',
+      base: pr.base?.ref || '',
+      additions: pr.additions ?? 0,
+      deletions: pr.deletions ?? 0,
+      changedFiles: pr.changed_files ?? 0
+    };
+  }
+
+  async listPullRequestFiles(repoRef, prNumber, { perPage = 20, page = 1 } = {}) {
+    const number = numericId(prNumber, 'pull request');
+    const count = clampPerPage(perPage, 20);
+    const pageNumber = clampPage(page);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/pulls/${number}/files?per_page=${count}&page=${pageNumber}`,
+      'GitHub pull request files'
+    );
+    return data.map(file => this.mapPullRequestFile(file));
+  }
+
   async listCommits(repoRef) {
     const { apiBase } = await this.getRepositoryContext(repoRef);
     const data = await this.requestJson(
@@ -186,6 +260,24 @@ export class GitHubService {
       message: String(c.commit?.message || '').split('\n')[0],
       author: c.author?.login || c.commit?.author?.name || 'Unknown',
       date: c.commit?.author?.date ? c.commit.author.date.slice(0, 10) : ''
+    }));
+  }
+
+  async listCommitChecks(repoRef, sha, { perPage = 20, page = 1 } = {}) {
+    const commitSha = fullSha(sha);
+    const count = clampPerPage(perPage, 20);
+    const pageNumber = clampPage(page);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/commits/${commitSha}/check-runs?per_page=${count}&page=${pageNumber}`,
+      'GitHub check runs'
+    );
+    return (data.check_runs || []).map(check => ({
+      id: check.id,
+      name: check.name || 'Check',
+      status: check.status || '',
+      conclusion: check.conclusion || null,
+      url: check.html_url || ''
     }));
   }
 
@@ -272,8 +364,8 @@ export class GitHubService {
   }
 
   async listWorkflowRuns(repoRef, { perPage = 10, page = 1 } = {}) {
-    const count = Math.max(1, Math.min(20, Number(perPage) || 10));
-    const pageNumber = Math.max(1, Math.min(100, Number(page) || 1));
+    const count = clampPerPage(perPage, 10);
+    const pageNumber = clampPage(page);
     const { apiBase } = await this.getRepositoryContext(repoRef);
     const pageQuery = pageNumber > 1 ? `&page=${pageNumber}` : '';
     const data = await this.requestJson(
@@ -284,36 +376,148 @@ export class GitHubService {
   }
 
   async getWorkflowRun(repoRef, runId) {
+    const id = numericId(runId, 'workflow run');
     const { apiBase } = await this.getRepositoryContext(repoRef);
     const data = await this.requestJson(
-      `${apiBase}/actions/runs/${encodeURIComponent(String(runId))}`,
+      `${apiBase}/actions/runs/${id}`,
       'GitHub workflow run'
     );
     return this.mapWorkflowRun(data);
   }
 
   async listWorkflowJobs(repoRef, runId) {
+    const id = numericId(runId, 'workflow run');
     const { apiBase } = await this.getRepositoryContext(repoRef);
     const data = await this.requestJson(
-      `${apiBase}/actions/runs/${encodeURIComponent(String(runId))}/jobs?per_page=20`,
+      `${apiBase}/actions/runs/${id}/jobs?per_page=20`,
       'GitHub workflow jobs'
     );
     return (data.jobs || []).map(job => this.mapWorkflowJob(job));
   }
 
+  async getWorkflowJob(repoRef, jobId) {
+    const id = numericId(jobId, 'workflow job');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(`${apiBase}/actions/jobs/${id}`, 'GitHub workflow job');
+    return this.mapWorkflowJob(data);
+  }
+
+  async getWorkflowJobLog(repoRef, jobId, { maxChars = 12000 } = {}) {
+    const id = numericId(jobId, 'workflow job');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    return this.requestText(`${apiBase}/actions/jobs/${id}/logs`, 'GitHub workflow job log', { maxChars });
+  }
+
+  async listWorkflowArtifacts(repoRef, runId, { perPage = 20, page = 1 } = {}) {
+    const id = numericId(runId, 'workflow run');
+    const count = clampPerPage(perPage, 20);
+    const pageNumber = clampPage(page);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/actions/runs/${id}/artifacts?per_page=${count}&page=${pageNumber}`,
+      'GitHub workflow artifacts'
+    );
+    return (data.artifacts || []).map(artifact => ({
+      id: artifact.id,
+      name: artifact.name || 'Artifact',
+      size: artifact.size_in_bytes ?? 0,
+      expired: !!artifact.expired,
+      createdAt: artifact.created_at || '',
+      expiresAt: artifact.expires_at || '',
+      downloadUrl: artifact.archive_download_url || ''
+    }));
+  }
+
+  async listBranches(repoRef, { perPage = 20, page = 1 } = {}) {
+    const count = clampPerPage(perPage, 20);
+    const pageNumber = clampPage(page);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/branches?per_page=${count}&page=${pageNumber}`,
+      'GitHub branches'
+    );
+    return data.map(branch => ({
+      name: branch.name || '',
+      sha: branch.commit?.sha || '',
+      protected: !!branch.protected
+    }));
+  }
+
+  async compareWithDefault(repoRef, headSha) {
+    const head = fullSha(headSha);
+    const { raw, apiBase } = await this.getRepositoryContext(repoRef);
+    const base = raw.default_branch || 'main';
+    const data = await this.requestJson(
+      `${apiBase}/compare/${encodeURIComponent(base)}...${head}`,
+      'GitHub compare'
+    );
+    return {
+      base,
+      head,
+      status: data.status || '',
+      aheadBy: data.ahead_by ?? 0,
+      behindBy: data.behind_by ?? 0,
+      totalCommits: data.total_commits ?? 0,
+      baseSha: data.base_commit?.sha || '',
+      mergeBaseSha: data.merge_base_commit?.sha || '',
+      files: (data.files || []).slice(0, 20).map(file => this.mapPullRequestFile(file))
+    };
+  }
+
+  async listIssues(repoRef, { perPage = 10, page = 1 } = {}) {
+    const count = clampPerPage(perPage, 10);
+    const pageNumber = clampPage(page);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/issues?state=all&per_page=${count}&page=${pageNumber}`,
+      'GitHub issues'
+    );
+    return data
+      .filter(issue => !issue.pull_request)
+      .map(issue => ({
+        number: issue.number,
+        title: issue.title || '',
+        state: issue.state || '',
+        author: issue.user?.login || 'unknown',
+        comments: issue.comments ?? 0,
+        url: issue.html_url || ''
+      }));
+  }
+
+  async listReleases(repoRef, { perPage = 10, page = 1 } = {}) {
+    const count = clampPerPage(perPage, 10);
+    const pageNumber = clampPage(page);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/releases?per_page=${count}&page=${pageNumber}`,
+      'GitHub releases'
+    );
+    return data.map(release => ({
+      id: release.id,
+      tag: release.tag_name || '',
+      name: release.name || release.tag_name || 'Release',
+      draft: !!release.draft,
+      prerelease: !!release.prerelease,
+      publishedAt: release.published_at || release.created_at || '',
+      url: release.html_url || ''
+    }));
+  }
+
   async rerunFailedWorkflowRun(repoRef, runId) {
+    const id = numericId(runId, 'workflow run');
     const { apiBase } = await this.getRepositoryContext(repoRef);
     return this.requestJson(
-      `${apiBase}/actions/runs/${encodeURIComponent(String(runId))}/rerun-failed-jobs`,
+      `${apiBase}/actions/runs/${id}/rerun-failed-jobs`,
       'GitHub rerun failed jobs',
       { method: 'POST', allowEmpty: true }
     );
   }
 
   async cancelWorkflowRun(repoRef, runId) {
+    const id = numericId(runId, 'workflow run');
     const { apiBase } = await this.getRepositoryContext(repoRef);
     return this.requestJson(
-      `${apiBase}/actions/runs/${encodeURIComponent(String(runId))}/cancel`,
+      `${apiBase}/actions/runs/${id}/cancel`,
       'GitHub cancel workflow run',
       { method: 'POST', allowEmpty: true }
     );

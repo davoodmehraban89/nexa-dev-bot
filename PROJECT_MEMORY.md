@@ -76,10 +76,13 @@ Conclusion:
 - Purpose: after a valid approval, provider failures must visibly replace the approval message rather than silently return an error.
 - RED CI #150 / run `37099120240`: 18 test files, 82 tests, 81 pass / 1 expected failure in the new provider-error UI regression.
 - Implementation commit `75c9e540192ae3b42931329035002a95819f7163` adds Telegram feedback for approved provider failures while preserving one-time approval consumption.
+- CI #152 proved the implementation behavior but exposed a false-positive Persian test regex (`ناموفق` contains `موفق`).
+- Test correction commit `354f79c6f6f0b4372d85f30cf4ad8ece3e26944d` narrowed the success assertion.
+- CI #153 / run `37099346636`: 18 test files, 82 tests, 82 pass, 0 fail/skip/cancelled.
 - This file records the live permission blocker and current recovery path.
 
 ## Next Executable Actions
-1. Get PR #18 green, review, squash-merge, verify exact `main` CI/deploy and active Cloudflare version.
+1. Review PR #18, squash-merge, verify exact `main` CI/deploy and active Cloudflare version.
 2. Owner must update the Worker GitHub credential so `nexa-dev-bot` has GitHub Actions WRITE on the target repository; never paste the token into repository/docs/logs.
 3. Re-run the owner-device WRITE smoke through Telegram on run #134 (or another safe failed run).
 4. Acceptance requires: approval verified, provider POST accepted, `run_attempt` increases/new attempt appears, result visible in Telegram, replay still rejected.

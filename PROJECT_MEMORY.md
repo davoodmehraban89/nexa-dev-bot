@@ -13,7 +13,7 @@
 2. Prefer live evidence over chat memory.
 3. Keep durable checkpoints here and never store secrets/tokens/private keys.
 4. Do not call a phase production-accepted from CI alone; deployment and owner-device/runtime evidence are separate gates.
-5. Production WRITE actions must remain behind Safe Approval and durable one-time replay protection.
+5. Production WRITE / DESTRUCTIVE provider actions must remain behind Safe Approval and durable one-time replay protection.
 
 ## Current Architecture
 - Cloudflare Worker webhook boundary in `src/index.js`.
@@ -31,6 +31,7 @@
 - Provider mutation never executes before policy approval.
 - Provider errors are explicit; no fabricated success or fallback data.
 - Secrets and signed approval callback tokens must not appear in logs/docs.
+- Telegram callback data and rendered provider text must remain bounded.
 
 ## Production-Accepted Foundation
 ### Plugin Foundation v1
@@ -43,53 +44,81 @@
 - Deploy run `37095129406` succeeded; production Durable Object binding verified.
 - CI/Actions pagination subsequently landed on `main` at `074033f5a067283727a38e034a6d19436fcce475`.
 
-### Approval rejection UX hardening
-- PR #17 merged at `2c131ea5fc564faae20cd7aff1ac00831f7fe185`.
-- Main CI #149 / run `37098697859` succeeded.
-- Deploy #84 / run `37098710348` succeeded on the exact merge SHA.
-- Active Cloudflare version after deploy: `e7182388-ca16-4aeb-b144-6d5f0fc63043` at 100% traffic.
-- Expired/replayed approvals now visibly update the Telegram message instead of appearing silent.
+### Approval and provider-error UX hardening
+- PR #17 merged at `2c131ea5fc564faae20cd7aff1ac00831f7fe185`; expired/replayed approvals now visibly update Telegram.
+- PR #18 merged at `a2e8a65763516765d47b535e514990f8698ad2a2`; approved provider failures now visibly update Telegram.
+- Main CI #155 / run `37099455730` succeeded with 82/82 tests.
+- Deploy #90 / run `37099465363` succeeded on the exact merge SHA.
+- Active Cloudflare production version after deploy: `1865c8ac-5d05-40cd-8478-8d9f5473e34b` at 100% traffic.
 
-## Live GitHub WRITE Smoke — 2026-10-03
+## Production Safe Approval WRITE Acceptance — 2026-10-03
 Target:
 - CI run #134, Actions run ID `37094321256`.
 
-Observed on production version `e7182388-ca16-4aeb-b144-6d5f0fc63043`:
-1. Owner requested `github.workflow.run.rerun_failed`.
-2. Audit: `approval_required` -> `approval_issued`.
-3. Owner pressed Confirm.
-4. Audit: `approval_verified` -> approved `action_attempt`.
-5. Provider result: `error` with `403 Resource not accessible by personal access token`.
-6. Owner pressed the same approval again; Durable replay guard rejected it as `Approval token already used`.
-7. GitHub run #134 remains `run_attempt=1`; therefore no rerun was accepted by GitHub.
+Verified sequence:
+1. An early owner approval reached the provider but GitHub returned `403 Resource not accessible by personal access token`; the same approval token was then replayed and correctly rejected as already used.
+2. The owner updated the existing fine-grained GitHub token permission so Actions has write access; no token value was stored or logged.
+3. A fresh owner request produced `approval_required` -> `approval_issued`.
+4. Owner pressed Confirm; production audit recorded `approval_verified` -> approved `action_attempt` with `owner_write_approved`.
+5. Production audit on Worker version `1865c8ac-5d05-40cd-8478-8d9f5473e34b` recorded `action_result=success` for `github.workflow.run.rerun_failed`.
+6. GitHub run #134 moved from `run_attempt=1` to `run_attempt=2`, proving the provider WRITE was accepted.
+7. Attempt 2 itself failed only because it reran the historical PR #15 merge ref from before the later Durable Object binding/config fix; this is historical-code behavior, not a current-main regression.
 
 Conclusion:
-- Owner-bound approval path in production: VERIFIED.
-- Durable one-time replay protection in production: VERIFIED.
-- GitHub WRITE provider authorization: BLOCKED by current Worker `GITHUB_TOKEN` permissions.
-- For a fine-grained PAT, GitHub Actions repository permission must be `write` for rerun/cancel endpoints. A classic PAT requires appropriate private-repository `repo` scope.
-- Do not rotate or expose `GITHUB_TOKEN` automatically. Permission/credential change requires owner action.
+- Owner-bound production approval: VERIFIED.
+- No provider WRITE before approval: VERIFIED.
+- Durable one-time replay protection: VERIFIED.
+- GitHub Actions WRITE authorization and provider POST: VERIFIED.
+- Telegram success feedback after accepted provider WRITE: VERIFIED.
 
-## Current Work
-### PR #18 — provider WRITE error feedback
-- Branch: `fix/provider-write-error-feedback`.
-- Purpose: after a valid approval, provider failures must visibly replace the approval message rather than silently return an error.
-- RED CI #150 / run `37099120240`: 18 test files, 82 tests, 81 pass / 1 expected failure in the new provider-error UI regression.
-- Implementation commit `75c9e540192ae3b42931329035002a95819f7163` adds Telegram feedback for approved provider failures while preserving one-time approval consumption.
-- CI #152 proved the implementation behavior but exposed a false-positive Persian test regex (`ناموفق` contains `موفق`).
-- Test correction commit `354f79c6f6f0b4372d85f30cf4ad8ece3e26944d` narrowed the success assertion.
-- CI #153 / run `37099346636`: 18 test files, 82 tests, 82 pass, 0 fail/skip/cancelled.
-- This file records the live permission blocker and current recovery path.
+## Current Work — PR #19 GitHub Advanced READ
+- Branch: `feat/github-advanced-read`.
+- Design: `docs/superpowers/specs/2026-10-03-github-advanced-read-design.md`.
+- Plan: `docs/superpowers/plans/2026-10-03-github-advanced-read.md`.
+- Scope is READ-only: workflow job detail/log tail, artifacts metadata, branches/compare, PR detail/files/checks, issues, releases and bounded pagination. No new provider mutation is added in this slice.
+
+### TDD evidence
+- Provider RED CI #156 / run `37100585034`: 87 tests total, 82 pass / 5 expected failures for missing Advanced provider readers.
+- Provider compatibility fix followed after CI #157 exposed two regressions (log clamp and page-1 PR URL compatibility).
+- Provider GREEN CI #158 / run `37100892060`: 19 test files, 87/87 pass, 0 fail/skip/cancelled.
+- Plugin RED CI #159 / run `37100960176`: 92 tests total, 87 pass / 5 expected failures for undeclared/unimplemented Advanced routes and views.
+- Plugin GREEN CI #161 / run `37101099153`: 20 test files, 92/92 pass, 0 fail/skip/cancelled.
+- Review hardening RED CI #164 / run `37101390354`: 95 tests total, 92 pass / 3 expected failures for artifact pagination, PR diff pagination and visible READ-provider errors.
+- Review hardening GREEN CI #166 / run `37101635682`: 21 test files, 95/95 pass, 0 fail/skip/cancelled.
+- Mixed Issue/PR pagination RED CI #167 / run `37101783124`: 97 tests total, 95 pass / 2 expected failures.
+- Final GREEN CI #170 / run `37102060845` at head `9fbd33f3ad436c9519d521d704b6f7b882a2bbdd`: 22 test files, 97/97 pass, 0 fail/skip/cancelled.
+
+### Implemented in PR #19
+- Bounded raw workflow-job log tail with HTML escaping and visible truncation state.
+- Workflow job detail and per-job drill-down from run jobs.
+- Workflow artifact metadata view with bounded pagination.
+- Branch list and compare-to-default using a validated 40-hex head SHA.
+- Advanced PR list/detail/files-diff/checks views; PR diff page size matches rendered page size so files are not silently skipped.
+- Issues and releases views; Issue pagination preserves GitHub raw-page continuation even when PR entries are filtered out.
+- Pagination is clamped to page 1..100 and page size <=20 where list pagination is exposed.
+- New READ callbacks resolve without provider calls before central policy evaluation; callback lengths are regression-tested against Telegram limits.
+- READ provider failures now visibly update Telegram, including least-privilege guidance for provider 403, instead of appearing silent.
+
+### Review evidence
+- PR patch reviewed after hardening: no new provider mutation endpoint was added; only the pre-existing approval-gated workflow rerun/cancel POSTs remain.
+- Secret-pattern scan over the PR patch found no `ghp_` or `github_pat_` material.
+- Callback/data bounds, raw-log bounds, patch bounds and pagination gaps are regression-tested.
+
+### Not yet production-accepted
+- PR #19 is not merged at this checkpoint.
+- Exact post-merge `main` CI and Cloudflare deploy are NOT VERIFIED.
+- Owner-device production smoke for the new Advanced READ paths is NOT VERIFIED until after deploy.
 
 ## Next Executable Actions
-1. Review PR #18, squash-merge, verify exact `main` CI/deploy and active Cloudflare version.
-2. Owner must update the Worker GitHub credential so `nexa-dev-bot` has GitHub Actions WRITE on the target repository; never paste the token into repository/docs/logs.
-3. Re-run the owner-device WRITE smoke through Telegram on run #134 (or another safe failed run).
-4. Acceptance requires: approval verified, provider POST accepted, `run_attempt` increases/new attempt appears, result visible in Telegram, replay still rejected.
-5. Only after provider WRITE smoke is green, continue the broader roadmap in verified vertical slices.
+1. Run one fresh final PR CI after this memory checkpoint, mark ready and squash-merge the exact reviewed head only if green.
+2. Verify exact post-merge `main` CI, deploy, active Cloudflare version and current-version telemetry.
+3. Perform owner-device READ smoke through Telegram for Branches/Compare, PR detail/files/checks, CI Run/Jobs/failed log/artifacts, Issues and Releases.
+4. If live Checks or Issues return 403, add only the specific missing fine-grained PAT READ permission; do not rotate the token unnecessarily.
+5. Then implement remaining GitHub Advanced WRITE items only where useful (workflow dispatch and/or specific-job rerun) as a separate Safe Approval slice.
+6. Continue to the Cloudflare Ops plugin and the broader roadmap.
 
 ## Remaining Roadmap
-1. GitHub Advanced: logs, failed-step log view, artifacts metadata, branches/compare, PR detail/diff/checks, issues, releases, workflow dispatch where useful, bounded pagination.
+1. Finish GitHub Advanced production acceptance; add workflow dispatch/specific-job rerun only if operationally useful and always via Safe Approval.
 2. Cloudflare Ops plugin: deployments, versions, bindings, health, telemetry/runtime errors and approval-gated rollback/deploy operations.
 3. CI/CD Control Plane and release acceptance orchestration.
 4. Monitoring + Incident Manager.

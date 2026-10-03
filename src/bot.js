@@ -99,6 +99,30 @@ ${detail}
   };
 }
 
+function callbackReadFailedView(data, error) {
+  const reason = String(error?.message || 'Provider read failed');
+  const permissionDenied = /403|resource not accessible by personal access token/i.test(reason);
+  const repoMatch = String(data || '').match(/^[^:]+:(\d+)/);
+  const fallback = repoMatch ? `repo:${repoMatch[1]}` : 'menu:main';
+  const detail = permissionDenied
+    ? 'GitHub این درخواست خواندنی را با خطای 403 رد کرد. مجوز Read مربوط به این بخش در توکن فعلی کافی نیست.'
+    : 'دریافت اطلاعات از سرویس با خطا مواجه شد. هیچ تغییری انجام نشد.';
+
+  return {
+    text:
+`⚠️ <b>دریافت اطلاعات با خطا مواجه شد</b>
+➖➖➖➖➖➖➖➖➖➖
+${detail}
+
+این خطا هیچ عملیات تغییردهنده‌ای اجرا نکرد.`,
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: repoMatch ? '↩️ بازگشت به پروژه' : '↩️ منوی اصلی', callback_data: fallback }]
+      ]
+    }
+  };
+}
+
 export class NexaDevBot {
   constructor(env = {}) {
     this.env = env;
@@ -323,6 +347,29 @@ export class NexaDevBot {
       if (err.message && err.message.includes('message is not modified')) {
         return { ok: true, unmodified: true, callbackAnswered };
       }
+
+      if (!data.startsWith('approve:')) {
+        try {
+          const view = callbackReadFailedView(data, err);
+          const res = await this.telegram.editMessageText(
+            chatId,
+            messageId,
+            view.text,
+            view.reply_markup
+          );
+          return {
+            ok: false,
+            error: err.message,
+            providerError: true,
+            callbackAnswered,
+            edited: true,
+            res
+          };
+        } catch {
+          // Preserve the original provider/navigation error when feedback delivery also fails.
+        }
+      }
+
       return { ok: false, error: err.message, callbackAnswered };
     }
   }

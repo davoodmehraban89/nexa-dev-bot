@@ -1,7 +1,7 @@
 export const githubPluginManifest = Object.freeze({
   id: 'github',
   name: 'GitHub',
-  version: 2,
+  version: 3,
   commands: Object.freeze(['/repos']),
   actions: Object.freeze({
     'github.repos.list': Object.freeze({ risk: 'READ' }),
@@ -15,6 +15,17 @@ export const githubPluginManifest = Object.freeze({
     'github.workflow.runs.list': Object.freeze({ risk: 'READ' }),
     'github.workflow.run.detail': Object.freeze({ risk: 'READ' }),
     'github.workflow.jobs.list': Object.freeze({ risk: 'READ' }),
+    'github.workflow.job.detail': Object.freeze({ risk: 'READ' }),
+    'github.workflow.job.log': Object.freeze({ risk: 'READ' }),
+    'github.workflow.artifacts.list': Object.freeze({ risk: 'READ' }),
+    'github.branches.list': Object.freeze({ risk: 'READ' }),
+    'github.compare.read': Object.freeze({ risk: 'READ' }),
+    'github.pr.advanced.list': Object.freeze({ risk: 'READ' }),
+    'github.pr.detail': Object.freeze({ risk: 'READ' }),
+    'github.pr.files.list': Object.freeze({ risk: 'READ' }),
+    'github.pr.checks.list': Object.freeze({ risk: 'READ' }),
+    'github.issues.list': Object.freeze({ risk: 'READ' }),
+    'github.releases.list': Object.freeze({ risk: 'READ' }),
     'github.workflow.run.rerun_failed': Object.freeze({ risk: 'WRITE' }),
     'github.workflow.run.cancel': Object.freeze({ risk: 'WRITE' })
   })

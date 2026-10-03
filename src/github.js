@@ -13,6 +13,21 @@ const fullSha = (value, label = 'Git commit') => {
   if (!/^[a-f0-9]{40}$/i.test(text)) throw new Error(`Invalid ${label} SHA`);
   return text;
 };
+const encodedPath = value => String(value || '').split('/').filter(Boolean).map(encodeURIComponent).join('/');
+const decodeBase64Utf8 = value => {
+  let binary;
+  try {
+    binary = atob(String(value || '').replace(/\s/g, ''));
+  } catch {
+    throw new Error('GitHub file content is not valid base64');
+  }
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error('GitHub file content is not valid UTF-8 text');
+  }
+};
 
 export class GitHubService {
   constructor(token = '', owner = DEFAULT_CONFIG.defaultOwner) {
@@ -192,12 +207,45 @@ export class GitHubService {
     return (data.check_runs || []).map(check => ({ id: check.id, name: check.name || 'Check', status: check.status || '', conclusion: check.conclusion || null, url: check.html_url || '' }));
   }
 
-  async listFiles(repoRef, path = '') {
+  async listFiles(repoRef, path = '', { ref } = {}) {
     const { apiBase } = await this.getRepositoryContext(repoRef);
-    const suffix = path ? `/contents/${path.split('/').map(encodeURIComponent).join('/')}` : '/contents';
-    const data = await this.requestJson(`${apiBase}${suffix}`, 'GitHub contents');
+    const suffix = path ? `/contents/${encodedPath(path)}` : '/contents';
+    const query = ref ? `?ref=${encodeURIComponent(String(ref))}` : '';
+    const data = await this.requestJson(`${apiBase}${suffix}${query}`, 'GitHub contents');
     if (!Array.isArray(data)) throw new Error('GitHub contents response is not a directory listing');
     return data.map(item => ({ name: item.name, path: item.path, type: item.type === 'dir' ? 'dir' : 'file', size: item.size ?? 0, sha: item.sha || '' }));
+  }
+
+  async getBranchSnapshot(repoRef, branch) {
+    const branchName = String(branch || '');
+    if (!branchName || branchName.includes('..') || branchName.startsWith('/') || branchName.endsWith('/')) {
+      throw new Error('Invalid Git branch');
+    }
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const branchPath = branchName.split('/').map(encodeURIComponent).join('/');
+    const ref = await this.requestJson(`${apiBase}/git/ref/heads/${branchPath}`, 'GitHub branch ref');
+    const headSha = fullSha(ref?.object?.sha, 'Git branch head');
+    const commit = await this.requestJson(`${apiBase}/git/commits/${headSha}`, 'GitHub branch commit');
+    const treeSha = fullSha(commit?.tree?.sha, 'Git tree');
+    return { branch: branchName, headSha, treeSha };
+  }
+
+  async getFileAtRef(repoRef, path, ref) {
+    const filePath = String(path || '');
+    if (!filePath || filePath.startsWith('/') || filePath.includes('\0')) throw new Error('Invalid GitHub file path');
+    const commitRef = fullSha(ref);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(`${apiBase}/contents/${encodedPath(filePath)}?ref=${commitRef}`, 'GitHub file');
+    if (!data || Array.isArray(data) || data.type !== 'file') throw new Error('GitHub contents response is not a file');
+    if (data.encoding !== 'base64') throw new Error('GitHub file encoding is not supported');
+    const content = decodeBase64Utf8(data.content || '');
+    return {
+      path: data.path || filePath,
+      sha: String(data.sha || ''),
+      size: Number(data.size) || 0,
+      encoding: 'utf-8',
+      content
+    };
   }
 
   async listTree(repoRef, sha) {

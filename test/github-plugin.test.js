@@ -15,11 +15,14 @@ function makeMenu() {
     },
     async renderByCallback(data) {
       calls.push(data);
-      return { text: data, reply_markup: { inline_keyboard: [] } };
-    },
-    async getWorkflowActionResultView(repoId, runId, action) {
-      calls.push(`result:${action}:${repoId}:${runId}`);
-      return { text: `done:${action}`, reply_markup: { inline_keyboard: [] } };
+      return {
+        text: data,
+        reply_markup: {
+          inline_keyboard: data.startsWith('repo:')
+            ? [[{ text: '🔙 بازگشت', callback_data: 'menu:repos' }]]
+            : []
+        }
+      };
     }
   };
 }
@@ -28,6 +31,47 @@ function makeGitHub() {
   const calls = [];
   return {
     calls,
+    async getRepository(repoId) {
+      calls.push(`repo:${repoId}`);
+      return { id: String(repoId), name: 'demo', fullName: 'davood/demo' };
+    },
+    async listWorkflowRuns(repoId) {
+      calls.push(`runs:${repoId}`);
+      return [{
+        id: 77,
+        name: 'CI',
+        status: 'completed',
+        conclusion: 'failure',
+        branch: 'main',
+        sha: 'abcdef0',
+        runNumber: 12
+      }];
+    },
+    async getWorkflowRun(repoId, runId) {
+      calls.push(`run:${repoId}:${runId}`);
+      return {
+        id: Number(runId),
+        name: 'CI',
+        status: 'completed',
+        conclusion: 'failure',
+        branch: 'main',
+        sha: 'abcdef0',
+        runNumber: 12
+      };
+    },
+    async listWorkflowJobs(repoId, runId) {
+      calls.push(`jobs:${repoId}:${runId}`);
+      return [{
+        id: 88,
+        name: 'test',
+        status: 'completed',
+        conclusion: 'failure',
+        steps: [
+          { number: 1, name: 'checkout', status: 'completed', conclusion: 'success' },
+          { number: 2, name: 'test', status: 'completed', conclusion: 'failure' }
+        ]
+      }];
+    },
     async rerunFailedWorkflowRun(repoId, runId) {
       calls.push(`rerun:${repoId}:${runId}`);
       return { accepted: true, status: 201 };
@@ -40,8 +84,7 @@ function makeGitHub() {
 }
 
 test('GitHub plugin manifest registers read and write workflow actions with explicit risk', () => {
-  const menu = makeMenu();
-  const plugin = createGitHubPlugin({ github: makeGitHub(), menu });
+  const plugin = createGitHubPlugin({ github: makeGitHub(), menu: makeMenu() });
   const registry = new PluginRegistry([plugin]);
 
   const readActions = [
@@ -80,7 +123,8 @@ test('GitHub plugin resolves /repos without executing the menu before policy', a
 
 test('GitHub plugin maps read callback families to declared actions without eager execution', async () => {
   const menu = makeMenu();
-  const plugin = createGitHubPlugin({ github: makeGitHub(), menu });
+  const github = makeGitHub();
+  const plugin = createGitHubPlugin({ github, menu });
   const cases = [
     ['menu:repos', 'github.repos.list'],
     ['repo:123', 'github.repo.detail'],
@@ -96,15 +140,23 @@ test('GitHub plugin maps read callback families to declared actions without eage
   ];
 
   for (const [callbackData, actionId] of cases) {
-    const before = menu.calls.length;
+    const beforeMenu = menu.calls.length;
+    const beforeGitHub = github.calls.length;
     const route = plugin.resolveCallback(callbackData);
     assert.equal(route.actionId, actionId);
-    assert.equal(menu.calls.length, before, 'route resolution must be side-effect-free');
+    assert.equal(menu.calls.length, beforeMenu, 'route resolution must be side-effect-free');
+    assert.equal(github.calls.length, beforeGitHub, 'route resolution must not call GitHub');
     const view = await route.execute();
-    assert.equal(menu.calls.length, before + 1);
-    assert.equal(menu.calls.at(-1), callbackData);
-    assert.equal(view.text, callbackData);
+    assert.ok(view?.text);
   }
+});
+
+test('repository detail view is augmented with CI / Actions navigation without changing menu manager', async () => {
+  const menu = makeMenu();
+  const plugin = createGitHubPlugin({ github: makeGitHub(), menu });
+  const view = await plugin.resolveCallback('repo:123').execute();
+  const buttons = view.reply_markup.inline_keyboard.flat();
+  assert.ok(buttons.some(button => button.callback_data === 'runs:123'));
 });
 
 test('GitHub plugin write callbacks expose compact approval metadata and defer provider calls', async () => {
@@ -121,7 +173,8 @@ test('GitHub plugin write callbacks expose compact approval metadata and defer p
   assert.deepEqual(github.calls, []);
   const rerunView = await rerun.execute();
   assert.deepEqual(github.calls, ['rerun:123:77']);
-  assert.equal(rerunView.text, 'done:rerun_failed');
+  assert.match(rerunView.text, /اجرا.*مجدد|دوباره/i);
+  assert.ok(rerunView.reply_markup.inline_keyboard.flat().some(button => button.callback_data === 'run:123:77'));
 
   github.calls.length = 0;
   const cancel = plugin.resolveCallback('cancelrun:123:77');
@@ -133,7 +186,24 @@ test('GitHub plugin write callbacks expose compact approval metadata and defer p
   assert.deepEqual(github.calls, []);
   const cancelView = await cancel.execute();
   assert.deepEqual(github.calls, ['cancel:123:77']);
-  assert.equal(cancelView.text, 'done:cancel');
+  assert.match(cancelView.text, /لغو/);
+});
+
+test('GitHub workflow views expose bounded navigation and write-action callbacks', async () => {
+  const plugin = createGitHubPlugin({ github: makeGitHub(), menu: makeMenu() });
+
+  const runsView = await plugin.resolveCallback('runs:123').execute();
+  assert.match(runsView.text, /CI/);
+  assert.ok(runsView.reply_markup.inline_keyboard.flat().some(button => button.callback_data === 'run:123:77'));
+
+  const runView = await plugin.resolveCallback('run:123:77').execute();
+  const runButtons = runView.reply_markup.inline_keyboard.flat();
+  assert.ok(runButtons.some(button => button.callback_data === 'jobs:123:77'));
+  assert.ok(runButtons.some(button => button.callback_data === 'rerun:123:77'));
+
+  const jobsView = await plugin.resolveCallback('jobs:123:77').execute();
+  assert.match(jobsView.text, /checkout/);
+  assert.match(jobsView.text, /test/);
 });
 
 test('GitHub plugin rejects malformed workflow callback ids and unrelated callbacks', () => {

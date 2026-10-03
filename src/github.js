@@ -123,6 +123,17 @@ export class GitHubService {
     };
   }
 
+  mapIssue(issue = {}) {
+    return {
+      number: issue.number,
+      title: issue.title || '',
+      state: issue.state || '',
+      author: issue.user?.login || 'unknown',
+      comments: issue.comments ?? 0,
+      url: issue.html_url || ''
+    };
+  }
+
   async listRepositories() {
     const data = await this.requestJson(`${this.baseUrl}/user/repos?sort=updated&per_page=20&affiliation=owner,collaborator,organization_member`, 'GitHub repositories');
     return data.map(r => { const repo = this.mapRepository(r); return { ...repo, title: `${repo.name} ${repo.private ? '🔒' : '🌐'}` }; });
@@ -273,9 +284,17 @@ export class GitHubService {
   async listIssues(repoRef, { perPage = 10, page = 1 } = {}) {
     const count = clampPerPage(perPage, 10); const pageNumber = clampPage(page); const { apiBase } = await this.getRepositoryContext(repoRef);
     const data = await this.requestJson(`${apiBase}/issues?state=all&per_page=${count}&page=${pageNumber}`, 'GitHub issues');
-    return data.filter(issue => !issue.pull_request).map(issue => ({
-      number: issue.number, title: issue.title || '', state: issue.state || '', author: issue.user?.login || 'unknown', comments: issue.comments ?? 0, url: issue.html_url || ''
-    }));
+    return data.filter(issue => !issue.pull_request).map(issue => this.mapIssue(issue));
+  }
+
+  async listIssuesPage(repoRef, { page = 1 } = {}) {
+    const pageNumber = clampPage(page);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(`${apiBase}/issues?state=all&per_page=20&page=${pageNumber}`, 'GitHub issues');
+    return {
+      items: data.filter(issue => !issue.pull_request).map(issue => this.mapIssue(issue)),
+      hasMore: data.length === 20
+    };
   }
 
   async listReleases(repoRef, { perPage = 10, page = 1 } = {}) {

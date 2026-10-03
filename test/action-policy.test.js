@@ -26,6 +26,32 @@ test('ActionPolicy requires approval for WRITE and DESTRUCTIVE actions', () => {
   }
 });
 
+test('ActionPolicy allows verified owner approval for WRITE and DESTRUCTIVE actions', () => {
+  const policy = new ActionPolicy();
+  assert.deepEqual(policy.evaluate({ action: action('WRITE'), isOwner: true, approved: true }), {
+    allowed: true,
+    requiresApproval: false,
+    risk: 'WRITE',
+    reason: 'owner_write_approved'
+  });
+  assert.deepEqual(policy.evaluate({ action: action('DESTRUCTIVE'), isOwner: true, approved: true }), {
+    allowed: true,
+    requiresApproval: false,
+    risk: 'DESTRUCTIVE',
+    reason: 'owner_destructive_approved'
+  });
+});
+
+test('ActionPolicy denies non-owner even when approved flag is present', () => {
+  const policy = new ActionPolicy();
+  assert.deepEqual(policy.evaluate({ action: action('WRITE'), isOwner: false, approved: true }), {
+    allowed: false,
+    requiresApproval: false,
+    risk: 'WRITE',
+    reason: 'owner_required'
+  });
+});
+
 test('ActionPolicy denies non-owner, missing and unknown actions', () => {
   const policy = new ActionPolicy();
   assert.deepEqual(policy.evaluate({ action: action('READ'), isOwner: false }), {

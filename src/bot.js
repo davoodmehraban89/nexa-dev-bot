@@ -3,9 +3,45 @@ import { GitHubService } from './github.js';
 import { MenuManager } from './menu.js';
 import { PluginRegistry } from './core/plugin-registry.js';
 import { ActionPolicy } from './core/action-policy.js';
+import { ApprovalService } from './core/approval.js';
+import { DurableApprovalReplayStore } from './core/durable-replay-store.js';
 import { AuditLogger } from './core/audit.js';
 import { PluginRouter } from './core/router.js';
 import { createGitHubPlugin } from './plugins/github/plugin.js';
+
+function approvalSourceCallback(payload = {}) {
+  const repoId = payload.input?.repoId;
+  const runId = payload.input?.runId;
+  if (!Number.isSafeInteger(Number(repoId)) || !Number.isSafeInteger(Number(runId))) {
+    throw new Error('Approval input is invalid');
+  }
+
+  if (payload.actionId === 'github.workflow.run.rerun_failed') {
+    return `rerun:${repoId}:${runId}`;
+  }
+  if (payload.actionId === 'github.workflow.run.cancel') {
+    return `cancelrun:${repoId}:${runId}`;
+  }
+  throw new Error('Approval action is not supported');
+}
+
+function approvalView({ label, token, repoId, runId }) {
+  return {
+    text:
+`⚠️ <b>تأیید عملیات لازم است</b>
+➖➖➖➖➖➖➖➖➖➖
+عملیات: <b>${label}</b>
+این عملیات روی GitHub تغییر ایجاد می‌کند و فقط پس از تأیید شما اجرا می‌شود.
+
+اگر مطمئن هستید، «تأیید و اجرا» را بزنید.`,
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '✅ تأیید و اجرا', callback_data: `approve:${token}` }],
+        [{ text: '↩️ انصراف', callback_data: `run:${repoId}:${runId}` }]
+      ]
+    }
+  };
+}
 
 export class NexaDevBot {
   constructor(env = {}) {
@@ -13,6 +49,13 @@ export class NexaDevBot {
     this.telegram = new TelegramClient(env.TELEGRAM_BOT_TOKEN || '');
     this.github = new GitHubService(env.GITHUB_TOKEN || '', env.GITHUB_OWNER || 'davoodmehraban89');
     this.menu = new MenuManager(this.github);
+    this.replayStore = new DurableApprovalReplayStore({
+      namespace: env.APPROVAL_REPLAY_GUARD
+    });
+    this.approvals = new ApprovalService({
+      secret: env.APPROVAL_SIGNING_SECRET || env.TELEGRAM_WEBHOOK_SECRET || '',
+      replayStore: this.replayStore
+    });
 
     this.githubPlugin = createGitHubPlugin({
       github: this.github,
@@ -24,7 +67,8 @@ export class NexaDevBot {
       secrets: [
         env.TELEGRAM_BOT_TOKEN,
         env.TELEGRAM_WEBHOOK_SECRET,
-        env.GITHUB_TOKEN
+        env.GITHUB_TOKEN,
+        env.APPROVAL_SIGNING_SECRET
       ]
     });
     this.router = new PluginRouter({
@@ -34,24 +78,10 @@ export class NexaDevBot {
     });
   }
 
-  /**
-   * Process incoming Telegram webhook update.
-   * Owner authorization is enforced at the Worker boundary before this bot is
-   * constructed, so routed actions use an owner-authorized internal context.
-   */
   async handleUpdate(update) {
     if (!update) return { ok: false, error: 'Empty update' };
-
-    // 1. Handle Inline Keyboard Callback Queries (In-Place Message Editing)
-    if (update.callback_query) {
-      return this.handleCallbackQuery(update.callback_query);
-    }
-
-    // 2. Handle Text Messages and Commands
-    if (update.message) {
-      return this.handleMessage(update.message);
-    }
-
+    if (update.callback_query) return this.handleCallbackQuery(update.callback_query);
+    if (update.message) return this.handleMessage(update.message);
     return { ok: true, ignored: true };
   }
 
@@ -61,9 +91,8 @@ export class NexaDevBot {
     const message = query.message;
     const chatId = message?.chat?.id;
     const messageId = message?.message_id;
+    const ownerId = query.from?.id;
 
-    // Callback acknowledgement is best-effort. A stale/expired callback must not
-    // block rendering and editing the existing menu message.
     let callbackAnswered = true;
     try {
       await this.telegram.answerCallbackQuery(callbackId);
@@ -76,16 +105,108 @@ export class NexaDevBot {
     }
 
     try {
-      // GitHub callbacks pass through the plugin policy boundary. Non-GitHub
-      // callbacks remain on the existing compatibility router in Foundation v1.
+      if (data.startsWith('approve:')) {
+        if (ownerId === undefined || ownerId === null) throw new Error('Approval owner is required');
+        const token = data.slice('approve:'.length);
+        let payload;
+        try {
+          payload = await this.approvals.consume(token, {
+            ownerId: String(ownerId),
+            pluginId: 'github',
+            risk: 'WRITE'
+          });
+        } catch (error) {
+          this.audit.log({
+            event: 'approval_rejected',
+            pluginId: 'github',
+            risk: 'WRITE',
+            outcome: 'rejected',
+            error: error?.message || 'Approval rejected'
+          });
+          throw error;
+        }
+
+        this.audit.log({
+          event: 'approval_verified',
+          pluginId: payload.pluginId,
+          actionId: payload.actionId,
+          risk: payload.risk,
+          outcome: 'verified'
+        });
+
+        const sourceCallback = approvalSourceCallback(payload);
+        const routed = await this.router.dispatchCallback(sourceCallback, {
+          isOwner: true,
+          approved: true
+        });
+        if (!routed || routed.requiresApproval || routed.denied) {
+          throw new Error('Approved action could not be dispatched');
+        }
+
+        const res = await this.telegram.editMessageText(
+          chatId,
+          messageId,
+          routed.text,
+          routed.reply_markup
+        );
+        return {
+          ok: true,
+          approved: true,
+          actionId: payload.actionId,
+          callbackAnswered,
+          edited: true,
+          res
+        };
+      }
+
       const routed = await this.router.dispatchCallback(data, { isOwner: true });
       if (routed?.requiresApproval) {
+        const approval = routed.approval;
+        const repoId = approval?.input?.repoId;
+        const runId = approval?.input?.runId;
+        if (!approval || !Number.isSafeInteger(Number(repoId)) || !Number.isSafeInteger(Number(runId))) {
+          throw new Error('Approval metadata is missing');
+        }
+        if (ownerId === undefined || ownerId === null) throw new Error('Approval owner is required');
+        if (!this.approvals.isReplayProtected()) {
+          throw new Error('Durable approval replay protection is not configured');
+        }
+
+        const token = await this.approvals.issue({
+          pluginId: routed.pluginId,
+          actionId: routed.actionId,
+          risk: routed.risk,
+          ownerId: String(ownerId),
+          input: approval.input
+        });
+        this.audit.log({
+          event: 'approval_issued',
+          pluginId: routed.pluginId,
+          actionId: routed.actionId,
+          risk: routed.risk,
+          outcome: 'pending'
+        });
+
+        const view = approvalView({
+          label: approval.label || routed.actionId,
+          token,
+          repoId,
+          runId
+        });
+        const res = await this.telegram.editMessageText(
+          chatId,
+          messageId,
+          view.text,
+          view.reply_markup
+        );
         return {
-          ok: false,
+          ok: true,
           approvalRequired: true,
           actionId: routed.actionId,
           risk: routed.risk,
-          callbackAnswered
+          callbackAnswered,
+          edited: true,
+          res
         };
       }
       if (routed?.denied) {
@@ -99,8 +220,6 @@ export class NexaDevBot {
       }
 
       const view = routed || await this.menu.renderByCallback(data);
-
-      // Edit the existing message in-place to prevent chat flooding
       const res = await this.telegram.editMessageText(
         chatId,
         messageId,
@@ -110,7 +229,6 @@ export class NexaDevBot {
 
       return { ok: true, edited: true, callbackAnswered, res };
     } catch (err) {
-      // Ignore 'message is not modified' error in Telegram
       if (err.message && err.message.includes('message is not modified')) {
         return { ok: true, unmodified: true, callbackAnswered };
       }
@@ -124,14 +242,12 @@ export class NexaDevBot {
 
     if (!chatId) return { ok: false, error: 'Missing chat_id' };
 
-    // Command: /start or /menu
     if (text === '/start' || text === '/menu' || text.startsWith('/start')) {
       const view = this.menu.getMainMenuView();
       const res = await this.telegram.sendMessage(chatId, view.text, view.reply_markup);
       return { ok: true, command: 'start', res };
     }
 
-    // GitHub shortcut command routed through the plugin kernel.
     if (text === '/repos') {
       const routed = await this.router.dispatchCommand(text, { isOwner: true });
       if (routed?.requiresApproval || routed?.denied || !routed) {
@@ -146,14 +262,12 @@ export class NexaDevBot {
       return { ok: true, command: 'repos', res };
     }
 
-    // Command: /status
     if (text === '/status') {
       const view = this.menu.getServiceStatusView();
       const res = await this.telegram.sendMessage(chatId, view.text, view.reply_markup);
       return { ok: true, command: 'status', res };
     }
 
-    // Default response: Offer interactive menu
     const defaultText = `💡 برای دسترسی به منوهای پروژه‌ها و ابزارهای Nexa Dev، دکمه زیر را لمس کنید:`;
     const view = {
       text: defaultText,

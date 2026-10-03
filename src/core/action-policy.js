@@ -1,7 +1,7 @@
 const KNOWN_RISKS = new Set(['READ', 'WRITE', 'DESTRUCTIVE']);
 
 export class ActionPolicy {
-  evaluate({ action, isOwner } = {}) {
+  evaluate({ action, isOwner, approved = false } = {}) {
     const risk = action?.risk || null;
 
     if (!isOwner) {
@@ -28,6 +28,15 @@ export class ActionPolicy {
         requiresApproval: false,
         risk,
         reason: 'owner_read_allowed'
+      };
+    }
+
+    if (approved === true) {
+      return {
+        allowed: true,
+        requiresApproval: false,
+        risk,
+        reason: risk === 'WRITE' ? 'owner_write_approved' : 'owner_destructive_approved'
       };
     }
 

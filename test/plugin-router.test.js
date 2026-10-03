@@ -160,3 +160,41 @@ test('PluginRouter never executes WRITE or DESTRUCTIVE actions before approval',
     assert.equal(executed, 0);
   }
 });
+
+test('PluginRouter executes an approved owner WRITE action exactly once', async () => {
+  let executed = 0;
+  const audit = auditCollector();
+  const plugin = {
+    manifest: {
+      id: 'sample',
+      actions: { 'sample.write': { risk: 'WRITE' } }
+    },
+    resolveCallback: data => data === 'write:1'
+      ? {
+          actionId: 'sample.write',
+          execute: async () => {
+            executed += 1;
+            return { ok: true, view: 'done' };
+          }
+        }
+      : null
+  };
+  const router = new PluginRouter({
+    registry: new PluginRegistry([plugin]),
+    policy: new ActionPolicy(),
+    audit: audit.logger
+  });
+
+  const result = await router.dispatchCallback('write:1', {
+    isOwner: true,
+    approved: true
+  });
+
+  assert.deepEqual(result, { ok: true, view: 'done' });
+  assert.equal(executed, 1);
+  assert.equal(audit.events[0].reason, 'owner_write_approved');
+  assert.equal(audit.events[0].outcome, 'allowed');
+  assert.equal(audit.events[1].event, 'action_result');
+  assert.equal(audit.events[1].outcome, 'success');
+  assert.equal(JSON.stringify(audit.events).includes('token'), false);
+});

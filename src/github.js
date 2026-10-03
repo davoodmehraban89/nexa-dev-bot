@@ -23,19 +23,40 @@ export class GitHubService {
     };
   }
 
-  async requestJson(url, label) {
-    const res = await fetch(url, { headers: this.getHeaders() });
-    if (!res.ok) {
-      let detail = '';
+  async requestJson(url, label, { method = 'GET', body, allowEmpty = false } = {}) {
+    const headers = this.getHeaders();
+    const options = { method, headers };
+    if (body !== undefined) {
+      options.body = JSON.stringify(body);
+      options.headers = { ...headers, 'Content-Type': 'application/json' };
+    }
+
+    const res = await fetch(url, options);
+    const raw = await res.text();
+    let parsed = null;
+    if (raw) {
       try {
-        const body = await res.json();
-        detail = body?.message ? ` ${body.message}` : '';
+        parsed = JSON.parse(raw);
       } catch {
-        detail = '';
+        parsed = null;
       }
+    }
+
+    if (!res.ok) {
+      const providerMessage = parsed?.message || raw.slice(0, 240);
+      const detail = providerMessage ? ` ${providerMessage}` : '';
       throw new Error(`${label} failed: ${res.status}${detail}`);
     }
-    return res.json();
+
+    if (allowEmpty) {
+      return { accepted: true, status: res.status };
+    }
+
+    if (!raw) return null;
+    if (parsed === null) {
+      throw new Error(`${label} failed: invalid JSON response`);
+    }
+    return parsed;
   }
 
   repoUrl(repo, suffix = '') {
@@ -78,6 +99,40 @@ export class GitHubService {
       htmlUrl: r.html_url || '',
       stars: r.stargazers_count ?? 0,
       forks: r.forks_count ?? 0
+    };
+  }
+
+  mapWorkflowRun(run = {}) {
+    return {
+      id: run.id,
+      name: run.name || 'Workflow',
+      status: run.status || '',
+      conclusion: run.conclusion || null,
+      event: run.event || '',
+      branch: run.head_branch || '',
+      sha: String(run.head_sha || '').slice(0, 7),
+      runNumber: run.run_number ?? null,
+      url: run.html_url || '',
+      createdAt: run.created_at || '',
+      updatedAt: run.updated_at || ''
+    };
+  }
+
+  mapWorkflowJob(job = {}) {
+    return {
+      id: job.id,
+      name: job.name || 'Job',
+      status: job.status || '',
+      conclusion: job.conclusion || null,
+      startedAt: job.started_at || '',
+      completedAt: job.completed_at || '',
+      url: job.html_url || '',
+      steps: (job.steps || []).slice(0, 30).map(step => ({
+        number: step.number,
+        name: step.name || 'Step',
+        status: step.status || '',
+        conclusion: step.conclusion || null
+      }))
     };
   }
 
@@ -214,5 +269,51 @@ export class GitHubService {
         url: r.html_url || ''
       }))
     };
+  }
+
+  async listWorkflowRuns(repoRef, { perPage = 10 } = {}) {
+    const count = Math.max(1, Math.min(20, Number(perPage) || 10));
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/actions/runs?per_page=${count}`,
+      'GitHub workflow runs'
+    );
+    return (data.workflow_runs || []).map(run => this.mapWorkflowRun(run));
+  }
+
+  async getWorkflowRun(repoRef, runId) {
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/actions/runs/${encodeURIComponent(String(runId))}`,
+      'GitHub workflow run'
+    );
+    return this.mapWorkflowRun(data);
+  }
+
+  async listWorkflowJobs(repoRef, runId) {
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/actions/runs/${encodeURIComponent(String(runId))}/jobs?per_page=20`,
+      'GitHub workflow jobs'
+    );
+    return (data.jobs || []).map(job => this.mapWorkflowJob(job));
+  }
+
+  async rerunFailedWorkflowRun(repoRef, runId) {
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    return this.requestJson(
+      `${apiBase}/actions/runs/${encodeURIComponent(String(runId))}/rerun-failed-jobs`,
+      'GitHub rerun failed jobs',
+      { method: 'POST', allowEmpty: true }
+    );
+  }
+
+  async cancelWorkflowRun(repoRef, runId) {
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    return this.requestJson(
+      `${apiBase}/actions/runs/${encodeURIComponent(String(runId))}/cancel`,
+      'GitHub cancel workflow run',
+      { method: 'POST', allowEmpty: true }
+    );
   }
 }

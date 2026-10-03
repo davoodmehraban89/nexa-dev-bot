@@ -71,11 +71,15 @@ Conclusion:
 - GitHub Actions WRITE authorization and provider POST: VERIFIED.
 - Telegram success feedback after accepted provider WRITE: VERIFIED.
 
-## Current Work — PR #19 GitHub Advanced READ
-- Branch: `feat/github-advanced-read`.
+## GitHub Advanced READ Rollout — PR #19
 - Design: `docs/superpowers/specs/2026-10-03-github-advanced-read-design.md`.
 - Plan: `docs/superpowers/plans/2026-10-03-github-advanced-read.md`.
-- Scope is READ-only: workflow job detail/log tail, artifacts metadata, branches/compare, PR detail/files/checks, issues, releases and bounded pagination. No new provider mutation is added in this slice.
+- Scope is READ-only: workflow job detail/log tail, artifacts metadata, branches/compare, PR detail/files/checks, issues, releases and bounded pagination. No new provider mutation was added in this slice.
+- PR #19 merged to `main` at `ff270005fca1eda601df0a615ca81033c7340b3a`.
+- Post-merge CI #172 / run `37102293956` succeeded on that exact SHA with 22 test files and 97/97 tests passing, 0 fail/skip/cancelled.
+- Deploy #108 / run `37102308006` succeeded from that exact SHA.
+- Active Cloudflare production version after deploy: `bc23d9e5-1490-429c-9369-4e751f173df5` at 100% traffic.
+- Cloudflare Observability issue summary after deploy showed 0 active issues and 0 active occurrences.
 
 ### TDD evidence
 - Provider RED CI #156 / run `37100585034`: 87 tests total, 82 pass / 5 expected failures for missing Advanced provider readers.
@@ -86,7 +90,7 @@ Conclusion:
 - Review hardening RED CI #164 / run `37101390354`: 95 tests total, 92 pass / 3 expected failures for artifact pagination, PR diff pagination and visible READ-provider errors.
 - Review hardening GREEN CI #166 / run `37101635682`: 21 test files, 95/95 pass, 0 fail/skip/cancelled.
 - Mixed Issue/PR pagination RED CI #167 / run `37101783124`: 97 tests total, 95 pass / 2 expected failures.
-- Final GREEN CI #170 / run `37102060845` at head `9fbd33f3ad436c9519d521d704b6f7b882a2bbdd`: 22 test files, 97/97 pass, 0 fail/skip/cancelled.
+- Final pre-merge GREEN CI #170 / run `37102060845`: 22 test files, 97/97 pass, 0 fail/skip/cancelled.
 
 ### Implemented in PR #19
 - Bounded raw workflow-job log tail with HTML escaping and visible truncation state.
@@ -97,25 +101,41 @@ Conclusion:
 - Issues and releases views; Issue pagination preserves GitHub raw-page continuation even when PR entries are filtered out.
 - Pagination is clamped to page 1..100 and page size <=20 where list pagination is exposed.
 - New READ callbacks resolve without provider calls before central policy evaluation; callback lengths are regression-tested against Telegram limits.
-- READ provider failures now visibly update Telegram, including least-privilege guidance for provider 403, instead of appearing silent.
+- READ provider failures visibly update Telegram instead of appearing silent.
 
-### Review evidence
-- PR patch reviewed after hardening: no new provider mutation endpoint was added; only the pre-existing approval-gated workflow rerun/cancel POSTs remain.
-- Secret-pattern scan over the PR patch found no `ghp_` or `github_pat_` material.
-- Callback/data bounds, raw-log bounds, patch bounds and pagination gaps are regression-tested.
+### Owner-device production smoke findings
+- Owner exercised the new Advanced READ menu on Telegram after production deploy; most tested paths rendered and navigated as expected.
+- `Issues` failed live with GitHub `403 Resource not accessible by personal access token`.
+- Cloudflare production audit confirmed `github.issues.list` passed central READ policy and then failed only at the GitHub provider boundary with that 403.
+- Root cause: the existing fine-grained PAT does not currently grant Repository permissions -> Issues -> Read. Existing visible permissions include Metadata Read plus Actions/Code/Pull requests Read and Write.
+- `Releases` did not fail: a direct GitHub releases read returned an empty list `[]`, proving this repository currently has no GitHub Releases. The old Telegram empty-state wording was merely ambiguous.
+
+## Current Work — PR #20 Live-Smoke Findings Hardening
+- Branch: `fix/issues-permission-release-empty-ux`.
+- Draft PR #20: `fix: clarify Issues permission and empty Releases state`.
+- Scope is UI/error-guidance only; no new provider mutation is added.
+- Issues 403 feedback now tells the owner the exact least-privilege setting required: Fine-grained token -> Repository permissions -> Issues -> Read.
+- Empty Releases view now explicitly says that no GitHub Release is published for the repository instead of presenting an ambiguous not-found message.
+
+### TDD evidence
+- RED CI #173 / run `37106220231`: 23 test files, 99 tests total, 97 pass / exactly 2 expected failures for the live Issues-permission guidance and empty Releases wording.
+- GREEN CI #175 / run `37106470008` at implementation head `d779c746dd4c0dadb652f9d2375ba7765ff5803b`: 23 test files, 99/99 pass, 0 fail/skip/cancelled.
+- A fresh final CI is still required after this memory checkpoint because this documentation commit moves the PR head.
 
 ### Not yet production-accepted
-- PR #19 is not merged at this checkpoint.
-- Exact post-merge `main` CI and Cloudflare deploy are NOT VERIFIED.
-- Owner-device production smoke for the new Advanced READ paths is NOT VERIFIED until after deploy.
+- PR #20 is not merged/deployed at this checkpoint.
+- Exact post-merge `main` CI and Cloudflare deployment for PR #20 are NOT VERIFIED.
+- Issues live success remains NOT VERIFIED until the owner adds only `Issues: Read` to the existing fine-grained token and repeats the Telegram Issues read.
+- Releases source-backed empty state is verified at the GitHub API boundary, but the revised Telegram wording is NOT VERIFIED on the owner device until PR #20 is deployed.
 
 ## Next Executable Actions
-1. Run one fresh final PR CI after this memory checkpoint, mark ready and squash-merge the exact reviewed head only if green.
-2. Verify exact post-merge `main` CI, deploy, active Cloudflare version and current-version telemetry.
-3. Perform owner-device READ smoke through Telegram for Branches/Compare, PR detail/files/checks, CI Run/Jobs/failed log/artifacts, Issues and Releases.
-4. If live Checks or Issues return 403, add only the specific missing fine-grained PAT READ permission; do not rotate the token unnecessarily.
-5. Then implement remaining GitHub Advanced WRITE items only where useful (workflow dispatch and/or specific-job rerun) as a separate Safe Approval slice.
-6. Continue to the Cloudflare Ops plugin and the broader roadmap.
+1. Run fresh final PR #20 CI after this checkpoint; review the exact diff and secret patterns.
+2. Mark PR #20 ready and squash-merge only the exact reviewed green head.
+3. Verify exact post-merge `main` CI, deploy, active Cloudflare version and production runtime/telemetry.
+4. Owner adds only `Repository permissions -> Issues -> Read` to the existing fine-grained GitHub token; do not regenerate or rotate the token unnecessarily.
+5. Owner repeats Telegram `Issues` and `Releases`; verify production audit records provider success for both reads.
+6. Close GitHub Advanced READ production acceptance only after that owner-device/runtime verification.
+7. Then implement remaining GitHub Advanced WRITE items only where operationally useful and always through Safe Approval, followed by Cloudflare Ops.
 
 ## Remaining Roadmap
 1. Finish GitHub Advanced production acceptance; add workflow dispatch/specific-job rerun only if operationally useful and always via Safe Approval.

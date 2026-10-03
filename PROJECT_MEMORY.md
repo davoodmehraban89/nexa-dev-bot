@@ -118,34 +118,45 @@ Conclusion:
 - Releases source-backed empty state: VERIFIED.
 - Telegram owner-device/runtime evidence: VERIFIED.
 
-## Current Design Work — Repository Workspace / Code Editor
-- Owner explicitly requires the future ability to open a file in any accessible repository, edit it from the Nexa mobile control plane, review the change, commit it, and send it back to GitHub.
-- Owner approved the architectural direction: branch-first, diff-first, no provider commit without Safe Approval, single-file first with a multi-file-capable architecture.
-- Design spec path: `docs/superpowers/specs/2026-10-03-repository-workspace-editor-design.md`.
-- Design branch: `spec/repository-workspace-editor`.
-- This is an architectural subsystem and is not yet implementation-approved until the owner reviews the written spec.
+## Current Design / Planning Work — Repository Workspace / Code Editor
+- Owner explicitly requires the ability to open a file in any accessible repository, edit it from the Nexa mobile control plane, review the change, commit it, and send it back to GitHub.
+- Owner approved the architectural direction and then explicitly approved the written spec on 2026-10-03.
+- Design spec: `docs/superpowers/specs/2026-10-03-repository-workspace-editor-design.md`.
+- Implementation plan: `docs/superpowers/plans/2026-10-03-repository-workspace-editor.md`.
+- Design/plan branch: `spec/repository-workspace-editor`.
+- Draft PR #21 contains design + plan only; no product implementation has been added yet.
+- Current plan head after self-review: `6990647df6b24120169e778800893d5e23a9bdb3` before this memory checkpoint commit.
 
-### Approved design direction captured in the spec
+### Approved design direction
 - Phase 1: durable owner-scoped single-file text workspace, exact diff, conflict/staleness checks, branch-first GitHub commit, Safe Approval, commit SHA + CI handoff.
 - Commit engine is based on Git Data blobs/trees/commits/refs so Phase 2 can atomically commit multiple files without redesign.
-- Draft content is stored outside Telegram callback data/process memory, preferably in a dedicated `WORKSPACE_STORE` Durable Object; existing `APPROVAL_REPLAY_GUARD` remains dedicated to approval replay protection.
+- Draft content is stored outside Telegram callback data/process memory in a dedicated `WORKSPACE_STORE` Durable Object; existing `APPROVAL_REPLAY_GUARD` remains dedicated to approval replay protection.
 - Commit intent is idempotent: committed result metadata/SHA is persisted so Telegram/network retries or a fresh approval cannot create a duplicate commit for the same unchanged workspace intent; ambiguous provider outcomes require ref reconciliation before retry.
 - Direct writes to `main` are out of scope for Phase 1 and may be added later only as an explicitly enabled high-risk path that respects GitHub protection rules.
 - Binary/LFS, automatic conflict resolution, secret/private-key-like files and arbitrary shell execution are out of scope for Phase 1.
 - Production acceptance requires owner-device evidence proving draft-only behavior before approval, exact diff, one approved commit, replay rejection, idempotent retry, and GitHub/Cloudflare evidence agreement.
 
+### Plan decisions locked by self-review
+- Path-safe navigation uses short owner-scoped Durable Object refs; raw long paths are never placed in callback data.
+- Phase-1 edit ceiling is 3,000 Unicode characters and 12,000 UTF-8 bytes; input over the limit is rejected rather than silently truncated.
+- Navigation/workspace handles are 10 URL-safe chars; commit-intent IDs are 8 URL-safe chars so compact approval tokens remain within the existing 56-character token ceiling.
+- Repeated Ready on unchanged material reuses the existing intent instead of minting a new intent.
+- Git commit request metadata is deterministic for idempotent retry; target refs are never force-updated in Phase 1.
+- Existing declarative Cloudflare Durable Object `exports` lifecycle is preserved; `WorkspaceStore` will be added as SQLite storage without introducing legacy `migrations`.
+
 ### Not yet implementation-complete
-- Written spec requires owner review/approval before implementation planning.
-- No workspace storage binding/class has been added yet.
+- Implementation plan still requires owner review/acceptance before implementation starts.
+- No workspace storage binding/class has been deployed yet.
 - No editor WRITE action has been added yet.
 - No new GitHub commit mutation has been added yet.
 - No production editor smoke has been run yet.
 
 ## Next Executable Actions
-1. Owner reviews `docs/superpowers/specs/2026-10-03-repository-workspace-editor-design.md` and approves or requests changes.
-2. After written-spec approval, create the implementation plan via the required planning workflow.
-3. Implement with TDD in vertical slices: workspace storage -> edit/diff UX -> Git Data commit engine -> Safe Approval + idempotency integration -> CI handoff -> production smoke.
-4. Only after Repository Workspace Phase 1 production acceptance, continue remaining useful GitHub Advanced WRITE operations and then Cloudflare Ops.
+1. Owner reviews `docs/superpowers/plans/2026-10-03-repository-workspace-editor.md` and confirms it captures the desired implementation.
+2. Use the project's already-established native execution mode in this harness (no independent subagent tool is exposed) and implement task-by-task with TDD.
+3. Before implementation, merge the approved design/plan-only PR #21 to `main`, verify exact post-merge CI/deploy, then create an isolated implementation branch from that verified main.
+4. Execute Tasks 1-7 from the plan: policy/diff -> durable store -> path-safe editor entry -> draft/diff intent -> Git Data primitives -> Safe Approval/idempotent commit -> production acceptance.
+5. Only after Repository Workspace Phase 1 production acceptance, continue remaining useful GitHub Advanced WRITE operations and then Cloudflare Ops.
 
 ## Remaining Roadmap
 1. Repository Workspace / Code Editor Phase 1, then multi-file expansion.

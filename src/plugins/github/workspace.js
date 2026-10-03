@@ -198,7 +198,7 @@ export function createWorkspaceController({ github, workspaces } = {}) {
     const draftMode = mode === 'draft';
     return {
       text: fileMode
-        ? `📎 <b>فایل متنی جایگزین را ارسال کنید</b>\nمقصد در مخزن: <code>${escapeHtml(workspace.path)}</code>\n\nفایل ارسال‌شده فقط به‌عنوان محتوای جایگزین Draft استفاده می‌شود؛ نام فایل مقصد را تغییر نمی‌دهد. سقف: 12,000 بایت و UTF-8 معتبر. فایل‌های باینری، LFS یا محتوای غیرمجاز رد می‌شوند.`
+        ? `📎 <b>فایل متنی جایگزین را ارسال کنید</b>\nمقصد در مخزن: <code>${escapeHtml(workspace.path)}</code>\n\nفایل ارسال‌شده فقط به‌عنوان محتوای جایگزین Draft استفاده می‌شود؛ نام فایل مقصد را تغییر نمی‌دهد. سقف: 3,000 کاراکتر Unicode و 12,000 بایت UTF-8 معتبر. فایل‌های باینری، LFS یا محتوای غیرمجاز رد می‌شوند.`
         : draftMode
           ? `📝 <b>متن جدید Draft را ارسال کنید</b>\nفایل: <code>${escapeHtml(workspace.path)}</code>\n\nکل محتوای فایل جایگزین می‌شود. سقف: 3,000 کاراکتر Unicode و 12,000 بایت UTF-8. پیام بعدی فقط یک‌بار مصرف می‌شود.`
           : `✍️ <b>پیام Commit را ارسال کنید</b>\nفایل: <code>${escapeHtml(workspace.path)}</code>\n\nپیام باید غیرخالی و حداکثر 120 کاراکتر باشد. پیام بعدی فقط یک‌بار مصرف می‌شود.`,

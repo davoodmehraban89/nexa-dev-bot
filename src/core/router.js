@@ -54,7 +54,8 @@ export class PluginRouter {
           risk: decision.risk,
           requiresApproval: decision.requiresApproval,
           denied: !decision.requiresApproval,
-          reason: decision.reason
+          reason: decision.reason,
+          approval: route.approval || null
         };
       }
 

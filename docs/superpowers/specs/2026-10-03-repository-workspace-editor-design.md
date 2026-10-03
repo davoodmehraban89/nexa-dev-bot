@@ -33,6 +33,7 @@ Phase 1 supports:
 - exact diff before approval;
 - conflict detection against the original base HEAD;
 - Safe Approval before the GitHub mutation;
+- idempotent commit intent tracking;
 - commit SHA feedback and CI handoff.
 
 Phase 1 does not support:
@@ -79,11 +80,13 @@ The workspace records:
 - source blob SHA;
 - original content digest;
 - draft content/digest;
+- commit message/digest when supplied;
+- target branch when supplied/generated;
 - created/updated timestamps;
 - expiration time;
 - workspace state.
 
-The owner submits replacement text or a bounded line-range edit. Nexa validates size, encoding, path and workspace ownership before accepting it.
+The owner submits replacement text or a bounded line-range edit. Nexa validates size, UTF-8 encoding, source path, workspace ownership and configured input bounds before accepting it. Commit messages and branch names are normalized and bounded; branch names must satisfy Git ref safety rules.
 
 ### Review
 
@@ -103,10 +106,11 @@ No provider mutation happens during preview.
 
 The default path is:
 
-`draft -> review diff -> Safe Approval -> create/update feature branch -> create commit -> return SHA -> monitor CI`
+`draft -> review diff -> Safe Approval -> Git Data commit flow -> target branch ref -> return SHA -> monitor CI`
 
 The approval target binds at least:
 - repository;
+- workspace id / commit-intent id;
 - base HEAD SHA;
 - target branch;
 - changed path(s);
@@ -128,7 +132,7 @@ Nexa generates or accepts a safe branch name such as:
 
 `nexa/edit-<short-workspace-id>`
 
-The final mutation may create the branch and commit as one approved composite action. This keeps drafts local while avoiding an unnecessary provider write before final confirmation.
+The final approved composite action creates Git objects and then the target branch ref. This keeps drafts local and avoids a visible provider branch write before final confirmation.
 
 ### Direct-main future mode
 
@@ -139,12 +143,16 @@ Direct commits to the default branch are deferred. If added later they must be e
 The implementation should use GitHub Git Data primitives rather than designing around one-file Contents API behavior:
 
 1. Read and pin the base HEAD commit/tree.
-2. Create blob(s) for staged content.
-3. Create a new tree from the pinned base tree.
-4. Create one commit pointing to that tree.
-5. Create or fast-forward the approved target branch ref.
+2. After approval is consumed, re-check staleness/conflicts.
+3. Create blob(s) for staged content.
+4. Create a new tree from the pinned base tree.
+5. Create one commit pointing to that tree.
+6. Create or fast-forward the approved target branch ref.
+7. Persist the provider result into the workspace before returning success to Telegram.
 
-This is slightly more work for the first single-file version, but it gives the correct atomic foundation for Phase 2 multi-file commits.
+All GitHub Git Data writes (blob/tree/commit/ref) occur only after Safe Approval has been successfully consumed. Provider object creation is considered part of the approved composite WRITE even if a later ref update fails.
+
+This is slightly more work for the first single-file version, but it gives the correct atomic file-set foundation for Phase 2 multi-file commits.
 
 No branch ref may be moved if the repository state no longer matches the conflict checks described below.
 
@@ -155,13 +163,32 @@ A workspace is optimistic-concurrency controlled.
 Before final mutation Nexa re-reads the relevant branch state.
 
 Rules:
-- If the base branch HEAD no longer matches the workspace base HEAD, the commit is blocked as stale.
+- If the base branch HEAD no longer matches the workspace base HEAD, the commit is blocked as stale before GitHub object creation.
 - Nexa does not silently rebase, merge or overwrite.
 - The owner is shown the conflict/staleness reason and can refresh the workspace from the new base.
 - If a target branch already exists unexpectedly or moved since approval, the action fails closed.
 - A provider 409/422 or protection error is surfaced to Telegram and audited; success is never fabricated.
 
-## 7. Workspace Storage
+## 7. Idempotency and Ambiguous Provider Outcomes
+
+Approval replay protection alone is not enough. A provider call can succeed while the Telegram response fails, and the owner may then try again with a fresh approval.
+
+Each ready-to-commit workspace therefore gets a stable commit-intent digest derived from repository, base SHA, target branch, path(s), content/tree digest and commit-message digest.
+
+Workspace state transitions are monotonic, for example:
+
+`DRAFT -> READY -> COMMITTING -> COMMITTED | FAILED | STALE`
+
+Rules:
+- once `COMMITTED`, the workspace returns the recorded commit SHA and must not create another commit for the same intent;
+- the resulting commit SHA/target ref are persisted before Nexa reports success to Telegram;
+- if the provider result is ambiguous (timeout/network failure after a possible ref update), Nexa reconciles the target branch/ref against the expected commit intent before permitting a retry;
+- a fresh approval cannot bypass an already-committed workspace intent;
+- changing draft content, branch or commit message creates a new intent and invalidates any prior pending approval.
+
+This protects against duplicate commits even when the first successful provider result was not visible to the owner.
+
+## 8. Workspace Storage
 
 Draft content must not be stored in Telegram callback data or process memory.
 
@@ -172,13 +199,14 @@ Properties:
 - every operation checks owner identity;
 - data is scoped by owner + workspace id;
 - TTL cleanup removes abandoned drafts;
+- committed result metadata is retained long enough to support idempotent retry/reconciliation;
 - no GitHub token, Telegram token or signing secret is stored in the workspace;
 - audit logs store metadata/digests, not full sensitive file contents;
 - draft state is never treated as a provider commit.
 
 The existing `APPROVAL_REPLAY_GUARD` remains dedicated to one-time approval consumption.
 
-## 8. Editable File Policy
+## 9. Editable File Policy
 
 Phase 1 accepts UTF-8 text only.
 
@@ -191,9 +219,9 @@ Reject or disable edit for:
 
 Reads may remain available where already allowed, but the editor should fail closed for risky write targets.
 
-All rendered file content and diff text must be HTML-escaped and bounded for Telegram.
+All rendered file content and diff text must be HTML-escaped and bounded for Telegram. Editable input must never be silently truncated.
 
-## 9. Telegram UX
+## 10. Telegram UX
 
 New controls should fit naturally into the existing GitHub plugin:
 
@@ -224,9 +252,9 @@ After commit:
 - `🧪 CI / Actions`;
 - optional later `Create PR` action, separately approval-gated.
 
-For content too large to edit comfortably in chat, Phase 1 should explain the limit rather than truncate editable input silently. The richer Mini App editor is the planned expansion path.
+For content too large to edit comfortably in chat, Phase 1 explains the limit rather than truncating editable input silently. The richer Mini App editor is the planned expansion path.
 
-## 10. Action Model and Risk
+## 11. Action Model and Risk
 
 New actions should be explicit in the GitHub plugin manifest.
 
@@ -242,14 +270,15 @@ Provider WRITE examples:
 
 Every provider WRITE must pass through the existing Action Policy, HMAC approval, durable replay guard and audit lifecycle.
 
-The commit provider call must not occur until approval is successfully consumed.
+The GitHub Git Data write sequence must not begin until approval is successfully consumed.
 
-## 11. Audit Requirements
+## 12. Audit Requirements
 
 Audit events must let us reconstruct the control-plane decision without leaking source contents.
 
 Record metadata such as:
 - workspace id;
+- commit-intent digest;
 - repo id;
 - base SHA;
 - target branch;
@@ -259,6 +288,7 @@ Record metadata such as:
 - proposed tree/content digest;
 - action/policy/approval outcome;
 - resulting commit SHA on success;
+- reconciliation outcome after ambiguous provider failures;
 - provider error category on failure.
 
 Do not log:
@@ -266,7 +296,7 @@ Do not log:
 - tokens/secrets;
 - signed approval callback tokens.
 
-## 12. Testing Strategy
+## 13. Testing Strategy
 
 Implementation must be TDD and include:
 
@@ -275,23 +305,31 @@ Implementation must be TDD and include:
 - workspace owner isolation;
 - TTL/stale workspace behavior;
 - text/diff bounds and escaping;
+- branch/commit-message validation and bounds;
 - blob/tree/commit/ref request construction;
 - multi-file-capable tree construction even if UI initially stages one file;
 - GitHub error propagation.
 
 ### Policy / security
 - no GitHub WRITE before approval;
-- approval target binds repo/base/branch/path/content digest;
+- approval target binds repo/workspace/base/branch/path/content digest;
 - replay rejected;
 - expired approval rejected;
-- stale base HEAD blocks mutation;
+- stale base HEAD blocks mutation before object creation;
 - unexpected target-branch movement blocks mutation;
 - non-owner cannot read or mutate workspace;
 - sensitive-file policy fails closed.
 
+### Idempotency
+- committed workspace returns recorded SHA on retry without another provider write;
+- fresh approval cannot duplicate an already-committed intent;
+- ambiguous provider timeout reconciles expected target ref before retry;
+- content/branch/message change invalidates prior approval and produces a new intent.
+
 ### Integration
 - create draft -> edit -> diff -> approve -> branch commit;
 - provider failure visibly updates Telegram;
+- successful commit persists exact SHA before Telegram success feedback;
 - successful commit returns exact SHA and CI navigation.
 
 ### Production acceptance
@@ -301,9 +339,10 @@ CI alone is insufficient. Acceptance requires an owner-device smoke on a safe te
 3. no GitHub write occurs before approval;
 4. confirmation creates exactly one commit on the intended branch;
 5. replay does not create a second commit;
-6. GitHub and Cloudflare audit/runtime evidence agree on the same operation.
+6. re-opening/retrying a committed workspace returns the same SHA without a duplicate commit;
+7. GitHub and Cloudflare audit/runtime evidence agree on the same operation.
 
-## 13. Acceptance Criteria
+## 14. Acceptance Criteria
 
 Phase 1 is complete only when all are true:
 
@@ -313,6 +352,7 @@ Phase 1 is complete only when all are true:
 - `main` is not directly mutated;
 - stale-base conflicts fail closed;
 - final GitHub mutation is Safe-Approval gated and one-time;
+- a committed workspace is idempotent across Telegram/network retries;
 - resulting commit SHA/branch are shown from provider evidence;
 - CI handoff is available;
 - audit does not expose full draft/source contents or secrets;
@@ -320,7 +360,7 @@ Phase 1 is complete only when all are true:
 - exact production deployment is verified;
 - owner-device production smoke passes.
 
-## 14. Roadmap Placement
+## 15. Roadmap Placement
 
 Updated order:
 
@@ -336,8 +376,8 @@ Updated order:
 10. Telegram Mini App using the same workspace/control-plane APIs.
 11. Plugin ecosystem, multi-project control plane and final hardening.
 
-## 15. Key Architecture Decision
+## 16. Key Architecture Decision
 
 The editor is not a special bypass around GitHub controls. It is a first-class GitHub WRITE workflow built on the same policy, approval, replay-protection and audit boundary already proven in production.
 
-The initial UI is deliberately small, but the underlying workspace + Git Data commit model is designed for later multi-file atomic commits and a richer editor without changing the security contract.
+The initial UI is deliberately small, but the underlying durable workspace + idempotent Git Data commit model is designed for later multi-file atomic commits and a richer editor without changing the security contract.

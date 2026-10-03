@@ -129,9 +129,10 @@ Conclusion:
 - Phase 1: durable owner-scoped single-file text workspace, exact diff, conflict/staleness checks, branch-first GitHub commit, Safe Approval, commit SHA + CI handoff.
 - Commit engine is based on Git Data blobs/trees/commits/refs so Phase 2 can atomically commit multiple files without redesign.
 - Draft content is stored outside Telegram callback data/process memory, preferably in a dedicated `WORKSPACE_STORE` Durable Object; existing `APPROVAL_REPLAY_GUARD` remains dedicated to approval replay protection.
+- Commit intent is idempotent: committed result metadata/SHA is persisted so Telegram/network retries or a fresh approval cannot create a duplicate commit for the same unchanged workspace intent; ambiguous provider outcomes require ref reconciliation before retry.
 - Direct writes to `main` are out of scope for Phase 1 and may be added later only as an explicitly enabled high-risk path that respects GitHub protection rules.
 - Binary/LFS, automatic conflict resolution, secret/private-key-like files and arbitrary shell execution are out of scope for Phase 1.
-- Production acceptance requires owner-device evidence proving draft-only behavior before approval, exact diff, one approved commit, replay rejection, and GitHub/Cloudflare evidence agreement.
+- Production acceptance requires owner-device evidence proving draft-only behavior before approval, exact diff, one approved commit, replay rejection, idempotent retry, and GitHub/Cloudflare evidence agreement.
 
 ### Not yet implementation-complete
 - Written spec requires owner review/approval before implementation planning.
@@ -143,7 +144,7 @@ Conclusion:
 ## Next Executable Actions
 1. Owner reviews `docs/superpowers/specs/2026-10-03-repository-workspace-editor-design.md` and approves or requests changes.
 2. After written-spec approval, create the implementation plan via the required planning workflow.
-3. Implement with TDD in vertical slices: workspace storage -> edit/diff UX -> Git Data commit engine -> Safe Approval integration -> CI handoff -> production smoke.
+3. Implement with TDD in vertical slices: workspace storage -> edit/diff UX -> Git Data commit engine -> Safe Approval + idempotency integration -> CI handoff -> production smoke.
 4. Only after Repository Workspace Phase 1 production acceptance, continue remaining useful GitHub Advanced WRITE operations and then Cloudflare Ops.
 
 ## Remaining Roadmap

@@ -134,7 +134,7 @@ Conclusion:
 - Target branch is `nexa/edit-<workspaceId>`.
 - Draft/source content is never placed in callback data or audit metadata.
 - Repeated Ready on unchanged material reuses the existing immutable intent.
-- Provider Git commit creation is still NOT VERIFIED because Task 5/6 and production acceptance have not run.
+- Provider Git commit creation remains NOT VERIFIED live until Task 6 is completed and owner-device production acceptance passes.
 
 ### Task 1 — Workspace policy/diff primitives: COMPLETE
 - `src/core/workspace-policy.js` implements editable-file policy, commit-message normalization, target-branch normalization, SHA-256 digests and bounded unified diff with exact full-content counts.
@@ -162,19 +162,26 @@ Conclusion:
 - Diff is HTML escaped and bounded while additions/deletions are computed over complete content.
 - READY requires changed content + normalized commit message, binds stable digests/base/path/branch/timestamp, reuses unchanged intent and emits only short `wscommit:<repoId>:<intentId>` callback data.
 - GREEN CI #207 / run `37114230736`, job `111177792978`: 27 test files, 127/127 pass, 0 fail/skip/cancelled.
-- No GitHub provider mutation exists in Tasks 1-4; provider commit remains NOT VERIFIED.
+
+### Task 5 — GitHub Git Data commit primitives: COMPLETE
+- RED CI #209 / run `37114394075`, job `111178254379`: 132 tests total, 127 pass / 5 expected failures for missing Git Data primitives.
+- `requestJson` now supports opt-in `allowNotFound`; only HTTP 404 may return `null`, while 403/409/422 and other provider errors remain explicit.
+- Added `getGitRef`, `createGitBlob`, multi-file-capable `createGitTree`, deterministic `createGitCommit`, and create-only `createGitBranchRef`.
+- Branch paths containing `/` are safely encoded for ref reads; every provider/object SHA is full 40-hex validated.
+- Commit author/committer identity and timestamp are deterministic, making ambiguous Git object creation retries material-stable.
+- Phase 1 intentionally exposes no update-ref/force-ref primitive.
+- GREEN CI #210 / run `37114509763`, job `111178575800`: 28 test files, 132/132 pass, 0 fail/skip/cancelled.
+- These Git Data writes are verified only against mocked provider contracts; live GitHub branch commit remains NOT VERIFIED.
 
 ### Remaining implementation tasks
-- Task 5: GitHub Git Data commit primitives with deterministic request bodies and no force-update primitive.
-- Task 6: compact workspace Safe Approval codec + idempotent commit orchestration + audit metadata.
+- Task 6: compact workspace Safe Approval codec + idempotent commit orchestration + safe audit metadata.
 - Task 7: whole-branch review, merge, exact post-merge CI/deploy, Cloudflare binding verification and owner-device production acceptance.
 
 ## Next Executable Actions
-1. Execute Task 5 RED -> GREEN for Git Data ref/blob/tree/commit/create-ref primitives.
-2. Execute Task 6 RED -> GREEN for Safe Approval/idempotent branch commit orchestration; no provider WRITE before approval.
-3. Run Task 7 exact whole-branch verification and secret-pattern scan; review PR #21 against the approved spec.
-4. Merge only a reviewed green head, verify exact `main` CI and Cloudflare deployment/bindings, then perform owner-device pre-approval and approved-commit smoke.
-5. Do not call Repository Workspace Phase 1 production-accepted until Telegram, GitHub and Cloudflare runtime evidence agree.
+1. Execute Task 6 RED -> GREEN for Safe Approval/idempotent branch commit orchestration; no provider WRITE before approval.
+2. Run Task 7 exact whole-branch verification and secret-pattern scan; review PR #21 against the approved spec.
+3. Merge only a reviewed green head, verify exact `main` CI and Cloudflare deployment/bindings, then perform owner-device pre-approval and approved-commit smoke.
+4. Do not call Repository Workspace Phase 1 production-accepted until Telegram, GitHub and Cloudflare runtime evidence agree.
 
 ## Remaining Roadmap
 1. Repository Workspace / Code Editor Phase 1, then multi-file expansion.

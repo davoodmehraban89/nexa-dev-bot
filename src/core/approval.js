@@ -1,9 +1,5 @@
 const encoder = new TextEncoder();
-
-// Shared within a Worker isolate so approval replay state survives across
-// separate NexaDevBot instances created for individual webhook requests.
-// A durable cross-isolate store is wired in the hardening phase.
-const sharedUsedNonces = new Set();
+const SIGNING_DOMAIN = 'nexa-approval-v1';
 
 const DEFAULT_CODECS = new Map([
   ['github.workflow.run.rerun_failed', {
@@ -72,18 +68,22 @@ export class ApprovalService {
     ttlMs = 120_000,
     maxTokenLength = 56,
     signatureBytes = 12,
-    replayStore = sharedUsedNonces
+    replayStore = null
   } = {}) {
     this.secret = String(secret || '');
     this.now = now;
     this.ttlMs = ttlMs;
     this.maxTokenLength = maxTokenLength;
     this.signatureBytes = signatureBytes;
-    if (!replayStore || typeof replayStore.has !== 'function' || typeof replayStore.add !== 'function') {
+    if (replayStore && typeof replayStore.consume !== 'function') {
       throw new Error('Approval replay store is invalid');
     }
     this.replayStore = replayStore;
     this.keyPromise = null;
+  }
+
+  isReplayProtected() {
+    return Boolean(this.replayStore && typeof this.replayStore.consume === 'function');
   }
 
   async issue(payload = {}) {
@@ -145,8 +145,16 @@ export class ApprovalService {
 
   async consume(token, expectations = {}) {
     const payload = await this.verify(token, expectations);
-    if (this.replayStore.has(payload.nonce)) throw new Error('Approval token already used');
-    this.replayStore.add(payload.nonce);
+    if (!this.isReplayProtected()) {
+      throw new Error('Durable approval replay protection is not configured');
+    }
+
+    const accepted = await this.replayStore.consume({
+      ownerId: payload.ownerId,
+      nonce: payload.nonce,
+      expiresAt: payload.expiresAt
+    });
+    if (!accepted) throw new Error('Approval token already used');
     return payload;
   }
 
@@ -213,7 +221,7 @@ export class ApprovalService {
     const signature = await crypto.subtle.sign(
       'HMAC',
       key,
-      encoder.encode(`${ownerId}|${body}`)
+      encoder.encode(`${SIGNING_DOMAIN}|${ownerId}|${body}`)
     );
     return new Uint8Array(signature);
   }

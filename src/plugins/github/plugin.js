@@ -375,7 +375,7 @@ async function releasesView(github, repoId, page = 1) {
   const [repo, releases] = await Promise.all([github.getRepository(repoId), github.listReleases(repoId, { perPage: 10, page })]);
   const body = releases.length
     ? releases.slice(0, 10).map(release => `🏷 <b>${escapeHtml(release.tag || release.name)}</b>${release.prerelease ? ' · pre-release' : ''}${release.draft ? ' · draft' : ''}\n  ${escapeHtml(short(release.name, 110))}\n  ${escapeHtml(release.publishedAt || '-')}`).join('\n\n')
-    : '<i>Releaseی یافت نشد.</i>';
+    : '<i>هیچ Release منتشرشده‌ای برای این مخزن در GitHub وجود ندارد.</i>';
   return {
     text: `🏷 <b>Releases — ${escapeHtml(repo.name)}</b>\nصفحه: <b>${page}</b>\n➖➖➖➖➖➖➖➖➖➖\n${body}`,
     reply_markup: { inline_keyboard: [...listPagination('releases', repoId, page, releases.length, 10), [{ text: '🔙 پروژه', callback_data: `repo:${repoId}` }]] }

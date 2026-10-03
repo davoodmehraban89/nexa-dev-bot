@@ -121,11 +121,32 @@ export class NexaDevBot {
           throw new Error('Approval owner is required');
         }
         const token = data.slice('approve:'.length);
-        const payload = await this.approvals.consume(token, {
-          ownerId: String(ownerId),
-          pluginId: 'github',
-          risk: 'WRITE'
+        let payload;
+        try {
+          payload = await this.approvals.consume(token, {
+            ownerId: String(ownerId),
+            pluginId: 'github',
+            risk: 'WRITE'
+          });
+        } catch (error) {
+          this.audit.log({
+            event: 'approval_rejected',
+            pluginId: 'github',
+            risk: 'WRITE',
+            outcome: 'rejected',
+            error: error?.message || 'Approval rejected'
+          });
+          throw error;
+        }
+
+        this.audit.log({
+          event: 'approval_verified',
+          pluginId: payload.pluginId,
+          actionId: payload.actionId,
+          risk: payload.risk,
+          outcome: 'verified'
         });
+
         const sourceCallback = approvalSourceCallback(payload);
         const routed = await this.router.dispatchCallback(sourceCallback, {
           isOwner: true,
@@ -172,6 +193,14 @@ export class NexaDevBot {
           ownerId: String(ownerId),
           input: approval.input
         });
+        this.audit.log({
+          event: 'approval_issued',
+          pluginId: routed.pluginId,
+          actionId: routed.actionId,
+          risk: routed.risk,
+          outcome: 'pending'
+        });
+
         const view = approvalView({
           label: approval.label || routed.actionId,
           token,

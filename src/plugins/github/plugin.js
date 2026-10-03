@@ -48,7 +48,7 @@ const addCiButton = (view, repoId) => {
   return {
     ...view,
     reply_markup: {
-      ...(view.reply_markup || {}),
+      ...(view?.reply_markup || {}),
       inline_keyboard: rows
     }
   };

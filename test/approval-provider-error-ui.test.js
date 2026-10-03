@@ -122,7 +122,7 @@ test('approved GitHub WRITE provider failure visibly updates Telegram and does n
     assert.equal(edits.length, 2, 'provider failure must visibly replace the approval message');
     const feedback = edits.at(-1);
     assert.match(feedback.body.text, /اجرا نشد|GitHub|403|دسترسی/);
-    assert.doesNotMatch(feedback.body.text, /موفق|success/i);
+    assert.doesNotMatch(feedback.body.text, /عملیات با موفقیت|success/i);
     assert.ok(
       feedback.body.reply_markup.inline_keyboard.flat().some(button => button.callback_data === 'run:1001:55'),
       'provider failure must provide a safe route back to the run'

@@ -80,7 +80,9 @@ test('workspace exposes a primary file-upload input route with Telegram-safe cal
   const route = plugin.resolveCallback(upload.callback_data, { ownerId: OWNER });
   assert.equal(route.actionId, 'github.workspace.input.prepare');
   const prompt = await route.execute();
-  assert.match(prompt.text, /12,?000|12000|UTF-?8|فایل/i);
+  assert.match(prompt.text, /12,?000|12000/);
+  assert.match(prompt.text, /3,?000|3000/);
+  assert.match(prompt.text, /UTF-?8|فایل/i);
   assert.deepEqual(await workspaces.getPendingInput({ ownerId: OWNER }), {
     workspaceId: WORKSPACE_ID,
     mode: 'draft_file'
@@ -145,4 +147,51 @@ test('bot downloads a pending workspace document and dispatches its decoded file
     byteLength: 22
   });
   assert.deepEqual(dispatch[2], { isOwner: true, ownerId: OWNER });
+});
+
+test('wrong message type while file upload is pending does not dispatch or consume the workspace input', async () => {
+  const bot = new NexaDevBot({});
+  let dispatches = 0;
+  bot.workspaceStore = {
+    isConfigured: () => true,
+    async getPendingInput() { return { workspaceId: WORKSPACE_ID, mode: 'draft_file' }; }
+  };
+  bot.telegram = {
+    async sendMessage() { return { ok: true }; },
+    async downloadTextFile() { throw new Error('must not download'); }
+  };
+  bot.router = {
+    async dispatchMessage() { dispatches += 1; return null; }
+  };
+
+  const result = await bot.handleMessage({ chat: { id: 7 }, from: { id: 42 }, text: 'not a file' });
+  assert.equal(result.workspaceInput, true);
+  assert.equal(result.inputRequired, 'document');
+  assert.equal(dispatches, 0);
+});
+
+test('oversized Telegram document is rejected before download or workspace dispatch so owner can retry', async () => {
+  const bot = new NexaDevBot({});
+  let downloads = 0;
+  let dispatches = 0;
+  bot.workspaceStore = {
+    isConfigured: () => true,
+    async getPendingInput() { return { workspaceId: WORKSPACE_ID, mode: 'draft_file' }; }
+  };
+  bot.telegram = {
+    async sendMessage() { return { ok: true }; },
+    async downloadTextFile() { downloads += 1; return { text: 'unexpected', byteLength: 10 }; }
+  };
+  bot.router = {
+    async dispatchMessage() { dispatches += 1; return null; }
+  };
+
+  const result = await bot.handleMessage({
+    chat: { id: 7 },
+    from: { id: 42 },
+    document: { file_id: 'HUGE', file_name: 'huge.txt', file_size: 12001 }
+  });
+  assert.equal(result.inputRejected, true);
+  assert.equal(downloads, 0);
+  assert.equal(dispatches, 0);
 });

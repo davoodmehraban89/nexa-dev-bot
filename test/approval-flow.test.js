@@ -74,8 +74,8 @@ function installMock() {
   };
 }
 
-async function sendUpdate(update) {
-  const response = await worker.fetch(webhook(update), env);
+async function sendUpdate(update, runtime = env) {
+  const response = await worker.fetch(webhook(update), runtime);
   assert.equal(response.status, 200);
   return response.json();
 }
@@ -160,6 +160,31 @@ test('approve callback executes exactly once and replay is rejected', async () =
 
     const writesAfterReplay = mock.githubCalls.filter(call => call.method === 'POST');
     assert.equal(writesAfterReplay.length, 1, 'replay must not perform a second GitHub write');
+  } finally {
+    mock.restore();
+  }
+});
+
+test('WRITE approval falls back to the configured Telegram webhook secret when no dedicated signing secret exists', async () => {
+  const mock = installMock();
+  try {
+    const result = await sendUpdate({
+      callback_query: {
+        id: 'fallback-signing-secret',
+        from: { id: 123 },
+        data: 'rerun:1001:55',
+        message: { message_id: 702, chat: { id: 123 } }
+      }
+    }, {
+      ...env,
+      APPROVAL_SIGNING_SECRET: ''
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.approvalRequired, true);
+    assert.equal(mock.githubCalls.length, 0);
+    const edit = mock.telegramCalls.filter(call => call.method === 'editMessageText').at(-1);
+    assert.ok(edit.body.reply_markup.inline_keyboard.flat().some(button => String(button.callback_data || '').startsWith('approve:')));
   } finally {
     mock.restore();
   }

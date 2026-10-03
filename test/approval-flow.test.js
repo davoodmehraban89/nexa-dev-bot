@@ -2,13 +2,43 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
 
+function makeReplayNamespace() {
+  const used = new Set();
+  return {
+    idFromName(name) {
+      return String(name);
+    },
+    get(id) {
+      return {
+        async fetch(request) {
+          const body = await request.json();
+          const expiresAt = Number(body?.expiresAt);
+          if (!Number.isFinite(expiresAt)) {
+            return Response.json({ accepted: false, reason: 'invalid_expiry' }, { status: 400 });
+          }
+          if (expiresAt < Date.now()) {
+            return Response.json({ accepted: false, reason: 'expired' }, { status: 410 });
+          }
+          const key = String(id);
+          if (used.has(key)) {
+            return Response.json({ accepted: false, reason: 'already_used' }, { status: 409 });
+          }
+          used.add(key);
+          return Response.json({ accepted: true });
+        }
+      };
+    }
+  };
+}
+
 const env = {
   TELEGRAM_WEBHOOK_SECRET: 'right',
   OWNER_TELEGRAM_ID: '123',
   TELEGRAM_BOT_TOKEN: 'telegram-test-token',
   GITHUB_TOKEN: 'github-test-token',
   GITHUB_OWNER: 'davoodmehraban89',
-  APPROVAL_SIGNING_SECRET: 'approval-test-secret'
+  APPROVAL_SIGNING_SECRET: 'approval-test-secret',
+  APPROVAL_REPLAY_GUARD: makeReplayNamespace()
 };
 
 function webhook(update) {

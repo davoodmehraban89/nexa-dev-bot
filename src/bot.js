@@ -104,8 +104,11 @@ function callbackReadFailedView(data, error) {
   const permissionDenied = /403|resource not accessible by personal access token/i.test(reason);
   const repoMatch = String(data || '').match(/^[^:]+:(\d+)/);
   const fallback = repoMatch ? `repo:${repoMatch[1]}` : 'menu:main';
+  const isIssues = String(data || '').startsWith('issues:');
   const detail = permissionDenied
-    ? 'GitHub این درخواست خواندنی را با خطای 403 رد کرد. مجوز Read مربوط به این بخش در توکن فعلی کافی نیست.'
+    ? isIssues
+      ? 'GitHub درخواست Issues را با خطای 403 رد کرد. در Fine-grained token، مجوز Repository permissions → Issues را روی Read قرار دهید.'
+      : 'GitHub این درخواست خواندنی را با خطای 403 رد کرد. مجوز Read مربوط به این بخش در توکن فعلی کافی نیست.'
     : 'دریافت اطلاعات از سرویس با خطا مواجه شد. هیچ تغییری انجام نشد.';
 
   return {

@@ -173,15 +173,15 @@ ${lines}
     };
   }
 
-  async getGitHubProbeView() {
+  async getGitHubProbeView(backCallback = 'menu:tools', refreshCallback = 'ops:github') {
     const probe = await this.diagnostics.probeGitHub();
     return {
       text: probe.ok
         ? `🐙 <b>تست اتصال GitHub</b>\n➖➖➖➖➖➖➖➖➖➖\n✅ READ زنده موفق بود.\nمالک: <code>${escapeHtml(probe.owner)}</code>\nRepositoryهای قابل مشاهده: <b>${probe.repositoryCount}</b>\n\nهیچ WRITEای انجام نشد.`
         : `🐙 <b>تست اتصال GitHub</b>\n➖➖➖➖➖➖➖➖➖➖\n❌ READ زنده ناموفق بود.\n${escapeHtml(probe.error || 'خطای نامشخص')}\n\nهیچ وضعیت موفق ساختگی نمایش داده نمی‌شود.`,
       reply_markup: { inline_keyboard: [
-        [{ text: '🔄 تست دوباره', callback_data: 'ops:github' }],
-        backRow('🔙 ابزارها', 'menu:tools')
+        [{ text: '🔄 تست دوباره', callback_data: refreshCallback }],
+        backRow(backCallback === 'menu:settings' ? '🔙 پیکربندی' : '🔙 ابزارها', backCallback)
       ] }
     };
   }
@@ -263,8 +263,11 @@ WRITE فقط بعد از تأیید معتبر اجرا می‌شود و Approva
 • Telegram Bot credential: ${configuredText(snapshot.telegramConfigured)}
 • Telegram Webhook secret: ${configuredText(snapshot.webhookSecretConfigured)}
 
-مقادیر Credential نمایش داده نمی‌شوند. اتصال زنده GitHub را از «ابزارها → تست اتصال GitHub» بررسی کنید.`,
-      reply_markup: { inline_keyboard: [backRow('🔙 پیکربندی', 'menu:settings')] }
+مقادیر Credential نمایش داده نمی‌شوند. برای اعتبارسنجی Provider، تست READ زنده GitHub را مستقیماً اجرا کنید.`,
+      reply_markup: { inline_keyboard: [
+        [{ text: '🐙 تست زنده GitHub', callback_data: 'config:github' }],
+        backRow('🔙 پیکربندی', 'menu:settings')
+      ] }
     };
   }
 
@@ -308,6 +311,7 @@ WRITE فقط بعد از تأیید معتبر اجرا می‌شود و Approva
     if (action === 'config') {
       if (target === 'runtime') return this.getRuntimeView('menu:settings');
       if (target === 'providers') return this.getProvidersView();
+      if (target === 'github') return this.getGitHubProbeView('menu:settings', 'config:github');
       if (target === 'editor') return this.getEditorConfigView();
       if (target === 'plugins') return this.getPluginsView('menu:settings');
     }

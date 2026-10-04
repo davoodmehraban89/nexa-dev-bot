@@ -323,7 +323,22 @@ async function issuesView(github, repoId, page = 1) {
     : '<i>Issueی یافت نشد.</i>';
   return {
     text: `🐛 <b>Issues — ${escapeHtml(repo.name)}</b>\nصفحه: <b>${page}</b>\n➖➖➖➖➖➖➖➖➖➖\n${body}`,
-    reply_markup: { inline_keyboard: [...explicitPagination('issues', repoId, page, !!issuePage.hasMore), [{ text: '🔙 پروژه', callback_data: `repo:${repoId}` }]] }
+    reply_markup: { inline_keyboard: [
+      ...issues.slice(0, 20).map(issue => [{ text: `#${issue.number} ${short(issue.title, 42)}`, callback_data: `issuedetail:${repoId}:${issue.number}` }]),
+      ...explicitPagination('issues', repoId, page, !!issuePage.hasMore),
+      [{ text: '🔙 پروژه', callback_data: `repo:${repoId}` }]
+    ] }
+  };
+}
+
+async function issueDetailView(github, repoId, issueNumber) {
+  const [repo, issue] = await Promise.all([github.getRepository(repoId), github.getIssue(repoId, issueNumber)]);
+  const labels = (issue.labels || []).map(label => `#${escapeHtml(label)}`).join(' ');
+  const assignees = (issue.assignees || []).map(name => `@${escapeHtml(name)}`).join(' ');
+  const body = escapeHtml(short(issue.body || '', 1800));
+  return {
+    text: `🐛 <b>Issue #${issue.number} — ${escapeHtml(repo.name)}</b>\n<b>${escapeHtml(issue.title)}</b>\n${stateIcon(issue.state)} ${escapeHtml(issue.state || 'unknown')} · ${escapeHtml(issue.author)} · ${issue.comments ?? 0} comments\nLabels: ${labels || '-'}\nAssignees: ${assignees || '-'}\nUpdated: ${escapeHtml(issue.updatedAt || issue.createdAt || '-')}\n➖➖➖➖➖➖➖➖➖➖\n${body || '<i>بدون توضیح.</i>'}`,
+    reply_markup: { inline_keyboard: [[{ text: '🔄 بروزرسانی', callback_data: `issuedetail:${repoId}:${issueNumber}` }, { text: '🔙 Issues', callback_data: `issues:${repoId}` }]] }
   };
 }
 
@@ -334,7 +349,21 @@ async function releasesView(github, repoId, page = 1) {
     : '<i>هیچ Release منتشرشده‌ای برای این مخزن در GitHub وجود ندارد.</i>';
   return {
     text: `🏷 <b>Releases — ${escapeHtml(repo.name)}</b>\nصفحه: <b>${page}</b>\n➖➖➖➖➖➖➖➖➖➖\n${body}`,
-    reply_markup: { inline_keyboard: [...listPagination('releases', repoId, page, releases.length, 10), [{ text: '🔙 پروژه', callback_data: `repo:${repoId}` }]] }
+    reply_markup: { inline_keyboard: [
+      ...releases.slice(0, 10).map(release => [{ text: `🏷 ${short(release.tag || release.name, 42)}`, callback_data: `releasedetail:${repoId}:${release.id}` }]),
+      ...listPagination('releases', repoId, page, releases.length, 10),
+      [{ text: '🔙 پروژه', callback_data: `repo:${repoId}` }]
+    ] }
+  };
+}
+
+async function releaseDetailView(github, repoId, releaseId) {
+  const [repo, release] = await Promise.all([github.getRepository(repoId), github.getRelease(repoId, releaseId)]);
+  const body = escapeHtml(short(release.body || '', 1800));
+  const flags = [release.draft ? 'draft' : '', release.prerelease ? 'pre-release' : ''].filter(Boolean).join(' · ');
+  return {
+    text: `🏷 <b>${escapeHtml(release.name)} — ${escapeHtml(repo.name)}</b>\nTag: <code>${escapeHtml(release.tag || '-')}</code>\nTarget: <code>${escapeHtml(release.target || '-')}</code>\nAuthor: ${escapeHtml(release.author || 'unknown')}\nPublished: ${escapeHtml(release.publishedAt || '-')}${flags ? `\nState: ${escapeHtml(flags)}` : ''}\n➖➖➖➖➖➖➖➖➖➖\n${body || '<i>بدون Release notes.</i>'}`,
+    reply_markup: { inline_keyboard: [[{ text: '🔄 بروزرسانی', callback_data: `releasedetail:${repoId}:${releaseId}` }, { text: '🔙 Releases', callback_data: `releases:${repoId}` }]] }
   };
 }
 
@@ -377,8 +406,12 @@ function resolveReadCallback(data) {
   if (prchecks) return { actionId: 'github.pr.checks.list', kind: 'prchecks', repoId: prchecks.repoId, prNumber: prchecks.itemId, page: prchecks.page };
   const issues = pagedSingle(value, 'issues');
   if (issues) return { actionId: 'github.issues.list', kind: 'issues', ...issues };
+  const issuedetail = numericPair(value, 'issuedetail');
+  if (issuedetail) return { actionId: 'github.issue.detail', kind: 'issuedetail', repoId: issuedetail.repoId, issueNumber: issuedetail.runId };
   const releases = pagedSingle(value, 'releases');
   if (releases) return { actionId: 'github.releases.list', kind: 'releases', ...releases };
+  const releasedetail = numericPair(value, 'releasedetail');
+  if (releasedetail) return { actionId: 'github.release.detail', kind: 'releasedetail', repoId: releasedetail.repoId, releaseId: releasedetail.runId };
   for (const [prefix, actionId] of CALLBACK_ACTIONS) {
     if (value.startsWith(prefix)) return { actionId, kind: 'legacy' };
   }
@@ -454,7 +487,9 @@ export function createGitHubPlugin({ github, menu, workspaces } = {}) {
           if (read.kind === 'prfiles') return pullRequestFilesView(github, read.repoId, read.prNumber, read.page);
           if (read.kind === 'prchecks') return pullRequestChecksView(github, read.repoId, read.prNumber, read.page);
           if (read.kind === 'issues') return issuesView(github, read.repoId, read.page);
+          if (read.kind === 'issuedetail') return issueDetailView(github, read.repoId, read.issueNumber);
           if (read.kind === 'releases') return releasesView(github, read.repoId, read.page);
+          if (read.kind === 'releasedetail') return releaseDetailView(github, read.repoId, read.releaseId);
           return menu.renderByCallback(data);
         }
       };

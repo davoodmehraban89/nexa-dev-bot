@@ -68,9 +68,8 @@ Nexa Dev
 │       ├── 📂 فایل‌ها
 │       │   └── ✏️ Edit → Workspace Editor
 │       ├── 📝 Commitها
-│       ├── 🔀 Pull Requestها
-│       ├── 📊 وضعیت / تست‌ها
-│       ├── 🧪 CI / Actions
+│       ├── 🔀 Pull Requestها → فهرست پیشرفته و جزئیات PR
+│       ├── 📊 وضعیت / تست‌ها → CI / Actions و جزئیات Workflow Run
 │       ├── 🌿 Branches
 │       ├── 🐛 Issues
 │       └── 🏷 Releases
@@ -80,6 +79,8 @@ Nexa Dev
 ├── 🔐 امنیت
 └── 📘 راهنما
 ```
+
+در صفحهٔ Repository برای PR و CI فقط یک ورودی canonical نمایش داده می‌شود؛ callbackهای قدیمی سازگار مانده‌اند اما ورودی تکراری در UI ندارند.
 
 ## Durable Objects
 

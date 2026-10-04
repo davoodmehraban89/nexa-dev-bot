@@ -1,0 +1,49 @@
+import { NexaDevBot } from './bot.js';
+import { GuideMenuManager } from './guide-menu.js';
+
+function guidedPersistentQuickMenuMarkup() {
+  return {
+    keyboard: [
+      [{ text: '🏠 منوی اصلی' }, { text: '📁 پروژه‌ها' }],
+      [{ text: '📊 وضعیت' }, { text: '🔧 ابزارها' }],
+      [{ text: '🔐 امنیت' }, { text: '📘 راهنما' }]
+    ],
+    resize_keyboard: true,
+    is_persistent: true,
+    input_field_placeholder: 'Nexa Dev — یک گزینه را انتخاب کنید'
+  };
+}
+
+export class GuidedNexaDevBot extends NexaDevBot {
+  constructor(env = {}) {
+    super(env);
+    this.menu = new GuideMenuManager(this.github);
+  }
+
+  async handleMessage(message) {
+    const chatId = message?.chat?.id;
+    const rawText = typeof message?.text === 'string' ? message.text : '';
+    const text = rawText.trim();
+
+    if (!chatId) return super.handleMessage(message);
+
+    if (text === '/start' || text === '/menu' || text.startsWith('/start')) {
+      const quickMenuRes = await this.telegram.sendMessage(
+        chatId,
+        '⌨️ <b>منوی سریع Nexa Dev فعال شد</b>\nاین منو پایین صفحه می‌ماند و «📘 راهنما» از هر بخش در دسترس است.',
+        guidedPersistentQuickMenuMarkup()
+      );
+      const view = this.menu.getMainMenuView();
+      const res = await this.telegram.sendMessage(chatId, view.text, view.reply_markup);
+      return { ok: true, command: 'start', persistentMenu: true, quickMenuRes, res };
+    }
+
+    if (text === '📘 راهنما' || text === '/help') {
+      const view = this.menu.getGuideIndexView();
+      const res = await this.telegram.sendMessage(chatId, view.text, view.reply_markup);
+      return { ok: true, quickMenu: 'help', res };
+    }
+
+    return super.handleMessage(message);
+  }
+}

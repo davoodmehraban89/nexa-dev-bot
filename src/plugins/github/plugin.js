@@ -96,10 +96,7 @@ const addRepoAdvancedButtons = (view, repoId) => {
   const insertAt = Math.max(0, rows.length - 1);
   rows.splice(insertAt, 0,
     [{ text: '🧪 CI / Actions', callback_data: `runs:${repoId}` }],
-    [
-      { text: '🌿 Branches', callback_data: `branches:${repoId}` },
-      { text: '🔎 PRها', callback_data: `prs:${repoId}` }
-    ],
+    [{ text: '🌿 Branches', callback_data: `branches:${repoId}` }],
     [
       { text: '🐛 Issues', callback_data: `issues:${repoId}` },
       { text: '🏷 Releases', callback_data: `releases:${repoId}` }
@@ -437,6 +434,8 @@ function resolveReadCallback(data) {
   if (branches) return { actionId: 'github.branches.list', kind: 'branches', ...branches };
   const compare = compareRef(value);
   if (compare) return { actionId: 'github.compare.read', kind: 'compare', ...compare };
+  const legacyPr = numericSingle(value, 'pr');
+  if (legacyPr !== null) return { actionId: 'github.pr.advanced.list', kind: 'prs', repoId: legacyPr, page: 1 };
   const prs = pagedSingle(value, 'prs');
   if (prs) return { actionId: 'github.pr.advanced.list', kind: 'prs', ...prs };
   const prdetail = numericPair(value, 'prdetail');

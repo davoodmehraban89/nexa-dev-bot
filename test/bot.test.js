@@ -45,12 +45,12 @@ function makeBot() {
 }
 
 describe('Nexa Dev Bot - Webhook Dispatcher & In-Place Editing', () => {
-  it('/start sends one new message with Main Menu', async () => {
+  it('/start installs the bottom quick menu and sends the inline Main Menu', async () => {
     const sentMessages = [];
     const bot = makeBot();
     bot.telegram.sendMessage = async (chatId, text, replyMarkup) => {
       sentMessages.push({ chatId, text, replyMarkup });
-      return { ok: true, result: { message_id: 501 } };
+      return { ok: true, result: { message_id: 500 + sentMessages.length } };
     };
 
     const res = await bot.handleUpdate({
@@ -59,10 +59,14 @@ describe('Nexa Dev Bot - Webhook Dispatcher & In-Place Editing', () => {
 
     assert.equal(res.ok, true);
     assert.equal(res.command, 'start');
-    assert.equal(sentMessages.length, 1);
+    assert.equal(res.persistentMenu, true);
+    assert.equal(sentMessages.length, 2);
     assert.equal(sentMessages[0].chatId, 123456);
-    assert.match(sentMessages[0].text, /Nexa Dev Bot/);
-    assert.ok(sentMessages[0].replyMarkup.inline_keyboard);
+    assert.equal(sentMessages[0].replyMarkup.is_persistent, true);
+    assert.ok(sentMessages[0].replyMarkup.keyboard);
+    assert.equal(sentMessages[1].chatId, 123456);
+    assert.match(sentMessages[1].text, /Nexa Dev Bot/);
+    assert.ok(sentMessages[1].replyMarkup.inline_keyboard);
   });
 
   it('/repos is dispatched through the plugin router', async () => {

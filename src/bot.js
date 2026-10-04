@@ -11,11 +11,39 @@ import { PluginRouter } from './core/router.js';
 import { createGitHubPlugin } from './plugins/github/plugin.js';
 
 const INTENT_ID_PATTERN = /^[A-Za-z0-9_-]{8}$/;
+const QUICK_MENU = Object.freeze({
+  '🏠 منوی اصلی': 'main',
+  '📁 پروژه‌ها': 'repos',
+  '📊 وضعیت': 'status',
+  '🔧 ابزارها': 'tools',
+  '🔐 امنیت': 'security'
+});
 const escapeHtml = value => String(value ?? '')
   .replaceAll('&', '&amp;')
   .replaceAll('<', '&lt;')
   .replaceAll('>', '&gt;')
   .replaceAll('"', '&quot;');
+
+function persistentQuickMenuMarkup() {
+  return {
+    keyboard: [
+      [{ text: '🏠 منوی اصلی' }, { text: '📁 پروژه‌ها' }],
+      [{ text: '📊 وضعیت' }, { text: '🔧 ابزارها' }],
+      [{ text: '🔐 امنیت' }]
+    ],
+    resize_keyboard: true,
+    is_persistent: true,
+    input_field_placeholder: 'Nexa Dev — یک گزینه را انتخاب کنید'
+  };
+}
+
+function focusedCodeInputMarkup() {
+  return {
+    force_reply: true,
+    selective: true,
+    input_field_placeholder: 'کد یا متن را اینجا Paste کنید…'
+  };
+}
 
 function approvalSourceCallback(payload = {}) {
   const repoId = payload.input?.repoId;
@@ -241,6 +269,10 @@ export class NexaDevBot {
       if (routed?.denied) return { ok: false, denied: true, actionId: routed.actionId, reason: routed.reason, callbackAnswered };
 
       const view = routed || await this.menu.renderByCallback(data);
+      if (data.startsWith('wtext:') && routed) {
+        const res = await this.telegram.sendMessage(chatId, view.text, focusedCodeInputMarkup());
+        return { ok: true, inputPrompt: true, callbackAnswered, sent: true, res };
+      }
       const res = await this.telegram.editMessageText(chatId, messageId, view.text, view.reply_markup);
       return { ok: true, edited: true, callbackAnswered, res };
     } catch (err) {
@@ -265,9 +297,36 @@ export class NexaDevBot {
     if (!chatId) return { ok: false, error: 'Missing chat_id' };
 
     if (text === '/start' || text === '/menu' || text.startsWith('/start')) {
+      const quickMenuRes = await this.telegram.sendMessage(
+        chatId,
+        '⌨️ <b>منوی سریع Nexa Dev فعال شد</b>\nاین منو پایین صفحه می‌ماند و از هر بخش قابل استفاده است.',
+        persistentQuickMenuMarkup()
+      );
       const view = this.menu.getMainMenuView();
       const res = await this.telegram.sendMessage(chatId, view.text, view.reply_markup);
-      return { ok: true, command: 'start', res };
+      return { ok: true, command: 'start', persistentMenu: true, quickMenuRes, res };
+    }
+
+    const quickMenu = QUICK_MENU[text];
+    if (quickMenu) {
+      let view;
+      if (quickMenu === 'main') {
+        view = this.menu.getMainMenuView();
+      } else if (quickMenu === 'repos') {
+        const routed = await this.router.dispatchCommand('/repos', { isOwner: true });
+        if (routed?.requiresApproval || routed?.denied || !routed) {
+          return { ok: false, quickMenu, error: routed?.reason || 'GitHub repository route unavailable' };
+        }
+        view = routed;
+      } else if (quickMenu === 'status') {
+        view = this.menu.getServiceStatusView();
+      } else if (quickMenu === 'tools') {
+        view = this.menu.getToolsView();
+      } else {
+        view = this.menu.getSecurityView();
+      }
+      const res = await this.telegram.sendMessage(chatId, view.text, view.reply_markup);
+      return { ok: true, quickMenu, res };
     }
 
     if (text === '/repos') {

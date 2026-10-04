@@ -17,7 +17,7 @@ V2.1 شامل Workspace Editor، Ops Console، Security Center، Configuration C
 - Workspace Editor برای اصلاح فایل روی Draft پایدار، بدون WRITE مستقیم به GitHub.
 - Telegram Mini App چندخطی برای ویرایش Draft؛ مسیر Paste عادی Telegram فقط fallback است.
 - ساخت Commit روی Branch جداگانه به شکل `nexa/edit-*`؛ مسیر Workspace به‌صورت مستقیم `main` را تغییر نمی‌دهد.
-- Ops Console فقط‌خواندنی برای Self-check، GitHub READ probe، Runtime/Bindings، Plugin Registry و Ping داخلی.
+- Ops Console فقط‌خواندنی برای Self-check، GitHub READ probe، Cloudflare Worker READ status، Runtime/Bindings، Plugin Registry و Ping داخلی.
 - Security Center برای وضعیت Owner-only، Safe Approval، Replay Guard و Policy عملیات.
 - ⚙️ پیکربندی در V2.1 عمداً فقط‌خواندنی است و Runtime، Providerها، Editor و Pluginها را بدون نمایش Secret نشان می‌دهد.
 - `/start` و `/menu` منوی ثابت پایین را نصب/بازسازی می‌کنند و `/help` راهنمای داخلی را باز می‌کند.
@@ -55,6 +55,8 @@ V2.1 شامل Workspace Editor، Ops Console، Security Center، Configuration C
 - `src/workspace-editor.js` — Telegram Mini App، validation و API ذخیرهٔ Draft.
 - `src/core/router.js` — الگوی `resolve -> policy -> execute` و جلوگیری از provider mutation پیش از Approval.
 - `src/plugins/github/` — manifest، menu و orchestration عملیات GitHub و Workspace.
+- `src/plugins/cloudflare/` — Cloudflare API READ service و Plugin فقط‌خواندنی برای Deployment/Version، Binding metadata و Observability.
+- `src/cloudflare-menu.js` — افزودن مسیر Cloudflare status به Ops Console بدون تغییر قراردادهای پایه.
 - `src/github.js` — کلاینت احراز هویت‌شده GitHub REST API.
 - `src/telegram.js` — کلاینت Telegram Bot API.
 - `test/` — تست‌های policy، approval، replay، workspace، editor، guide، ops، Worker و integrations.
@@ -75,6 +77,7 @@ Nexa Dev
 │       └── 🏷 Releases
 ├── 📊 وضعیت
 ├── 🔧 ابزارها / Ops Console
+│   └── ☁️ Cloudflare status → Deployment / Version / Bindings / Observability
 ├── ⚙️ پیکربندی
 ├── 🔐 امنیت
 └── 📘 راهنما
@@ -118,6 +121,9 @@ Bindings/Secrets اصلی:
 - `OWNER_TELEGRAM_ID` — Owner مجاز
 - `GITHUB_TOKEN` — Secret
 - `GITHUB_OWNER` — اختیاری
+- `CLOUDFLARE_API_TOKEN` — Secret؛ فقط برای READهای Cloudflare Ops Plugin
+- `CLOUDFLARE_ACCOUNT_ID` — شناسهٔ حساب Cloudflare مورد استفادهٔ Plugin
+- `CLOUDFLARE_WORKER_NAME` — اختیاری؛ پیش‌فرض `nexa-dev-bot`
 - `APPROVAL_REPLAY_GUARD` — Durable Object binding
 - `WORKSPACE_STORE` — Durable Object binding
 
@@ -143,7 +149,8 @@ npm start
 
 ## قواعد صحت و امنیت
 
-- دادهٔ GitHub در صورت API failure با fallback ساختگی جایگزین نمی‌شود.
+- دادهٔ GitHub و Cloudflare در صورت API failure با fallback ساختگی جایگزین نمی‌شود.
+- Cloudflare Ops Phase 1 فقط READ است و هیچ Deploy، Rollback یا تغییر تنظیمات Cloudflare از Telegram اجرا نمی‌کند.
 - درخواست کاربر غیرمالک بدون افشای دادهٔ خصوصی نادیده گرفته می‌شود.
 - GitHub WRITE نباید پیش از Approval معتبر Provider call بزند.
 - Source، Draft، Secret و Signed Approval token نباید وارد Audit log یا diagnostics شوند.

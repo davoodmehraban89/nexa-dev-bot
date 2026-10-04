@@ -1,5 +1,5 @@
 import { NexaDevBot } from './bot.js';
-import { OpsMenuManager } from './ops-menu.js';
+import { CloudflareMenuManager } from './cloudflare-menu.js';
 import { RuntimeDiagnostics } from './core/runtime-diagnostics.js';
 
 function guidedPersistentQuickMenuMarkup() {
@@ -26,7 +26,7 @@ export class GuidedNexaDevBot extends NexaDevBot {
       workspaceStore: this.workspaceStore,
       approvals: this.approvals
     });
-    this.menu = new OpsMenuManager(this.github, this.diagnostics);
+    this.menu = new CloudflareMenuManager(this.github, this.diagnostics);
   }
 
   async handleMessage(message) {

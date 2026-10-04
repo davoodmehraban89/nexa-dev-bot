@@ -32,6 +32,7 @@ function safeErrorMessage(error, env = {}) {
     env.TELEGRAM_BOT_TOKEN,
     env.TELEGRAM_WEBHOOK_SECRET,
     env.GITHUB_TOKEN,
+    env.CLOUDFLARE_API_TOKEN,
     env.APPROVAL_SIGNING_SECRET
   ]) {
     const value = String(secret || '');

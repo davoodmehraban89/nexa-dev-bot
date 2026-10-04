@@ -35,6 +35,10 @@ function makeGitHub() {
       calls.push(`repo:${repoId}`);
       return { id: String(repoId), name: 'demo', fullName: 'davood/demo' };
     },
+    async listPullRequests(repoId) {
+      calls.push(`pr:${repoId}`);
+      return [{ number: 19, title: 'Feature', author: 'dev', state: 'open', merged: false }];
+    },
     async listWorkflowRuns(repoId) {
       calls.push(`runs:${repoId}`);
       return [{
@@ -131,7 +135,7 @@ test('GitHub plugin maps read callback families to declared actions without eage
     ['files:123', 'github.files.list'],
     ['tree:123:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'github.tree.read'],
     ['blob:123:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'github.blob.read'],
-    ['pr:123', 'github.pr.list'],
+    ['pr:123', 'github.pr.advanced.list'],
     ['commits:123', 'github.commits.list'],
     ['status:123', 'github.status.read'],
     ['runs:123', 'github.workflow.runs.list'],

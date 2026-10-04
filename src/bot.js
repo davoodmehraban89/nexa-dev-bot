@@ -8,6 +8,7 @@ import { DurableApprovalReplayStore } from './core/durable-replay-store.js';
 import { DurableWorkspaceStoreClient } from './core/workspace-store.js';
 import { AuditLogger } from './core/audit.js';
 import { PluginRouter } from './core/router.js';
+import { buildCallbackFailureView } from './core/callback-failure-view.js';
 import { createGitHubPlugin } from './plugins/github/plugin.js';
 
 const INTENT_ID_PATTERN = /^[A-Za-z0-9_-]{8}$/;
@@ -279,9 +280,17 @@ export class NexaDevBot {
       if (err.message && err.message.includes('message is not modified')) return { ok: true, unmodified: true, callbackAnswered };
       if (!data.startsWith('approve:')) {
         try {
-          const view = callbackReadFailedView(data, err);
+          const view = await buildCallbackFailureView({ data, error: err, ownerId, workspaces: this.workspaceStore });
           const res = await this.telegram.editMessageText(chatId, messageId, view.text, view.reply_markup);
-          return { ok: false, error: err.message, providerError: true, callbackAnswered, edited: true, res };
+          return {
+            ok: false,
+            error: err.message,
+            providerError: !view.validationError,
+            validationError: Boolean(view.validationError),
+            callbackAnswered,
+            edited: true,
+            res
+          };
         } catch {
           // Preserve the original provider/navigation error when feedback delivery also fails.
         }

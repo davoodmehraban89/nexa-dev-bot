@@ -1,5 +1,6 @@
 import { NexaDevBot } from './bot.js';
-import { GuideMenuManager } from './guide-menu.js';
+import { OpsMenuManager } from './ops-menu.js';
+import { RuntimeDiagnostics } from './core/runtime-diagnostics.js';
 
 function guidedPersistentQuickMenuMarkup() {
   return {
@@ -17,7 +18,15 @@ function guidedPersistentQuickMenuMarkup() {
 export class GuidedNexaDevBot extends NexaDevBot {
   constructor(env = {}) {
     super(env);
-    this.menu = new GuideMenuManager(this.github);
+    this.diagnostics = new RuntimeDiagnostics({
+      env,
+      github: this.github,
+      registry: this.registry,
+      replayStore: this.replayStore,
+      workspaceStore: this.workspaceStore,
+      approvals: this.approvals
+    });
+    this.menu = new OpsMenuManager(this.github, this.diagnostics);
   }
 
   async handleMessage(message) {

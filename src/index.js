@@ -9,6 +9,13 @@ const jsonResponse = (payload, status = 200) => new Response(JSON.stringify(payl
   headers: { 'Content-Type': 'application/json; charset=utf-8' }
 });
 
+const publicHealthPayload = () => ({
+  status: 'online',
+  bot: 'Nexa Dev Bot',
+  version: '1.1.1',
+  mode: 'Cloudflare Worker Webhook'
+});
+
 function senderIdFromUpdate(update) {
   return update?.message?.from?.id ?? update?.callback_query?.from?.id ?? null;
 }
@@ -36,6 +43,7 @@ function safeErrorMessage(error, env = {}) {
 /**
  * Cloudflare Worker entrypoint.
  * Security invariants:
+ * - Public health endpoints expose only minimal non-sensitive service identity.
  * - Telegram webhook requests must carry the configured secret header.
  * - Telegram updates are owner-only and unauthorized senders are ignored silently.
  * - Workspace Mini App API validates Telegram initData, freshness and owner identity.
@@ -60,19 +68,8 @@ export default {
     }
 
     if (request.method === 'GET') {
-      if (url.pathname === '/health' || url.pathname === '/') {
-        return jsonResponse({
-          status: 'online',
-          bot: 'Nexa Dev Bot',
-          version: '1.1.1',
-          mode: 'Cloudflare Worker Webhook'
-        });
-      }
-
-      if (url.pathname === '/status') {
-        const bot = new GuidedNexaDevBot(env);
-        const statusView = bot.menu.getServiceStatusView();
-        return jsonResponse(statusView);
+      if (url.pathname === '/health' || url.pathname === '/' || url.pathname === '/status') {
+        return jsonResponse(publicHealthPayload());
       }
 
       return new Response('Not Found', { status: 404 });

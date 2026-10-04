@@ -10,7 +10,7 @@ V2.1 شامل Workspace Editor، Ops Console، Security Center، Configuration C
 
 - منوی اصلی: پروژه‌ها، وضعیت، ابزارهای توسعه، پیکربندی، امنیت و راهنما.
 - دریافت فهرست Repositoryهای قابل‌دسترسی به‌صورت زنده از GitHub API.
-- مشاهده جزئیات Repository، Pull Requestها، Commitها، Branchها، Issues، Releases و GitHub Actions.
+- مشاهده جزئیات Repository، Pull Requestها، Commitها، Branchها، Issues، Releases و GitHub Actions؛ Issue و Release دارای drill-down منبع‌محور برای توضیح، وضعیت، برچسب/مسئول و Release notes هستند.
 - مشاهده Workflow Run، Job، Step، bounded log و Artifact metadata.
 - اجرای کنترل‌شدهٔ `Re-run failed jobs` و `Cancel workflow run` فقط بعد از Safe Approval.
 - مرور پوشه‌ها و فایل‌ها و پیش‌نمایش فایل‌های متنی مناسب.

@@ -8,7 +8,7 @@ import { DurableApprovalReplayStore } from './core/durable-replay-store.js';
 import { DurableWorkspaceStoreClient } from './core/workspace-store.js';
 import { AuditLogger } from './core/audit.js';
 import { PluginRouter } from './core/router.js';
-import { buildCallbackFailureView } from './core/callback-failure-view.js';
+import { buildApprovedActionFailedView, buildCallbackFailureView } from './core/callback-failure-view.js';
 import { createGitHubPlugin } from './plugins/github/plugin.js';
 
 const INTENT_ID_PATTERN = /^[A-Za-z0-9_-]{8}$/;
@@ -106,57 +106,6 @@ ${detail}
   };
 }
 
-function approvedActionFailedView(payload, error) {
-  const reason = String(error?.message || 'GitHub operation failed');
-  const permissionDenied = /403|resource not accessible by personal access token/i.test(reason);
-  const repoId = payload?.input?.repoId;
-  const runId = payload?.input?.runId;
-  const workspaceAction = payload?.actionId === 'github.workspace.commit_branch';
-  const fallback = workspaceAction && Number.isSafeInteger(Number(repoId))
-    ? `repo:${repoId}`
-    : Number.isSafeInteger(Number(repoId)) && Number.isSafeInteger(Number(runId))
-      ? `run:${repoId}:${runId}`
-      : 'menu:main';
-  const detail = workspaceAction
-    ? permissionDenied
-      ? 'تأیید شما معتبر بود، اما GitHub درخواست Commit شاخه را با خطای 403 رد کرد. دسترسی Contents WRITE توکن فعلی را بررسی کنید.'
-      : `تأیید شما معتبر بود، اما Commit شاخه انجام نشد: ${escapeHtml(reason)}`
-    : permissionDenied
-      ? 'تأیید شما معتبر بود، اما GitHub درخواست را با خطای 403 رد کرد. دسترسی توکن فعلی برای GitHub Actions WRITE کافی نیست.'
-      : 'تأیید شما معتبر بود، اما GitHub عملیات را موفق اعلام نکرد. وضعیت Run را بررسی کنید.';
-  return {
-    text:
-`⚠️ <b>اجرای عملیات در GitHub ناموفق بود</b>
-➖➖➖➖➖➖➖➖➖➖
-${detail}
-
-این تأیید یک‌بار مصرف شده و با همان دکمه دوباره اجرا نمی‌شود.`,
-    reply_markup: { inline_keyboard: [[{ text: workspaceAction ? '↩️ بازگشت به پروژه' : '↩️ بازگشت به Run', callback_data: fallback }]] }
-  };
-}
-
-function callbackReadFailedView(data, error) {
-  const reason = String(error?.message || 'Provider read failed');
-  const permissionDenied = /403|resource not accessible by personal access token/i.test(reason);
-  const repoMatch = String(data || '').match(/^[^:]+:(\d+)/);
-  const fallback = repoMatch ? `repo:${repoMatch[1]}` : 'menu:main';
-  const isIssues = String(data || '').startsWith('issues:');
-  const detail = permissionDenied
-    ? isIssues
-      ? 'GitHub درخواست Issues را با خطای 403 رد کرد. در Fine-grained token، مجوز Repository permissions → Issues را روی Read قرار دهید.'
-      : 'GitHub این درخواست خواندنی را با خطای 403 رد کرد. مجوز Read مربوط به این بخش در توکن فعلی کافی نیست.'
-    : 'دریافت اطلاعات از سرویس با خطا مواجه شد. هیچ تغییری انجام نشد.';
-  return {
-    text:
-`⚠️ <b>دریافت اطلاعات با خطا مواجه شد</b>
-➖➖➖➖➖➖➖➖➖➖
-${detail}
-
-این خطا هیچ عملیات تغییردهنده‌ای اجرا نکرد.`,
-    reply_markup: { inline_keyboard: [[{ text: repoMatch ? '↩️ بازگشت به پروژه' : '↩️ منوی اصلی', callback_data: fallback }]] }
-  };
-}
-
 export class NexaDevBot {
   constructor(env = {}) {
     this.env = env;
@@ -226,7 +175,12 @@ export class NexaDevBot {
           });
           if (!routed || routed.requiresApproval || routed.denied) throw new Error('Approved action could not be dispatched');
         } catch (error) {
-          const view = approvedActionFailedView(payload, error);
+          const view = await buildApprovedActionFailedView({
+            payload,
+            error,
+            ownerId,
+            workspaces: this.workspaceStore
+          });
           const res = await this.telegram.editMessageText(chatId, messageId, view.text, view.reply_markup);
           return { ok: false, approved: true, providerError: true, actionId: payload.actionId, error: error?.message || 'GitHub operation failed', callbackAnswered, edited: true, res };
         }

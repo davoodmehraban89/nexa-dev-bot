@@ -53,6 +53,18 @@ describe('Nexa Dev Bot - in-app V2 guide', () => {
     }
   });
 
+  it('documents the operational diagnostics, read-only configuration and Security Center controls', async () => {
+    const menuHelp = await menu.renderByCallback('help:1');
+    for (const label of ['خودآزمایی', 'تست اتصال GitHub', 'Runtime', 'Plugin Registry', 'پیکربندی', 'فقط‌خواندنی']) {
+      assert.ok(menuHelp.text.includes(label), `operational guide missing ${label}`);
+    }
+
+    const securityHelp = await menu.renderByCallback('help:6');
+    for (const label of ['مرکز امنیت', 'سیاست عملیات', 'Safe Approval', 'Replay']) {
+      assert.ok(securityHelp.text.includes(label), `security guide missing ${label}`);
+    }
+  });
+
   it('documents the complete file-edit flow from project selection through branch-only Safe Approval commit', async () => {
     const view = await menu.renderByCallback('help:4');
     const expected = [

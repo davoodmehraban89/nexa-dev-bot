@@ -137,7 +137,7 @@ test('GitHub plugin maps read callback families to declared actions without eage
     ['blob:123:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'github.blob.read'],
     ['pr:123', 'github.pr.advanced.list'],
     ['commits:123', 'github.commits.list'],
-    ['status:123', 'github.status.read'],
+    ['status:123', 'github.workflow.runs.list'],
     ['runs:123', 'github.workflow.runs.list'],
     ['run:123:77', 'github.workflow.run.detail'],
     ['jobs:123:77', 'github.workflow.jobs.list']

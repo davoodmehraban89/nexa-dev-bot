@@ -119,14 +119,13 @@ Conclusion:
 - Releases source-backed empty state: VERIFIED.
 - Telegram owner-device/runtime evidence: VERIFIED.
 
-## Repository Workspace / Code Editor Phase 1 — PR #21 DEPLOYED, WRITE ACCEPTANCE PENDING
+## Repository Workspace / Code Editor Phase 1 — DEPLOYED, FINAL WRITE ACCEPTANCE PENDING
 - Design spec: `docs/superpowers/specs/2026-10-03-repository-workspace-editor-design.md`.
 - Implementation plan: `docs/superpowers/plans/2026-10-03-repository-workspace-editor.md`.
 - Phase 1 is branch-first only: no direct default-branch mutation, no force update, no automatic merge/rebase/conflict resolution.
 - PR #21 merged to `main` at `5bbd943891189609dd85d40fd02fcb065bbe5c58`.
 - Post-merge CI #224 / run `37116152691` succeeded on that exact SHA with 31 test files and 142/142 tests passing, 0 fail/skip/cancelled.
 - Deploy #160 / run `37116164087` succeeded after checking out that exact SHA.
-- Active Cloudflare production version after deploy: `0a78af44-faa2-4ba1-8e32-7e2d5c5f1724` at 100% traffic.
 - Cloudflare version resources independently verified both `APPROVAL_REPLAY_GUARD` / `ApprovalReplayGuard` and `WORKSPACE_STORE` / `WorkspaceStore` bindings/classes active in production.
 
 ### Locked implementation constraints
@@ -148,40 +147,58 @@ Conclusion:
 - Whole-branch provider-error hardening: RED CI #220 141/142; GREEN CI #221 / run `37115965768`, 142/142.
 - Final PR head CI #223 succeeded before merge; post-merge exact-main CI #224 confirmed 142/142.
 
+## Repository Workspace Upload + Telegram Input UX — PR #22 / PR #24 DEPLOYED
+### PR #22 Upload File
+- PR #22 merged to `main` at `290b416b511dc2cd6b77037ab7a65d275e3227c3`.
+- Post-merge CI #234 succeeded with 151/151 tests.
+- Deploy #170 succeeded and production version became `027572e8-d2c7-4866-ba88-2569e3cd1a79` at 100% traffic.
+- Telegram document upload is a bounded UTF-8 whole-file Draft input; selected repository path remains authoritative and uploaded filename is transport metadata only.
+- Owner-device smoke successfully uploaded an 85-byte text Draft for `.gitignore`; Diff showed exactly +1/-0 and no provider write had occurred.
+
+### Production Ready failure root cause
+- During owner-device smoke, pressing `✅ آماده Commit` produced a generic read/provider error and broken recovery navigation.
+- Cloudflare Workers Observability later proved the underlying runtime error was exactly `Commit message is required` for action `github.workspace.ready`, not a GitHub outage/provider-read failure.
+- The defect was therefore UX/error classification plus context recovery: validation was rendered as a provider error and Workspace/Draft navigation was lost.
+
+### PR #24 Persistent menu + focused Paste input
+- PR #24 `feat: persistent Telegram quick menu and focused code input` merged to `main` at `bd994b9eb4ba083a28be5d6054eb338c3ef25157`.
+- PR-head CI run `37174476067` passed 157/157 tests.
+- Post-merge main CI run `37174553422` succeeded on the exact merge SHA.
+- Deploy run `37174567477` checked out the exact merge SHA and succeeded.
+- Active Cloudflare version after deploy: `e35413ce-b979-409e-a98f-a9bfe1c98061`, 100% traffic; deployment ID `48bfe234-38e3-4aa0-8f5c-8645885ee8e4`.
+- `/start` installs a persistent bottom Telegram quick menu for Main / Projects / Status / Tools / Security.
+- Persistent-menu text has precedence over pending Draft input so navigation text cannot accidentally become source code.
+- `Paste text` uses a focused Telegram ForceReply prompt while preserving raw message text/newlines. Native Bot API does not provide an arbitrary multiline modal/textarea; a true embedded editor belongs in a Telegram Mini App/Web App.
+
+## Workspace Validation + Recovery Hardening — PR #25 IN PROGRESS
+- Branch: `fix/workspace-recovery-validation`; PR #25 targets `main`.
+- Production telemetry root cause was reproduced first through regression tests.
+- RED CI run `37175562475`: 159 total, 157 pass / exactly 2 expected failures for explicit Ready validation and Workspace recovery actions.
+- First GREEN CI run `37175910574`: 37 test files, 159/159 pass.
+- A second review found that an approved Workspace provider failure still only returned to the Project and lost direct Draft recovery.
+- Second RED CI run `37176064626`: 160 total, 159 pass / exactly 1 expected failure because the new approved-failure recovery builder did not yet exist.
+- Current implementation recovers Workspace context from Durable `getWorkspace` for ordinary callback failures and Durable `getIntent` for post-approval provider failures; it does not rely on process-memory Maps.
+- Validation errors such as missing/oversized Commit message and no Draft change are rendered as validation, not provider-read failures.
+- Workspace failure views now provide bounded routes for Retry / Commit Message where relevant / Continue Draft / Project / Main Menu.
+- Approved provider failure uses the durable intent to offer a fresh Ready/Safe-Approval path plus Continue Draft / Project / Main Menu; the consumed approval is never reused.
+- Current PR head `13c1dce244cc257ed2c64cca8cd1033ba1952d31` passed CI run `37176281102`: 38 test files, 161/161 pass, 0 fail/skip/cancelled.
+- Final merge/deploy verification is still required because this documentation checkpoint moves the PR head.
+
 ### Production acceptance status
-- Production deployment and Durable Object bindings: VERIFIED.
-- Owner-device file browsing and editor entry: VERIFIED enough to reach draft input UI.
-- Live branch-only workspace provider WRITE: NOT VERIFIED because the original Paste Text smoke was intentionally stopped before Safe Approval; no `nexa/edit-*` branch was created and `main` remained unchanged.
-- Production acceptance therefore remains pending an owner-device Safe Approval branch commit.
-
-## Repository Workspace Upload File UX — PR #22 IN PROGRESS
-- Branch: `feat/workspace-file-upload`; PR #22 targets `main`.
-- User-requested change: make Telegram document upload the primary whole-file draft input, retaining Paste Text as fallback to avoid Telegram rich-format/newline corruption.
-- Uploaded filename is transport metadata only; the destination repository path remains the file selected in Workspace.
-- Telegram `getFile` + download is bounded before/after transfer and decoded with strict UTF-8.
-- Existing workspace policy remains authoritative: max 3,000 Unicode code points, max 12,000 UTF-8 bytes, sensitive destination paths/binary-like content/LFS pointers rejected.
-- Wrong message type, oversized document metadata, download failure or invalid UTF-8 are rejected visibly before Workspace dispatch so the owner can retry without consuming the pending file input.
-- Successful upload changes only the local Durable draft; GitHub WRITE remains behind the existing READY -> Safe Approval -> branch-only commit flow.
-- Source/draft bytes are not added to callback data or audit metadata.
-
-### TDD / review evidence for PR #22
-- Initial RED CI #225 / run `37118318146`, job `111189318207`: 148 total, 142 pass / 6 expected failures defining Telegram text-file download, `draft_file` pending mode, Workspace upload route and Bot document routing.
-- Initial implementation GREEN CI #230 / run `37118846278`, job `111190824552`: 34 test files, 149/149 pass, 0 fail/skip/cancelled.
-- Review found one UX mismatch: upload prompt described only the 12,000-byte ceiling while the enforced policy also has a 3,000-Unicode-code-point ceiling.
-- Hardening RED CI #231 / run `37118977060`, job `111191215894`: 151 total, 150 pass / exactly 1 expected failure for that prompt mismatch; new retry-path tests for wrong message type and oversized Telegram document already passed.
-- Prompt was aligned with the actual policy.
-- Final code-head GREEN CI #232 / run `37119129503`, job `111191655311`, head `e004506144c1787d4d33f03957048e8d086f8ef1`: 34 test files, 151/151 pass, 0 fail/skip/cancelled.
-- PR diff secret-pattern review found no actual PAT/Telegram secret; Safe Approval code path is unchanged.
-- A final fresh CI is still required after this documentation checkpoint because this commit moves the PR head.
+- Workspace production deployment and Durable Object bindings: VERIFIED.
+- Owner-device file upload + exact Diff: VERIFIED.
+- Persistent global Telegram quick menu and focused Paste UX: DEPLOYED; owner-device final smoke should be included in the next acceptance pass.
+- Live branch-only Workspace provider WRITE: NOT YET VERIFIED on the current production flow because the previous smoke stopped before a valid Commit Message + Safe Approval confirmation.
+- Repository Workspace Phase 1 must not be called production-accepted until owner performs the actual Telegram `✅ تأیید و اجرا` on a safe branch-only intent and GitHub + Cloudflare + Telegram evidence agree.
 
 ## Next Executable Actions
-1. Run fresh CI on the final PR #22 documentation head and review exact diff/metadata.
-2. Mark PR #22 ready and merge only the reviewed green head using expected-head locking.
-3. Verify exact post-merge `main` CI, deploy SHA, active Cloudflare version and Workspace bindings.
-4. Owner-device smoke: select a safe repo text file, use `📎 بارگذاری فایل`, verify draft + exact diff, enter commit message and reach Safe Approval.
-5. Before approval, verify no `nexa/edit-*` provider branch exists and `main` is unchanged.
-6. Owner presses the actual Telegram `✅ تأیید و اجرا`; verify created branch/commit SHA, branch file content, main unchanged, Cloudflare audit success and Telegram success feedback.
-7. Do not call Repository Workspace Phase 1 production-accepted until Telegram, GitHub and Cloudflare runtime evidence agree.
+1. Run fresh CI on the final PR #25 documentation head and review exact diff/metadata.
+2. Mark PR #25 ready and merge only the reviewed green head using expected-head locking.
+3. Verify exact post-merge `main` CI, deployment SHA, active Cloudflare version and runtime health.
+4. Owner-device final Workspace smoke: choose a safe text file, create/update Draft, verify exact Diff, enter Commit Message, press Ready and reach Safe Approval.
+5. Before approval, verify no unexpected provider mutation and `main` remains unchanged.
+6. Owner presses the actual Telegram `✅ تأیید و اجرا`; verify `nexa/edit-*` branch/commit, branch file content, `main` unchanged, Cloudflare audit success and Telegram success feedback.
+7. Only after those runtime gates pass, mark Repository Workspace Phase 1 production-accepted and continue to multi-file Workspace.
 
 ## Remaining Roadmap
 1. Repository Workspace / Code Editor production acceptance, then multi-file expansion.

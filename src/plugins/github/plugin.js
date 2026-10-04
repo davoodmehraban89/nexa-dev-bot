@@ -67,6 +67,12 @@ const compareRef = value => {
   return { repoId: Number(match[1]), sha: match[2] };
 };
 
+const commitDetailRef = value => {
+  const match = String(value || '').match(/^commitdetail:(\d+):([a-f0-9]{40})$/i);
+  if (!match) return null;
+  return { repoId: Number(match[1]), sha: match[2] };
+};
+
 const workflowRunsPage = value => pagedSingle(value, 'runs');
 
 const runIcon = run => {
@@ -124,6 +130,37 @@ function pairPagination(prefix, repoId, itemId, page, count, pageSize) {
   if (page > 1) row.push({ text: '⬅️ جدیدتر', callback_data: `${prefix}:${repoId}:${itemId}:${page - 1}` });
   if (count === pageSize && page < 100) row.push({ text: 'قدیمی‌تر ➡️', callback_data: `${prefix}:${repoId}:${itemId}:${page + 1}` });
   return row.length ? [row] : [];
+}
+
+async function commitsView(github, repoId) {
+  const [repo, commits] = await Promise.all([github.getRepository(repoId), github.listCommits(repoId)]);
+  const body = commits.length
+    ? commits.slice(0, 10).map(commit => `• <code>${escapeHtml(commit.shortSha || commit.sha)}</code> — ${escapeHtml(short(commit.message, 110))}\n  ${escapeHtml(commit.author || 'Unknown')}${commit.date ? ` · ${escapeHtml(commit.date)}` : ''}`).join('\n\n')
+    : '<i>کامیتی در پاسخ GitHub یافت نشد.</i>';
+  const detailRows = commits.slice(0, 10).map(commit => {
+    const sha = String(commit.fullSha || commit.sha || '');
+    return /^[a-f0-9]{40}$/i.test(sha)
+      ? [{ text: `📝 ${short(commit.message || sha.slice(0, 7), 42)}`, callback_data: `commitdetail:${repoId}:${sha}` }]
+      : null;
+  }).filter(Boolean);
+  return {
+    text: `📝 <b>آخرین Commitهای ${escapeHtml(repo.name)}</b>\n➖➖➖➖➖➖➖➖➖➖\n${body}`,
+    reply_markup: { inline_keyboard: [
+      ...detailRows,
+      [{ text: '🔄 بروزرسانی', callback_data: `commits:${repoId}` }, { text: '🔙 پروژه', callback_data: `repo:${repoId}` }]
+    ] }
+  };
+}
+
+async function commitDetailView(github, repoId, sha) {
+  const [repo, commit] = await Promise.all([github.getRepository(repoId), github.getCommit(repoId, sha)]);
+  const files = (commit.files || []).slice(0, 12)
+    .map(file => `• <code>${escapeHtml(short(file.filename, 90))}</code> · ${escapeHtml(file.status || 'changed')} · +${file.additions ?? 0}/-${file.deletions ?? 0}`)
+    .join('\n');
+  return {
+    text: `📝 <b>Commit — ${escapeHtml(repo.name)}</b>\n<code>${escapeHtml(commit.shortSha || String(commit.sha).slice(0, 7))}</code> · ${escapeHtml(commit.author || 'Unknown')}\n${escapeHtml(commit.date || '-')}\n+${commit.additions ?? 0}/-${commit.deletions ?? 0} · ${commit.changedFiles ?? (commit.files || []).length} files\n➖➖➖➖➖➖➖➖➖➖\n${escapeHtml(short(commit.message || '', 1200)) || '<i>بدون پیام.</i>'}\n\n<b>فایل‌های تغییرکرده</b>\n${files || '<i>فایلی گزارش نشده است.</i>'}`,
+    reply_markup: { inline_keyboard: [[{ text: '🔄 بروزرسانی', callback_data: `commitdetail:${repoId}:${sha}` }, { text: '🔙 Commitها', callback_data: `commits:${repoId}` }], [{ text: '🔙 پروژه', callback_data: `repo:${repoId}` }]] }
+  };
 }
 
 async function workflowRunsView(github, repoId, page = 1) {
@@ -380,6 +417,10 @@ function resolveReadCallback(data) {
   if (value === 'menu:repos') return { actionId: 'github.repos.list', kind: 'legacy' };
   const repoId = numericSingle(value, 'repo');
   if (repoId !== null) return { actionId: 'github.repo.detail', kind: 'repo', repoId };
+  const commits = numericSingle(value, 'commits');
+  if (commits !== null) return { actionId: 'github.commits.list', kind: 'commits', repoId: commits };
+  const commitdetail = commitDetailRef(value);
+  if (commitdetail) return { actionId: 'github.commit.detail', kind: 'commitdetail', ...commitdetail };
   const runs = workflowRunsPage(value);
   if (runs) return { actionId: 'github.workflow.runs.list', kind: 'runs', ...runs };
   const run = numericPair(value, 'run');
@@ -474,6 +515,8 @@ export function createGitHubPlugin({ github, menu, workspaces } = {}) {
         actionId: read.actionId,
         execute: async () => {
           if (read.kind === 'repo') return addRepoAdvancedButtons(await menu.renderByCallback(data), read.repoId);
+          if (read.kind === 'commits') return typeof github.listCommits === 'function' ? commitsView(github, read.repoId) : menu.renderByCallback(data);
+          if (read.kind === 'commitdetail') return commitDetailView(github, read.repoId, read.sha);
           if (read.kind === 'runs') return workflowRunsView(github, read.repoId, read.page);
           if (read.kind === 'run') return workflowRunView(github, read.repoId, read.runId);
           if (read.kind === 'jobs') return workflowJobsView(github, read.repoId, read.runId);

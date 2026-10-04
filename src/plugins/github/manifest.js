@@ -11,6 +11,7 @@ export const githubPluginManifest = Object.freeze({
     'github.blob.read': Object.freeze({ risk: 'READ' }),
     'github.pr.list': Object.freeze({ risk: 'READ' }),
     'github.commits.list': Object.freeze({ risk: 'READ' }),
+    'github.commit.detail': Object.freeze({ risk: 'READ' }),
     'github.status.read': Object.freeze({ risk: 'READ' }),
     'github.workflow.runs.list': Object.freeze({ risk: 'READ' }),
     'github.workflow.run.detail': Object.freeze({ risk: 'READ' }),

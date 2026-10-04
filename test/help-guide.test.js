@@ -39,7 +39,7 @@ describe('Nexa Dev Bot - in-app V2.1 guide', () => {
     }
 
     const repoHelp = await menu.renderByCallback('help:2');
-    for (const label of ['فایل‌ها', 'Pull Request', 'Commit', 'CI / Actions', 'Branches', 'Issues', 'Releases', 'جزئیات Issue', 'Release notes']) {
+    for (const label of ['فایل‌ها', 'Pull Request', 'Commit', 'جزئیات Commit', 'CI / Actions', 'Branches', 'Issues', 'Releases', 'جزئیات Issue', 'Release notes']) {
       assert.ok(repoHelp.text.includes(label), `repo guide missing ${label}`);
     }
 

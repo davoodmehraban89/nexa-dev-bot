@@ -111,3 +111,26 @@ test('GitHub issues exclude pull requests and releases are source-backed', async
     assert.equal(releases[0].tag, 'v1.2.0');
   });
 });
+
+
+test('GitHub commit detail is source-backed and returns bounded file summaries', async () => {
+  const sha = 'e'.repeat(40);
+  await withFetch(async (url) => {
+    const value = String(url);
+    if (value === 'https://api.github.com/repositories/123') return json(repo);
+    if (value === `${repoUrl}/commits?per_page=5`) return json([{ sha, commit: { message: 'subject\n\nbody', author: { name: 'Dev', date: '2026-10-04T12:00:00Z' } }, author: { login: 'dev' } }]);
+    if (value === `${repoUrl}/commits/${sha}`) return json({ sha, commit: { message: 'subject\n\nbody', author: { name: 'Dev', date: '2026-10-04T12:00:00Z' } }, author: { login: 'dev' }, stats: { additions: 12, deletions: 4 }, files: [{ filename: 'src/menu.js', status: 'modified', additions: 8, deletions: 2, changes: 10 }] });
+    return json({ message: 'Not Found' }, 404);
+  }, async () => {
+    const service = new GitHubService('token');
+    const list = await service.listCommits(123);
+    assert.equal(list[0].sha, sha.slice(0, 7));
+    assert.equal(list[0].fullSha, sha);
+    const detail = await service.getCommit(123, sha);
+    assert.equal(detail.sha, sha);
+    assert.equal(detail.message, 'subject\n\nbody');
+    assert.equal(detail.additions, 12);
+    assert.equal(detail.deletions, 4);
+    assert.deepEqual(detail.files[0], { filename: 'src/menu.js', status: 'modified', additions: 8, deletions: 2, changes: 10 });
+  });
+});

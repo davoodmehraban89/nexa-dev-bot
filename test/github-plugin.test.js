@@ -137,7 +137,7 @@ test('GitHub plugin maps read callback families to declared actions without eage
     ['blob:123:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'github.blob.read'],
     ['pr:123', 'github.pr.advanced.list'],
     ['commits:123', 'github.commits.list'],
-    ['status:123', 'github.status.read'],
+    ['status:123', 'github.workflow.runs.list'],
     ['runs:123', 'github.workflow.runs.list'],
     ['run:123:77', 'github.workflow.run.detail'],
     ['jobs:123:77', 'github.workflow.jobs.list']
@@ -155,12 +155,12 @@ test('GitHub plugin maps read callback families to declared actions without eage
   }
 });
 
-test('repository detail view is augmented with CI / Actions navigation without changing menu manager', async () => {
+test('repository detail view keeps its existing status entry without duplicate CI navigation', async () => {
   const menu = makeMenu();
   const plugin = createGitHubPlugin({ github: makeGitHub(), menu });
   const view = await plugin.resolveCallback('repo:123').execute();
   const buttons = view.reply_markup.inline_keyboard.flat();
-  assert.ok(buttons.some(button => button.callback_data === 'runs:123'));
+  assert.ok(!buttons.some(button => button.callback_data === 'runs:123'));
 });
 
 test('GitHub plugin write callbacks expose compact approval metadata and defer provider calls', async () => {

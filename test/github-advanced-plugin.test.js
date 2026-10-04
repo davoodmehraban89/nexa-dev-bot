@@ -15,7 +15,7 @@ function makeGitHub() {
   return {
     calls,
     async getRepository(id) { return hit('getRepository', { id: String(id), name: 'nexa-dev-bot', defaultBranch: 'main' }); },
-    async listWorkflowRuns() { return []; },
+    async listWorkflowRuns() { return [{ id: 77, name: 'CI', status: 'completed', conclusion: 'success', branch: 'main', sha: 'abc1234', runNumber: 44 }]; },
     async getWorkflowRun(repo, run) { return hit('getWorkflowRun', { id: run, name: 'CI', status: 'completed', conclusion: 'failure', runNumber: 134, branch: 'main', sha: 'abc1234', event: 'push' }); },
     async listWorkflowJobs() { return hit('listWorkflowJobs', [{ id: 88, name: 'test', status: 'completed', conclusion: 'failure', steps: [{ number: 1, name: 'Run tests', conclusion: 'failure' }] }]); },
     async getWorkflowJob() { return hit('getWorkflowJob', { id: 88, name: 'test', status: 'completed', conclusion: 'failure', steps: [{ number: 1, name: 'Run tests', conclusion: 'failure' }] }); },
@@ -41,7 +41,7 @@ function makeMenu() {
     async renderByCallback(data) {
       if (String(data).startsWith('repo:')) {
         const repoId = String(data).split(':')[1];
-        return { text: 'repo', reply_markup: { inline_keyboard: [[{ text: 'PRها', callback_data: `pr:${repoId}` }], [{ text: 'back', callback_data: 'menu:repos' }]] } };
+        return { text: 'repo', reply_markup: { inline_keyboard: [[{ text: 'PRها', callback_data: `pr:${repoId}` }, { text: 'وضعیت', callback_data: `status:${repoId}` }], [{ text: 'back', callback_data: 'menu:repos' }]] } };
       }
       return { text: `legacy:${data}`, reply_markup: { inline_keyboard: [] } };
     }
@@ -89,8 +89,9 @@ test('repository and workflow views expose Advanced READ navigation', async () =
   const plugin = createGitHubPlugin({ github, menu: makeMenu() });
   const repoView = await plugin.resolveCallback('repo:123').execute();
   const repoCallbacks = callbacks(repoView);
-  for (const expected of ['runs:123', 'branches:123', 'pr:123', 'issues:123', 'releases:123']) assert.ok(repoCallbacks.includes(expected), expected);
+  for (const expected of ['status:123', 'branches:123', 'pr:123', 'issues:123', 'releases:123']) assert.ok(repoCallbacks.includes(expected), expected);
   assert.ok(!repoCallbacks.includes('prs:123'), 'repository view must not expose a duplicate advanced PR entry');
+  assert.ok(!repoCallbacks.includes('runs:123'), 'repository view must not expose a duplicate CI entry');
 
   const runView = await plugin.resolveCallback('run:123:77').execute();
   assert.ok(callbacks(runView).includes('artifacts:123:77'));
@@ -100,6 +101,14 @@ test('repository and workflow views expose Advanced READ navigation', async () =
 
   const jobView = await plugin.resolveCallback('job:123:88').execute();
   assert.ok(callbacks(jobView).includes('joblog:123:88'));
+});
+
+test('legacy repository status button resolves to actionable workflow runs', async () => {
+  const plugin = createGitHubPlugin({ github: makeGitHub(), menu: makeMenu() });
+  const route = plugin.resolveCallback('status:123');
+  assert.equal(route?.actionId, 'github.workflow.runs.list');
+  const view = await route.execute();
+  assert.ok(callbacks(view).includes('run:123:77'), 'repository status button must drill into workflow run detail');
 });
 
 test('legacy repository PR button resolves to the actionable advanced PR report', async () => {

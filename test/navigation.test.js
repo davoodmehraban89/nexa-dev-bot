@@ -63,8 +63,12 @@ function installApiMock() {
       html_url: 'https://github.com/davoodmehraban89/demo/pull/7', user: { login: 'davoodmehraban89' }
     }]);
     if (value === 'https://api.github.com/repos/davoodmehraban89/demo/actions/runs?per_page=3') return json({ workflow_runs: [{
-      name: 'CI', status: 'completed', conclusion: 'success', head_commit: { message: 'fix mobile menu' },
-      html_url: 'https://github.com/davoodmehraban89/demo/actions/runs/1'
+      id: 1, name: 'CI', status: 'completed', conclusion: 'success', head_branch: 'main', head_sha: '1234567890abcdef1234567890abcdef12345678', run_number: 1,
+      head_commit: { message: 'fix mobile menu' }, html_url: 'https://github.com/davoodmehraban89/demo/actions/runs/1'
+    }] });
+    if (value === 'https://api.github.com/repos/davoodmehraban89/demo/actions/runs?per_page=10') return json({ workflow_runs: [{
+      id: 1, name: 'CI', status: 'completed', conclusion: 'success', head_branch: 'main', head_sha: '1234567890abcdef1234567890abcdef12345678', run_number: 1,
+      event: 'push', head_commit: { message: 'fix mobile menu' }, html_url: 'https://github.com/davoodmehraban89/demo/actions/runs/1'
     }] });
     return json({ message: 'Not Found' }, 404);
   };

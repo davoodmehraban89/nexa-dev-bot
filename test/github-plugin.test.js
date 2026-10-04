@@ -155,12 +155,12 @@ test('GitHub plugin maps read callback families to declared actions without eage
   }
 });
 
-test('repository detail view is augmented with CI / Actions navigation without changing menu manager', async () => {
+test('repository detail view keeps its existing status entry without duplicate CI navigation', async () => {
   const menu = makeMenu();
   const plugin = createGitHubPlugin({ github: makeGitHub(), menu });
   const view = await plugin.resolveCallback('repo:123').execute();
   const buttons = view.reply_markup.inline_keyboard.flat();
-  assert.ok(buttons.some(button => button.callback_data === 'runs:123'));
+  assert.ok(!buttons.some(button => button.callback_data === 'runs:123'));
 });
 
 test('GitHub plugin write callbacks expose compact approval metadata and defer provider calls', async () => {

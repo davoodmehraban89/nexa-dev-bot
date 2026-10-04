@@ -133,11 +133,12 @@ test('nested directory resolves through short ref and preserves the full server-
   assert.ok(github.calls.some(call => call[0] === 'listFiles' && call[2] === 'src/deep'));
 });
 
-test('eligible file preview shows Edit while risky or oversized content stays readable with explicit disabled reason', async () => {
+test('eligible file preview including README shows Edit while risky or truly oversized content stays readable with explicit disabled reason', async () => {
   for (const fixture of [
     { path: 'src/app.js', text: 'console.log(1);\n', editable: true },
+    { path: 'README.md', text: `# Nexa Dev Bot\n\n${'x'.repeat(8200)}`, editable: true },
     { path: '.env.production', text: 'NOT_A_REAL_SECRET=value\n', editable: false, reason: /sensitive/i },
-    { path: 'large.txt', text: 'x'.repeat(3001), editable: false, reason: /3,000|3000/ },
+    { path: 'large.txt', text: 'x'.repeat(20001), editable: false, reason: /20,000|20000/ },
     { path: 'asset.txt', text: 'version https://git-lfs.github.com/spec/v1\noid sha256:abc\nsize 9\n', editable: false, reason: /LFS/i }
   ]) {
     const github = makeGitHub({ fileText: fixture.text, filePath: fixture.path });

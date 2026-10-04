@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { GuideMenuManager } from '../src/guide-menu.js';
 import { GuidedNexaDevBot } from '../src/guide-bot.js';
 
@@ -15,7 +16,7 @@ function callbacks(view) {
   return (view.reply_markup?.inline_keyboard || []).flat().map(button => button.callback_data).filter(Boolean);
 }
 
-describe('Nexa Dev Bot - in-app V2 guide', () => {
+describe('Nexa Dev Bot - in-app V2.1 guide', () => {
   const menu = new GuideMenuManager(github);
 
   it('exposes Guide from the main inline menu', () => {
@@ -24,16 +25,16 @@ describe('Nexa Dev Bot - in-app V2 guide', () => {
     assert.ok(view.reply_markup.inline_keyboard.flat().some(button => button.text.includes('راهنما')));
   });
 
-  it('guide index and pages explain every major V2 control with navigable chapters', async () => {
+  it('guide index and pages identify V2.1 and expose all seven navigable chapters', async () => {
     const index = await menu.renderByCallback('menu:help');
-    assert.match(index.text, /راهنمای Nexa Dev.*V2/);
+    assert.match(index.text, /راهنمای Nexa Dev.*V2\.1/);
     const indexCallbacks = callbacks(index);
-    for (const callback of ['help:1', 'help:2', 'help:3', 'help:4', 'help:5', 'help:6']) {
+    for (const callback of ['help:1', 'help:2', 'help:3', 'help:4', 'help:5', 'help:6', 'help:7']) {
       assert.ok(indexCallbacks.includes(callback), `missing ${callback}`);
     }
 
     const menuHelp = await menu.renderByCallback('help:1');
-    for (const label of ['منوی اصلی', 'پروژه‌ها', 'وضعیت', 'ابزارها', 'امنیت', 'راهنما']) {
+    for (const label of ['منوی اصلی', 'پروژه‌ها', 'وضعیت', 'ابزارها', 'پیکربندی', 'امنیت', 'راهنما']) {
       assert.ok(menuHelp.text.includes(label), `menu guide missing ${label}`);
     }
 
@@ -43,7 +44,7 @@ describe('Nexa Dev Bot - in-app V2 guide', () => {
     }
 
     const workspaceHelp = await menu.renderByCallback('help:3');
-    for (const label of ['Edit', 'Editor', 'بارگذاری فایل', 'Paste متن', 'پیام Commit', 'Diff', 'آماده Commit', 'لغو Draft']) {
+    for (const label of ['Edit', 'Editor', 'Mini App', 'WORKSPACE_STORE', 'بارگذاری فایل', 'Paste متن', 'پیام Commit', 'Diff', 'آماده Commit', 'لغو Draft']) {
       assert.ok(workspaceHelp.text.includes(label), `workspace guide missing ${label}`);
     }
 
@@ -53,14 +54,14 @@ describe('Nexa Dev Bot - in-app V2 guide', () => {
     }
   });
 
-  it('documents the operational diagnostics, read-only configuration and Security Center controls', async () => {
+  it('documents operational diagnostics, read-only configuration and Security Center controls', async () => {
     const menuHelp = await menu.renderByCallback('help:1');
     for (const label of ['خودآزمایی', 'تست اتصال GitHub', 'Runtime', 'Plugin Registry', 'پیکربندی', 'فقط‌خواندنی']) {
       assert.ok(menuHelp.text.includes(label), `operational guide missing ${label}`);
     }
 
     const securityHelp = await menu.renderByCallback('help:6');
-    for (const label of ['مرکز امنیت', 'سیاست عملیات', 'Safe Approval', 'Replay']) {
+    for (const label of ['مرکز امنیت', 'سیاست عملیات', 'Safe Approval', 'Replay', 'Owner-only']) {
       assert.ok(securityHelp.text.includes(label), `security guide missing ${label}`);
     }
   });
@@ -85,9 +86,17 @@ describe('Nexa Dev Bot - in-app V2 guide', () => {
     assert.match(view.text, /main.*مستقیم.*تغییر|شاخه.*پیش.?فرض.*تغییر.*نمی/);
   });
 
+  it('documents production, Cloudflare deployment, preview isolation and the public status boundary', async () => {
+    const view = await menu.renderByCallback('help:7');
+    for (const label of ['Production', 'Cloudflare', 'Deploy', 'Preview', 'Durable Object', '/status', 'حداقلی', 'Observability']) {
+      assert.ok(view.text.includes(label), `production guide missing ${label}`);
+    }
+    assert.match(view.text, /داخل Telegram.*جزئیات|جزئیات.*داخل Telegram/);
+  });
+
   it('keeps every guide page and callback within Telegram limits', async () => {
     const encoder = new TextEncoder();
-    for (const callback of ['menu:help', 'help:1', 'help:2', 'help:3', 'help:4', 'help:5', 'help:6']) {
+    for (const callback of ['menu:help', 'help:1', 'help:2', 'help:3', 'help:4', 'help:5', 'help:6', 'help:7']) {
       const view = await menu.renderByCallback(callback);
       assert.ok(view.text.length <= 4096, `${callback} exceeds Telegram message limit`);
       for (const value of callbacks(view)) {
@@ -110,6 +119,14 @@ describe('Nexa Dev Bot - in-app V2 guide', () => {
 
     sent.length = 0;
     await bot.handleMessage({ chat: { id: 1 }, from: { id: 1 }, text: '📘 راهنما' });
-    assert.match(sent[0].text, /راهنمای Nexa Dev.*V2/);
+    assert.match(sent[0].text, /راهنمای Nexa Dev.*V2\.1/);
+  });
+
+  it('keeps README aligned with the deployed V2.1 architecture', () => {
+    const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+    for (const label of ['Workspace Editor', 'WORKSPACE_STORE', 'APPROVAL_REPLAY_GUARD', 'Ops Console', 'پیکربندی', 'Worker Preview', 'Mini App', '/status']) {
+      assert.ok(readme.includes(label), `README missing ${label}`);
+    }
+    assert.doesNotMatch(readme, /ناوبری callback به‌صورت stateless/);
   });
 });

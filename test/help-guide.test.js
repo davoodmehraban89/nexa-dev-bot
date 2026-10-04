@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { MenuManager } from '../src/menu.js';
+import { GuideMenuManager } from '../src/guide-menu.js';
 import { NexaDevBot } from '../src/bot.js';
 
 const github = {
@@ -16,7 +16,7 @@ function callbacks(view) {
 }
 
 describe('Nexa Dev Bot - in-app V2 guide', () => {
-  const menu = new MenuManager(github);
+  const menu = new GuideMenuManager(github);
 
   it('exposes Guide from the main inline menu', () => {
     const view = menu.getMainMenuView();

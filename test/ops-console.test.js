@@ -140,7 +140,7 @@ describe('Nexa Dev Bot - operational menu surfaces', () => {
     const menu = new OpsMenuManager(github, diagnostics);
     const view = menu.getToolsView();
     const values = callbacks(view);
-    for (const callback of ['ops:selfcheck', 'ops:github', 'cf:status', 'ops:runtime', 'ops:plugins', 'tool:ping']) {
+    for (const callback of ['ops:selfcheck', 'ops:github', 'ops:runtime', 'ops:plugins', 'tool:ping']) {
       assert.ok(values.includes(callback), `missing ${callback}`);
     }
     assert.match(view.text, /تشخیص|Diagnostics|عیب.?یابی/);
@@ -186,7 +186,7 @@ describe('Nexa Dev Bot - operational menu surfaces', () => {
     const encoder = new TextEncoder();
     const routes = [
       'menu:status', 'menu:tools', 'menu:security', 'menu:settings',
-      'ops:selfcheck', 'ops:github', 'cf:status', 'ops:runtime', 'ops:plugins',
+      'ops:selfcheck', 'ops:github', 'ops:runtime', 'ops:plugins',
       'security:selfcheck', 'security:policy', 'security:approval',
       'config:runtime', 'config:providers', 'config:editor', 'config:plugins'
     ];

@@ -181,8 +181,10 @@ Conclusion:
 - Validation errors such as missing/oversized Commit message and no Draft change are rendered as validation, not provider-read failures.
 - Workspace failure views now provide bounded routes for Retry / Commit Message where relevant / Continue Draft / Project / Main Menu.
 - Approved provider failure uses the durable intent to offer a fresh Ready/Safe-Approval path plus Continue Draft / Project / Main Menu; the consumed approval is never reused.
-- Current PR head `13c1dce244cc257ed2c64cca8cd1033ba1952d31` passed CI run `37176281102`: 38 test files, 161/161 pass, 0 fail/skip/cancelled.
-- Final merge/deploy verification is still required because this documentation checkpoint moves the PR head.
+- Code head `13c1dce244cc257ed2c64cca8cd1033ba1952d31` passed CI run `37176281102`: 38 test files, 161/161 pass, 0 fail/skip/cancelled.
+- Final documentation head `8964a0811d204d9da313678b358f0e78fee8473c` passed fresh CI run `37176398455`: 38 test files, 161/161 pass, 0 fail/skip/cancelled.
+- Exact final PR diff was reviewed after the fresh CI; changed files are limited to `PROJECT_MEMORY.md`, `src/bot.js`, `src/core/callback-failure-view.js`, and the two recovery regression test files.
+- Merge/deploy verification remains required.
 
 ### Production acceptance status
 - Workspace production deployment and Durable Object bindings: VERIFIED.
@@ -192,13 +194,12 @@ Conclusion:
 - Repository Workspace Phase 1 must not be called production-accepted until owner performs the actual Telegram `✅ تأیید و اجرا` on a safe branch-only intent and GitHub + Cloudflare + Telegram evidence agree.
 
 ## Next Executable Actions
-1. Run fresh CI on the final PR #25 documentation head and review exact diff/metadata.
-2. Mark PR #25 ready and merge only the reviewed green head using expected-head locking.
-3. Verify exact post-merge `main` CI, deployment SHA, active Cloudflare version and runtime health.
-4. Owner-device final Workspace smoke: choose a safe text file, create/update Draft, verify exact Diff, enter Commit Message, press Ready and reach Safe Approval.
-5. Before approval, verify no unexpected provider mutation and `main` remains unchanged.
-6. Owner presses the actual Telegram `✅ تأیید و اجرا`; verify `nexa/edit-*` branch/commit, branch file content, `main` unchanged, Cloudflare audit success and Telegram success feedback.
-7. Only after those runtime gates pass, mark Repository Workspace Phase 1 production-accepted and continue to multi-file Workspace.
+1. Mark PR #25 ready and merge only final reviewed head `8964a0811d204d9da313678b358f0e78fee8473c` using expected-head locking.
+2. Verify exact post-merge `main` CI, deployment SHA, active Cloudflare version and runtime health.
+3. Owner-device final Workspace smoke: choose a safe text file, create/update Draft, verify exact Diff, enter Commit Message, press Ready and reach Safe Approval.
+4. Before approval, verify no unexpected provider mutation and `main` remains unchanged.
+5. Owner presses the actual Telegram `✅ تأیید و اجرا`; verify `nexa/edit-*` branch/commit, branch file content, `main` unchanged, Cloudflare audit success and Telegram success feedback.
+6. Only after those runtime gates pass, mark Repository Workspace Phase 1 production-accepted and continue to multi-file Workspace.
 
 ## Remaining Roadmap
 1. Repository Workspace / Code Editor production acceptance, then multi-file expansion.

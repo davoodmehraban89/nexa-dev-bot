@@ -71,7 +71,7 @@ export default {
 
       if (url.pathname === '/status') {
         const bot = new GuidedNexaDevBot(env);
-        const statusView = bot.menu.getServiceStatusView();
+        const statusView = await bot.menu.getServiceStatusView();
         return jsonResponse(statusView);
       }
 

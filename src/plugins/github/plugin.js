@@ -158,7 +158,7 @@ async function commitDetailView(github, repoId, sha) {
     .map(file => `• <code>${escapeHtml(short(file.filename, 90))}</code> · ${escapeHtml(file.status || 'changed')} · +${file.additions ?? 0}/-${file.deletions ?? 0}`)
     .join('\n');
   return {
-    text: `📝 <b>Commit — ${escapeHtml(repo.name)}</b>\n<code>${escapeHtml(commit.shortSha || String(commit.sha).slice(0, 7))}</code> · ${escapeHtml(commit.author || 'Unknown')}\n${escapeHtml(commit.date || '-')}\n+<b>${commit.additions ?? 0}</b>/-<b>${commit.deletions ?? 0}</b> · ${commit.changedFiles ?? (commit.files || []).length} files\n➖➖➖➖➖➖➖➖➖➖\n${escapeHtml(short(commit.message || '', 1200)) || '<i>بدون پیام.</i>'}\n\n<b>فایل‌های تغییرکرده</b>\n${files || '<i>فایلی گزارش نشده است.</i>'}`,
+    text: `📝 <b>Commit — ${escapeHtml(repo.name)}</b>\n<code>${escapeHtml(commit.shortSha || String(commit.sha).slice(0, 7))}</code> · ${escapeHtml(commit.author || 'Unknown')}\n${escapeHtml(commit.date || '-')}\n+${commit.additions ?? 0}/-${commit.deletions ?? 0} · ${commit.changedFiles ?? (commit.files || []).length} files\n➖➖➖➖➖➖➖➖➖➖\n${escapeHtml(short(commit.message || '', 1200)) || '<i>بدون پیام.</i>'}\n\n<b>فایل‌های تغییرکرده</b>\n${files || '<i>فایلی گزارش نشده است.</i>'}`,
     reply_markup: { inline_keyboard: [[{ text: '🔄 بروزرسانی', callback_data: `commitdetail:${repoId}:${sha}` }, { text: '🔙 Commitها', callback_data: `commits:${repoId}` }], [{ text: '🔙 پروژه', callback_data: `repo:${repoId}` }]] }
   };
 }
@@ -515,7 +515,7 @@ export function createGitHubPlugin({ github, menu, workspaces } = {}) {
         actionId: read.actionId,
         execute: async () => {
           if (read.kind === 'repo') return addRepoAdvancedButtons(await menu.renderByCallback(data), read.repoId);
-          if (read.kind === 'commits') return commitsView(github, read.repoId);
+          if (read.kind === 'commits') return typeof github.listCommits === 'function' ? commitsView(github, read.repoId) : menu.renderByCallback(data);
           if (read.kind === 'commitdetail') return commitDetailView(github, read.repoId, read.sha);
           if (read.kind === 'runs') return workflowRunsView(github, read.repoId, read.page);
           if (read.kind === 'run') return workflowRunView(github, read.repoId, read.runId);

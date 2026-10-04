@@ -1,4 +1,4 @@
-import { NexaDevBot } from './bot.js';
+import { GuidedNexaDevBot } from './guide-bot.js';
 import { DurableWorkspaceStoreClient } from './core/workspace-store.js';
 import { handleWorkspaceEditorRequest, workspaceEditorPageResponse } from './workspace-editor.js';
 export { ApprovalReplayGuard } from './durable/approval-replay-guard.js';
@@ -70,7 +70,7 @@ export default {
       }
 
       if (url.pathname === '/status') {
-        const bot = new NexaDevBot(env);
+        const bot = new GuidedNexaDevBot(env);
         const statusView = bot.menu.getServiceStatusView();
         return jsonResponse(statusView);
       }
@@ -103,7 +103,7 @@ export default {
           return jsonResponse({ ok: true, ignored: true });
         }
 
-        const bot = new NexaDevBot(env);
+        const bot = new GuidedNexaDevBot(env);
         const result = await bot.handleUpdate(update);
         return jsonResponse(result);
       } catch (err) {

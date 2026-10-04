@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { RuntimeDiagnostics } from '../src/core/runtime-diagnostics.js';
 import { OpsMenuManager } from '../src/ops-menu.js';
 
@@ -116,6 +117,19 @@ describe('Nexa Dev Bot - operational diagnostics', () => {
     const byId = Object.fromEntries(report.checks.map(check => [check.id, check]));
     for (const id of ['telegram', 'webhook', 'owner', 'github-token', 'replay-guard', 'workspace-store', 'approval-signer', 'github-live']) {
       assert.equal(byId[id]?.ok, false, `${id} should fail closed`);
+    }
+  });
+
+  it('configures Cloudflare Worker Previews with isolated Durable Object bindings', () => {
+    const config = JSON.parse(readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8'));
+    const production = config.durable_objects?.bindings || [];
+    const preview = config.previews?.durable_objects?.bindings || [];
+    assert.ok(config.previews, 'wrangler previews block is required');
+    for (const binding of production) {
+      assert.ok(
+        preview.some(candidate => candidate.name === binding.name && candidate.class_name === binding.class_name),
+        `preview missing durable binding ${binding.name}`
+      );
     }
   });
 });

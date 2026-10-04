@@ -1,38 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NexaDevBot } from '../src/bot.js';
-import { createWorkspaceController } from '../src/plugins/github/workspace.js';
 
 const WORKSPACE_ID = 'W000000001';
-
-function makeWorkspaceStore() {
-  const workspace = {
-    id: WORKSPACE_ID,
-    repoId: 123,
-    repoFullName: 'davood/demo',
-    baseBranch: 'main',
-    baseHeadSha: 'a'.repeat(40),
-    baseTreeSha: 'b'.repeat(40),
-    path: 'src/app.js',
-    blobSha: 'c'.repeat(40),
-    originalText: 'before\n',
-    originalDigest: '0'.repeat(64),
-    draftText: 'before\n',
-    draftDigest: '0'.repeat(64),
-    commitMessage: '',
-    state: 'DRAFT'
-  };
-  let pending = null;
-  return {
-    workspace,
-    async getWorkspace() { return structuredClone(workspace); },
-    async setPendingInput({ workspaceId, mode }) {
-      pending = { workspaceId, mode };
-      return structuredClone(pending);
-    },
-    async getPendingInput() { return pending ? structuredClone(pending) : null; }
-  };
-}
 
 test('/start installs a persistent bottom quick menu and still sends the inline main menu', async () => {
   const bot = new NexaDevBot({});
@@ -91,17 +61,41 @@ test('persistent menu text has precedence over pending draft input', async () =>
   assert.match(sent.at(-1).text, /Nexa Dev Bot/);
 });
 
-test('Paste text prepares a focused ForceReply code input instead of replacing the workspace message', async () => {
-  const workspaces = makeWorkspaceStore();
-  const controller = createWorkspaceController({ github: {}, workspaces });
-  const route = controller.resolveCallback(`wtext:${WORKSPACE_ID}`, { ownerId: '42' });
+test('Paste text opens a focused ForceReply prompt without replacing the workspace message', async () => {
+  const bot = new NexaDevBot({});
+  const sent = [];
+  const edited = [];
 
-  const prompt = await route.execute();
+  bot.telegram.answerCallbackQuery = async () => ({ ok: true });
+  bot.telegram.sendMessage = async (chatId, text, replyMarkup) => {
+    sent.push({ chatId, text, replyMarkup });
+    return { ok: true };
+  };
+  bot.telegram.editMessageText = async (...args) => {
+    edited.push(args);
+    return { ok: true };
+  };
+  bot.router.dispatchCallback = async (data) => {
+    assert.equal(data, `wtext:${WORKSPACE_ID}`);
+    return {
+      text: '📝 متن جدید Draft را ارسال کنید',
+      reply_markup: { inline_keyboard: [[{ text: '↩️ بازگشت', callback_data: `ws:${WORKSPACE_ID}` }]] }
+    };
+  };
 
-  assert.equal(prompt.delivery, 'send');
-  assert.equal(prompt.reply_markup.force_reply, true);
-  assert.equal(prompt.reply_markup.selective, true);
-  assert.match(prompt.reply_markup.input_field_placeholder, /Paste|کد|متن/i);
-  assert.equal(prompt.reply_markup.inline_keyboard, undefined);
-  assert.deepEqual(await workspaces.getPendingInput(), { workspaceId: WORKSPACE_ID, mode: 'draft' });
+  const result = await bot.handleCallbackQuery({
+    id: 'cb-paste',
+    data: `wtext:${WORKSPACE_ID}`,
+    from: { id: 42 },
+    message: { message_id: 55, chat: { id: 7 } }
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.inputPrompt, true);
+  assert.equal(edited.length, 0);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].replyMarkup.force_reply, true);
+  assert.equal(sent[0].replyMarkup.selective, true);
+  assert.match(sent[0].replyMarkup.input_field_placeholder, /Paste|کد|متن/i);
+  assert.equal(sent[0].replyMarkup.inline_keyboard, undefined);
 });

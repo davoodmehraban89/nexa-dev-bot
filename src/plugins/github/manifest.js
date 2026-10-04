@@ -1,7 +1,7 @@
 export const githubPluginManifest = Object.freeze({
   id: 'github',
   name: 'GitHub',
-  version: 6,
+  version: 7,
   commands: Object.freeze(['/repos']),
   actions: Object.freeze({
     'github.repos.list': Object.freeze({ risk: 'READ' }),
@@ -25,7 +25,9 @@ export const githubPluginManifest = Object.freeze({
     'github.pr.files.list': Object.freeze({ risk: 'READ' }),
     'github.pr.checks.list': Object.freeze({ risk: 'READ' }),
     'github.issues.list': Object.freeze({ risk: 'READ' }),
+    'github.issue.detail': Object.freeze({ risk: 'READ' }),
     'github.releases.list': Object.freeze({ risk: 'READ' }),
+    'github.release.detail': Object.freeze({ risk: 'READ' }),
     'github.workspace.navigate': Object.freeze({ risk: 'READ' }),
     'github.workspace.create': Object.freeze({ risk: 'READ' }),
     'github.workspace.view': Object.freeze({ risk: 'READ' }),

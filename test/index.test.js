@@ -41,13 +41,18 @@ describe('Nexa Dev Bot - Cloudflare Worker Entrypoint', () => {
     assert.equal('uptime' in body, false);
   });
 
-  it('GET /status returns service status payload', async () => {
-    const res = await worker.fetch(new Request('https://example.test/status', { method: 'GET' }), runtime);
+  it('GET /status returns the operational status payload without requiring an external network call', async () => {
+    const res = await worker.fetch(new Request('https://example.test/status', { method: 'GET' }), {
+      ...runtime,
+      GITHUB_TOKEN: ''
+    });
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.ok(body.text.includes('وضعیت سیستم و سرویس'));
+    assert.ok(body.text.includes('وضعیت زنده Nexa Dev'));
+    assert.ok(body.text.includes('GitHub live READ'));
+    assert.ok(body.text.includes('WORKSPACE_STORE'));
     assert.ok(body.reply_markup);
-    assert.doesNotMatch(body.text, /100% SLA/i);
+    assert.doesNotMatch(body.text, /100% SLA|ms latency/i);
   });
 
   it('authorized Telegram webhook processes /start', async () => {

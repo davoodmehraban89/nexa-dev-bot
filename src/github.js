@@ -433,6 +433,13 @@ export class GitHubService {
     };
   }
 
+  async getIssue(repoRef, issueNumber) {
+    const number = numericId(issueNumber, 'issue');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const issue = await this.requestJson(apiBase + '/issues/' + number, 'GitHub issue');
+    return { ...this.mapIssue(issue), body: issue.body || '', labels: (issue.labels || []).map(label => typeof label === 'string' ? label : label.name).filter(Boolean), assignees: (issue.assignees || []).map(user => user.login).filter(Boolean), createdAt: issue.created_at || '', updatedAt: issue.updated_at || '' };
+  }
+
   async listReleases(repoRef, { perPage = 10, page = 1 } = {}) {
     const count = clampPerPage(perPage, 10); const pageNumber = clampPage(page); const { apiBase } = await this.getRepositoryContext(repoRef);
     const data = await this.requestJson(`${apiBase}/releases?per_page=${count}&page=${pageNumber}`, 'GitHub releases');
@@ -440,6 +447,13 @@ export class GitHubService {
       id: release.id, tag: release.tag_name || '', name: release.name || release.tag_name || 'Release', draft: !!release.draft,
       prerelease: !!release.prerelease, publishedAt: release.published_at || release.created_at || '', url: release.html_url || ''
     }));
+  }
+
+  async getRelease(repoRef, releaseId) {
+    const id = numericId(releaseId, 'release');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const release = await this.requestJson(apiBase + '/releases/' + id, 'GitHub release');
+    return { id: release.id, tag: release.tag_name || '', name: release.name || release.tag_name || 'Release', body: release.body || '', draft: !!release.draft, prerelease: !!release.prerelease, publishedAt: release.published_at || release.created_at || '', author: release.author?.login || 'unknown', target: release.target_commitish || '', url: release.html_url || '' };
   }
 
   async rerunFailedWorkflowRun(repoRef, runId) {

@@ -219,9 +219,30 @@ export class GitHubService {
     const { apiBase } = await this.getRepositoryContext(repoRef);
     const data = await this.requestJson(`${apiBase}/commits?per_page=5`, 'GitHub commits');
     return data.map(c => ({
-      sha: c.sha.slice(0, 7), message: String(c.commit?.message || '').split('\n')[0],
+      sha: c.sha.slice(0, 7), fullSha: c.sha, message: String(c.commit?.message || '').split('\n')[0],
       author: c.author?.login || c.commit?.author?.name || 'Unknown', date: c.commit?.author?.date ? c.commit.author.date.slice(0, 10) : ''
     }));
+  }
+
+  async getCommit(repoRef, sha) {
+    const commitSha = fullSha(sha);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const c = await this.requestJson(`${apiBase}/commits/${commitSha}`, 'GitHub commit');
+    return {
+      sha: c.sha || commitSha,
+      message: String(c.commit?.message || ''),
+      author: c.author?.login || c.commit?.author?.name || 'Unknown',
+      date: c.commit?.author?.date || '',
+      additions: c.stats?.additions ?? 0,
+      deletions: c.stats?.deletions ?? 0,
+      changedFiles: Array.isArray(c.files) ? c.files.length : 0,
+      files: (c.files || []).slice(0, 20).map(file => ({
+        filename: file.filename || '',
+        status: file.status || '',
+        additions: file.additions ?? 0,
+        deletions: file.deletions ?? 0
+      }))
+    };
   }
 
   async listCommitChecks(repoRef, sha, { perPage = 20, page = 1 } = {}) {

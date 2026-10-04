@@ -8,7 +8,9 @@ const github = {
   async listIssuesPage() { return { items: [{ number: 7, title: 'Broken report', state: 'open', author: 'owner', comments: 3 }], hasMore: false }; },
   async getIssue() { return { number: 7, title: 'Broken report', state: 'open', author: 'owner', comments: 3, body: 'Reproduction and expected result', labels: ['bug'], assignees: ['owner'], createdAt: '2026-10-04T10:00:00Z', updatedAt: '2026-10-04T11:00:00Z' }; },
   async listReleases() { return [{ id: 9, tag: 'v2.1.0', name: 'V2.1', draft: false, prerelease: false, publishedAt: '2026-10-04T10:00:00Z' }]; },
-  async getRelease() { return { id: 9, tag: 'v2.1.0', name: 'V2.1', body: 'Production release notes', draft: false, prerelease: false, publishedAt: '2026-10-04T10:00:00Z', author: 'owner', target: 'main' }; }
+  async getRelease() { return { id: 9, tag: 'v2.1.0', name: 'V2.1', body: 'Production release notes', draft: false, prerelease: false, publishedAt: '2026-10-04T10:00:00Z', author: 'owner', target: 'main' }; },
+  async listCommits() { return [{ sha: 'abcdef1', fullSha: 'abcdef1234567890abcdef1234567890abcdef12', message: 'feat: useful change', author: 'owner', date: '2026-10-04' }]; },
+  async getCommit() { return { sha: 'abcdef1234567890abcdef1234567890abcdef12', message: 'feat: useful change\n\nDetails', author: 'owner', date: '2026-10-04T12:00:00Z', additions: 12, deletions: 3, changedFiles: 2, files: [{ filename: 'src/app.js', status: 'modified', additions: 10, deletions: 2 }] }; }
 };
 const menu = { async renderByCallback() { return { text: 'fallback', reply_markup: { inline_keyboard: [] } }; } };
 const workspaces = { async getWorkspace() { return null; } };
@@ -53,4 +55,18 @@ test('repository report views always retain a project recovery route', async () 
     assertTelegramContract(view);
     assert.ok(callbacks(view).includes(`repo:${repoId}`), `${callback} must retain project recovery`);
   }
+});
+
+
+test('commit list drills into source-backed commit detail and preserves recovery navigation', async () => {
+  const plugin = createGitHubPlugin({ github, menu, workspaces });
+  const list = await plugin.resolveCallback(`commits:${repoId}`).execute();
+  assertTelegramContract(list);
+  const detailCallback = `commitdetail:${repoId}:abcdef1234567890abcdef1234567890abcdef12`;
+  assert.ok(callbacks(list).includes(detailCallback), 'commit list must expose detail drill-down');
+  const detail = await plugin.resolveCallback(detailCallback).execute();
+  assertTelegramContract(detail);
+  assert.match(detail.text, /Details/);
+  assert.match(detail.text, /src\/app\.js/);
+  assert.ok(callbacks(detail).includes(`commits:${repoId}`));
 });

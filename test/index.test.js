@@ -48,7 +48,7 @@ describe('Nexa Dev Bot - Cloudflare Worker Entrypoint', () => {
     assert.deepEqual(Object.keys(body).sort(), ['bot', 'mode', 'status', 'version']);
     assert.equal(body.status, 'online');
     const serialized = JSON.stringify(body);
-    for (const privateDetail of ['WORKSPACE_STORE', 'APPROVAL_REPLAY_GUARD', 'GitHub live READ', 'credential', 'configured']) {
+    for (const privateDetail of ['WORKSPACE_STORE', 'APPROVAL_REPLAY_GUARD', 'GitHub live READ', 'Cloudflare deployment', 'observability', 'credential', 'configured']) {
       assert.ok(!serialized.includes(privateDetail), `public status leaked ${privateDetail}`);
     }
   });
@@ -101,12 +101,13 @@ describe('Nexa Dev Bot - Cloudflare Worker Entrypoint', () => {
     const logs = [];
     const secretToken = 'telegram-secret-token-for-test';
     const approvalSecret = 'approval-secret-for-test';
+    const cloudflareSecret = 'cloudflare-secret-for-test';
 
     globalThis.fetch = async (url) => {
       if (String(url).startsWith('https://api.telegram.org/')) {
         return new Response(JSON.stringify({
           ok: false,
-          description: `Unauthorized ${approvalSecret}`
+          description: `Unauthorized ${approvalSecret} ${cloudflareSecret}`
         }), {
           status: 401,
           headers: { 'content-type': 'application/json' }
@@ -120,13 +121,15 @@ describe('Nexa Dev Bot - Cloudflare Worker Entrypoint', () => {
       const res = await worker.fetch(webhookRequest(), {
         ...runtime,
         TELEGRAM_BOT_TOKEN: secretToken,
-        APPROVAL_SIGNING_SECRET: approvalSecret
+        APPROVAL_SIGNING_SECRET: approvalSecret,
+        CLOUDFLARE_API_TOKEN: cloudflareSecret
       });
       assert.equal(res.status, 400);
       assert.ok(logs.some(line => /telegram_webhook_error/i.test(line)));
       assert.ok(logs.some(line => /401|Unauthorized/i.test(line)));
       assert.ok(logs.every(line => !line.includes(secretToken)));
       assert.ok(logs.every(line => !line.includes(approvalSecret)));
+      assert.ok(logs.every(line => !line.includes(cloudflareSecret)));
     } finally {
       globalThis.fetch = originalFetch;
       console.error = originalError;

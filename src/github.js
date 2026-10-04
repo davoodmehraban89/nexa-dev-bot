@@ -75,7 +75,9 @@ export class GitHubService {
       if (allowNotFound && res.status === 404) return null;
       const providerMessage = parsed?.message || raw.slice(0, 240);
       const detail = providerMessage ? ` ${providerMessage}` : '';
-      throw new Error(`${label} failed: ${res.status}${detail}`);
+      const error = new Error(`${label} failed: ${res.status}${detail}`);
+      error.status = res.status;
+      throw error;
     }
     if (allowEmpty) return { accepted: true, status: res.status };
     if (!raw) return null;
@@ -110,8 +112,21 @@ export class GitHubService {
   }
 
   async getRepositoryContext(repoRef) {
-    const raw = await this.requestJson(this.repositoryLookupUrl(repoRef), 'GitHub repository');
-    return { raw, apiBase: this.repositoryApiBase(raw.full_name) };
+    const value = String(repoRef || '');
+    try {
+      const raw = await this.requestJson(this.repositoryLookupUrl(value), 'GitHub repository');
+      return { raw, apiBase: this.repositoryApiBase(raw.full_name) };
+    } catch (error) {
+      if (!/^\d+$/.test(value) || error?.status !== 404) throw error;
+
+      const repositories = await this.listRepositories();
+      const match = repositories.find(repo => repo.id === value);
+      if (!match?.fullName) throw error;
+
+      const apiBase = this.repositoryApiBase(match.fullName);
+      const raw = await this.requestJson(apiBase, 'GitHub repository');
+      return { raw, apiBase: this.repositoryApiBase(raw.full_name) };
+    }
   }
 
   mapRepository(r) {

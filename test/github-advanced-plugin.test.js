@@ -40,7 +40,7 @@ function makeMenu() {
     async getReposListView() { return { text: 'repos', reply_markup: { inline_keyboard: [] } }; },
     async renderByCallback(data) {
       if (String(data).startsWith('repo:')) {
-        return { text: 'repo', reply_markup: { inline_keyboard: [[{ text: 'back', callback_data: 'menu:repos' }]] } };
+        return { text: 'repo', reply_markup: { inline_keyboard: [[{ text: 'PR', callback_data: 'pr:123' }], [{ text: 'back', callback_data: 'menu:repos' }]] } };
       }
       return { text: `legacy:${data}`, reply_markup: { inline_keyboard: [] } };
     }
@@ -66,6 +66,7 @@ test('advanced callbacks resolve without provider side effects and callbacks sta
     ['artifacts:123:77', 'github.workflow.artifacts.list'],
     ['branches:123', 'github.branches.list'],
     [`compare:123:${sha}`, 'github.compare.read'],
+    ['pr:123', 'github.pr.advanced.list'],
     ['prs:123', 'github.pr.advanced.list'],
     ['prdetail:123:19', 'github.pr.detail'],
     ['prfiles:123:19:1', 'github.pr.files.list'],
@@ -88,7 +89,8 @@ test('repository and workflow views expose Advanced READ navigation', async () =
   const plugin = createGitHubPlugin({ github, menu: makeMenu() });
   const repoView = await plugin.resolveCallback('repo:123').execute();
   const repoCallbacks = callbacks(repoView);
-  for (const expected of ['runs:123', 'branches:123', 'prs:123', 'issues:123', 'releases:123']) assert.ok(repoCallbacks.includes(expected), expected);
+  for (const expected of ['runs:123', 'branches:123', 'issues:123', 'releases:123']) assert.ok(repoCallbacks.includes(expected), expected);
+  assert.deepEqual(repoCallbacks.filter(value => value === 'pr:123' || value === 'prs:123'), ['pr:123'], 'repository view must expose one useful PR entry');
 
   const runView = await plugin.resolveCallback('run:123:77').execute();
   assert.ok(callbacks(runView).includes('artifacts:123:77'));

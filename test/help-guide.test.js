@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { GuideMenuManager } from '../src/guide-menu.js';
-import { NexaDevBot } from '../src/bot.js';
+import { GuidedNexaDevBot } from '../src/guide-bot.js';
 
 const github = {
   owner: 'davoodmehraban89',
@@ -74,7 +74,7 @@ describe('Nexa Dev Bot - in-app V2 guide', () => {
   });
 
   it('keeps Guide in the persistent bottom keyboard and routes its text without consuming workspace input', async () => {
-    const bot = new NexaDevBot({});
+    const bot = new GuidedNexaDevBot({});
     const sent = [];
     bot.telegram.sendMessage = async (chatId, text, replyMarkup) => {
       sent.push({ chatId, text, replyMarkup });

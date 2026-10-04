@@ -73,6 +73,17 @@ describe('Nexa Dev Bot - in-app V2 guide', () => {
     assert.match(view.text, /main.*مستقیم.*تغییر|شاخه.*پیش.?فرض.*تغییر.*نمی/);
   });
 
+  it('keeps every guide page and callback within Telegram limits', async () => {
+    const encoder = new TextEncoder();
+    for (const callback of ['menu:help', 'help:1', 'help:2', 'help:3', 'help:4', 'help:5', 'help:6']) {
+      const view = await menu.renderByCallback(callback);
+      assert.ok(view.text.length <= 4096, `${callback} exceeds Telegram message limit`);
+      for (const value of callbacks(view)) {
+        assert.ok(encoder.encode(value).length <= 64, `${value} exceeds Telegram callback limit`);
+      }
+    }
+  });
+
   it('keeps Guide in the persistent bottom keyboard and routes its text without consuming workspace input', async () => {
     const bot = new GuidedNexaDevBot({});
     const sent = [];

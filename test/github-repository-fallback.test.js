@@ -68,3 +68,64 @@ test('numeric private repository lookup falls back through accessible repositori
     globalThis.fetch = originalFetch;
   }
 });
+
+test('numeric repository lookup does not fall back for non-404 provider failures', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const repoId = 1401612143;
+
+  globalThis.fetch = async url => {
+    const value = String(url);
+    calls.push(value);
+    if (value === `https://api.github.com/repositories/${repoId}`) {
+      return json({ message: 'Resource not accessible by personal access token' }, 403);
+    }
+    throw new Error(`Unexpected fallback URL: ${value}`);
+  };
+
+  try {
+    const github = new GitHubService('test-token', 'davoodmehraban89');
+    await assert.rejects(
+      () => github.getRepository(repoId),
+      /GitHub repository failed: 403 Resource not accessible by personal access token/
+    );
+    assert.deepEqual(calls, [`https://api.github.com/repositories/${repoId}`]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('numeric repository 404 preserves the original failure when no accessible repository matches the id', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const repoId = 1401612143;
+
+  globalThis.fetch = async url => {
+    const value = String(url);
+    calls.push(value);
+    if (value === `https://api.github.com/repositories/${repoId}`) {
+      return json({ message: 'Not Found' }, 404);
+    }
+    if (value.startsWith('https://api.github.com/user/repos?')) {
+      return json([{
+        id: 42,
+        name: 'another-repo',
+        full_name: 'davoodmehraban89/another-repo',
+        private: true,
+        default_branch: 'main'
+      }]);
+    }
+    throw new Error(`Unexpected URL: ${value}`);
+  };
+
+  try {
+    const github = new GitHubService('test-token', 'davoodmehraban89');
+    await assert.rejects(
+      () => github.getRepository(repoId),
+      /GitHub repository failed: 404 Not Found/
+    );
+    assert.equal(calls.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

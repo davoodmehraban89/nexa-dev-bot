@@ -5,6 +5,7 @@ import {
   normalizeCommitMessage,
   validateEditableFile
 } from '../../core/workspace-policy.js';
+import { DEFAULT_CONFIG } from '../../config.js';
 import { commitWorkspaceIntent } from './workspace-commit.js';
 
 export { commitWorkspaceIntent } from './workspace-commit.js';
@@ -59,12 +60,27 @@ function parseCallback(data) {
   return null;
 }
 
-function workspaceButtons(workspace) {
+function editorUrlFor(workspace, editorUrl) {
+  const configured = String(editorUrl || '').trim();
+  if (!configured) return '';
+  try {
+    const url = new URL(configured);
+    if (url.protocol !== 'https:') return '';
+    url.searchParams.set('workspaceId', workspace.id);
+    return url.toString();
+  } catch {
+    return '';
+  }
+}
+
+function workspaceButtons(workspace, editorUrl) {
+  const editor = editorUrlFor(workspace, editorUrl);
+  const firstRow = [];
+  if (editor) firstRow.push({ text: '🧑‍💻 Editor', web_app: { url: editor } });
+  firstRow.push({ text: '📎 بارگذاری فایل', callback_data: `wfile:${workspace.id}` });
+  if (!editor) firstRow.push({ text: '📝 Paste متن', callback_data: `wtext:${workspace.id}` });
   return [
-    [
-      { text: '📎 بارگذاری فایل', callback_data: `wfile:${workspace.id}` },
-      { text: '📝 Paste متن', callback_data: `wtext:${workspace.id}` }
-    ],
+    firstRow,
     [{ text: '✍️ پیام Commit', callback_data: `wmsg:${workspace.id}` }],
     [
       { text: '🔍 Diff', callback_data: `wdiff:${workspace.id}` },
@@ -91,7 +107,7 @@ function workspaceCommitResultView(repoId, intent, result) {
   };
 }
 
-export function createWorkspaceController({ github, workspaces } = {}) {
+export function createWorkspaceController({ github, workspaces, editorUrl = DEFAULT_CONFIG.workspaceEditorUrl } = {}) {
   if (!github) throw new Error('Workspace controller requires GitHub service');
   if (!workspaces) throw new Error('Workspace controller requires durable workspace store');
 
@@ -186,8 +202,8 @@ export function createWorkspaceController({ github, workspaces } = {}) {
       ? `<code>${escapeHtml(short(workspace.commitMessage, 120))}</code>`
       : '<i>ثبت نشده</i>';
     return {
-      text: `📝 <b>Repository Workspace</b>\nفایل: <code>${escapeHtml(workspace.path)}</code>\nوضعیت: <b>${escapeHtml(workspace.state || 'DRAFT')}</b>\nBase: <code>${escapeHtml(String(workspace.baseHeadSha || '').slice(0, 10))}</code>\nتغییر محلی: <b>${changed ? 'دارد' : 'ندارد'}</b>\nپیام Commit: ${commitMessage}\n\nروش پیشنهادی: فایل متنی جایگزین را بارگذاری کنید؛ Paste متن همچنان به‌عنوان مسیر جایگزین در دسترس است. تا قبل از تأیید نهایی، هیچ تغییری در GitHub انجام نمی‌شود.`,
-      reply_markup: { inline_keyboard: workspaceButtons(workspace) }
+      text: `📝 <b>Repository Workspace</b>\nفایل: <code>${escapeHtml(workspace.path)}</code>\nوضعیت: <b>${escapeHtml(workspace.state || 'DRAFT')}</b>\nBase: <code>${escapeHtml(String(workspace.baseHeadSha || '').slice(0, 10))}</code>\nتغییر محلی: <b>${changed ? 'دارد' : 'ندارد'}</b>\nپیام Commit: ${commitMessage}\n\nبرای ویرایش دقیق و Paste بدون به‌هم‌ریختن فرمت، Editor را باز کنید. ذخیره در Editor فقط Draft محلی را تغییر می‌دهد؛ GitHub همچنان فقط بعد از Diff، Ready و Safe Approval تغییر می‌کند.`,
+      reply_markup: { inline_keyboard: workspaceButtons(workspace, editorUrl) }
     };
   };
 
@@ -198,9 +214,9 @@ export function createWorkspaceController({ github, workspaces } = {}) {
     const draftMode = mode === 'draft';
     return {
       text: fileMode
-        ? `📎 <b>فایل متنی جایگزین را ارسال کنید</b>\nمقصد در مخزن: <code>${escapeHtml(workspace.path)}</code>\n\nفایل ارسال‌شده فقط به‌عنوان محتوای جایگزین Draft استفاده می‌شود؛ نام فایل مقصد را تغییر نمی‌دهد. سقف: 3,000 کاراکتر Unicode و 12,000 بایت UTF-8 معتبر. فایل‌های باینری، LFS یا محتوای غیرمجاز رد می‌شوند.`
+        ? `📎 <b>فایل متنی جایگزین را ارسال کنید</b>\nمقصد در مخزن: <code>${escapeHtml(workspace.path)}</code>\n\nفایل ارسال‌شده فقط به‌عنوان محتوای جایگزین Draft استفاده می‌شود؛ نام فایل مقصد را تغییر نمی‌دهد. سقف Policy: 20,000 کاراکتر Unicode و 65,536 بایت UTF-8 معتبر. فایل‌های باینری، LFS یا محتوای غیرمجاز رد می‌شوند.`
         : draftMode
-          ? `📝 <b>متن جدید Draft را ارسال کنید</b>\nفایل: <code>${escapeHtml(workspace.path)}</code>\n\nکل محتوای فایل جایگزین می‌شود. سقف: 3,000 کاراکتر Unicode و 12,000 بایت UTF-8. پیام بعدی فقط یک‌بار مصرف می‌شود.`
+          ? `📝 <b>ورودی متنی قدیمی Workspace</b>\nفایل: <code>${escapeHtml(workspace.path)}</code>\n\nاین مسیر فقط برای سازگاری پیام‌های قدیمی باقی مانده است. Editor جدید مسیر اصلی است. سقف: 20,000 کاراکتر Unicode و 65,536 بایت UTF-8.`
           : `✍️ <b>پیام Commit را ارسال کنید</b>\nفایل: <code>${escapeHtml(workspace.path)}</code>\n\nپیام باید غیرخالی و حداکثر 120 کاراکتر باشد. پیام بعدی فقط یک‌بار مصرف می‌شود.`,
       reply_markup: { inline_keyboard: [[{ text: '↩️ بازگشت به Draft', callback_data: `ws:${workspace.id}` }]] }
     };
@@ -227,7 +243,7 @@ export function createWorkspaceController({ github, workspaces } = {}) {
       const policy = validateEditableFile({ path: workspace.path, text: inputText, byteLength: inputBytes });
       if (!policy.editable) {
         return {
-          text: `⚠️ <b>Draft تغییر نکرد</b>\n${escapeHtml(policy.reason || 'محتوای ارسال‌شده مجاز نیست.')}\n\nاین ورودی مصرف شد؛ برای تلاش دوباره ${mode === 'draft_file' ? '«بارگذاری فایل»' : '«Paste متن»'} را بزنید.`,
+          text: `⚠️ <b>Draft تغییر نکرد</b>\n${escapeHtml(policy.reason || 'محتوای ارسال‌شده مجاز نیست.')}\n\nاین ورودی مصرف شد؛ برای تلاش دوباره ${mode === 'draft_file' ? '«بارگذاری فایل»' : 'Editor'} را باز کنید.`,
           reply_markup: { inline_keyboard: [[{ text: '📝 بازگشت به Draft', callback_data: `ws:${workspace.id}` }]] }
         };
       }
@@ -238,7 +254,7 @@ export function createWorkspaceController({ github, workspaces } = {}) {
         : '';
       return {
         text: `✅ <b>Draft محلی ذخیره شد</b>\nفایل مقصد: <code>${escapeHtml(updated.path)}</code>${source}\nکاراکتر: <b>${policy.charLength}</b> · بایت UTF-8: <b>${policy.byteLength}</b>\n\nهنوز هیچ تغییری در GitHub انجام نشده است.`,
-        reply_markup: { inline_keyboard: workspaceButtons(updated) }
+        reply_markup: { inline_keyboard: workspaceButtons(updated, editorUrl) }
       };
     }
 
@@ -255,7 +271,7 @@ export function createWorkspaceController({ github, workspaces } = {}) {
     const updated = await workspaces.setCommitMessage({ ownerId, workspaceId, message, digest });
     return {
       text: `✅ <b>پیام Commit ذخیره شد</b>\n<code>${escapeHtml(message)}</code>\n\nهنوز هیچ تغییری در GitHub انجام نشده است.`,
-      reply_markup: { inline_keyboard: workspaceButtons(updated) }
+      reply_markup: { inline_keyboard: workspaceButtons(updated, editorUrl) }
     };
   };
 

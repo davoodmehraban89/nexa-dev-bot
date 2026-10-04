@@ -35,6 +35,10 @@ function makeGitHub() {
       calls.push(`repo:${repoId}`);
       return { id: String(repoId), name: 'demo', fullName: 'davood/demo' };
     },
+    async listPullRequests(repoId) {
+      calls.push(`pr:${repoId}`);
+      return [{ number: 19, title: 'Feature', author: 'dev', state: 'open', merged: false }];
+    },
     async listWorkflowRuns(repoId) {
       calls.push(`runs:${repoId}`);
       return [{

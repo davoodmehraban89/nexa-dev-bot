@@ -1,4 +1,6 @@
 import { NexaDevBot } from './bot.js';
+import { DurableWorkspaceStoreClient } from './core/workspace-store.js';
+import { handleWorkspaceEditorRequest, workspaceEditorPageResponse } from './workspace-editor.js';
 export { ApprovalReplayGuard } from './durable/approval-replay-guard.js';
 export { WorkspaceStore } from './durable/workspace-store.js';
 
@@ -36,11 +38,26 @@ function safeErrorMessage(error, env = {}) {
  * Security invariants:
  * - Telegram webhook requests must carry the configured secret header.
  * - Telegram updates are owner-only and unauthorized senders are ignored silently.
+ * - Workspace Mini App API validates Telegram initData, freshness and owner identity.
+ * - Mini App saves only the durable Draft; GitHub writes remain behind Safe Approval.
  * - Missing security or transport configuration fails closed.
  */
 export default {
   async fetch(request, env = {}, ctx = {}) {
     const url = new URL(request.url);
+
+    if (request.method === 'GET' && url.pathname === '/workspace/editor') {
+      return workspaceEditorPageResponse();
+    }
+
+    if (url.pathname === '/workspace/api/editor' && (request.method === 'GET' || request.method === 'PUT')) {
+      const workspaces = new DurableWorkspaceStoreClient({ namespace: env.WORKSPACE_STORE });
+      return handleWorkspaceEditorRequest(request, {
+        workspaces,
+        botToken: env.TELEGRAM_BOT_TOKEN || '',
+        ownerId: env.OWNER_TELEGRAM_ID || ''
+      });
+    }
 
     if (request.method === 'GET') {
       if (url.pathname === '/health' || url.pathname === '/') {

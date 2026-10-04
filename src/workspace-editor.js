@@ -178,7 +178,7 @@ export function renderWorkspaceEditorPage() {
   save.addEventListener('click', async () => {
     save.disabled = true; setStatus('در حال ذخیره Draft…');
     try {
-      const body = await api('/workspace/api/editor', { method:'PUT', headers:{'content-type':'application/json'}, body:JSON.stringify({workspaceId, text:editor.value}) });
+      await api('/workspace/api/editor', { method:'PUT', headers:{'content-type':'application/json'}, body:JSON.stringify({workspaceId, text:editor.value}) });
       setStatus('Draft ذخیره شد. برای Diff و Commit به ربات برگردید.', 'ok');
       updateCounter();
       if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
@@ -199,7 +199,8 @@ export function workspaceEditorPageResponse() {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': 'no-store',
       'x-content-type-options': 'nosniff',
-      'referrer-policy': 'no-referrer'
+      'referrer-policy': 'no-referrer',
+      'content-security-policy': "default-src 'none'; script-src 'unsafe-inline' https://telegram.org; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'"
     }
   });
 }

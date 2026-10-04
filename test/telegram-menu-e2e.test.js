@@ -40,3 +40,17 @@ test('release list drills into source-backed release notes and preserves recover
   assert.match(detail.text, /Production release notes/);
   assert.ok(callbacks(detail).includes(`releases:${repoId}`));
 }
+
+test('repository report views always retain a project recovery route', async () => {
+  const emptyGithub = {
+    ...github,
+    async listIssuesPage() { return { items: [], hasMore: false }; },
+    async listReleases() { return []; }
+  };
+  const plugin = createGitHubPlugin({ github: emptyGithub, menu, workspaces });
+  for (const callback of [`issues:${repoId}`, `releases:${repoId}`]) {
+    const view = await plugin.resolveCallback(callback).execute();
+    assertTelegramContract(view);
+    assert.ok(callbacks(view).includes(`repo:${repoId}`), `${callback} must retain project recovery`);
+  }
+}

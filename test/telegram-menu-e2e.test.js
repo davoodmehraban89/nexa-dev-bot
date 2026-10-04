@@ -28,7 +28,7 @@ test('issue list drills into actionable issue detail and preserves recovery navi
   assertTelegramContract(detail);
   assert.match(detail.text, /Reproduction and expected result/);
   assert.ok(callbacks(detail).includes(`issues:${repoId}`));
-}
+});
 
 test('release list drills into source-backed release notes and preserves recovery navigation', async () => {
   const plugin = createGitHubPlugin({ github, menu, workspaces });
@@ -39,7 +39,7 @@ test('release list drills into source-backed release notes and preserves recover
   assertTelegramContract(detail);
   assert.match(detail.text, /Production release notes/);
   assert.ok(callbacks(detail).includes(`releases:${repoId}`));
-}
+});
 
 test('repository report views always retain a project recovery route', async () => {
   const emptyGithub = {
@@ -53,4 +53,4 @@ test('repository report views always retain a project recovery route', async () 
     assertTelegramContract(view);
     assert.ok(callbacks(view).includes(`repo:${repoId}`), `${callback} must retain project recovery`);
   }
-}
+});

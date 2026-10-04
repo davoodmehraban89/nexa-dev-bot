@@ -139,13 +139,13 @@ test('PluginRouter dispatchMessage applies the same policy boundary without audi
   assert.equal(JSON.stringify(auditEvents).includes('TOP SECRET SOURCE'), false);
 });
 
-test('draft input is prepared without GitHub calls and the next owner text is consumed exactly once', async () => {
+test('legacy draft input is prepared without GitHub calls and the next owner text is consumed exactly once', async () => {
   const { github, workspaces, plugin } = makePlugin();
   const prepare = plugin.resolveCallback(`wtext:${WORKSPACE_ID}`, { ownerId: OWNER });
   assert.equal(prepare.actionId, 'github.workspace.input.prepare');
   assert.deepEqual(github.calls, []);
   const prompt = await prepare.execute();
-  assert.match(prompt.text, /3,000|3000/);
+  assert.match(prompt.text, /20,000|20000/);
   assert.deepEqual(github.calls, []);
 
   const pending = await workspaces.getPendingInput({ ownerId: OWNER });
@@ -163,14 +163,14 @@ test('draft input is prepared without GitHub calls and the next owner text is co
   assert.deepEqual(github.calls, []);
 });
 
-test('oversized multibyte draft input is visibly rejected without mutating the old draft', async () => {
+test('oversized multibyte legacy draft input is visibly rejected without mutating the old draft', async () => {
   const { workspaces, plugin } = makePlugin();
   await plugin.resolveCallback(`wtext:${WORKSPACE_ID}`, { ownerId: OWNER }).execute();
   const before = workspaces.workspace.draftText;
   const pending = await workspaces.getPendingInput({ ownerId: OWNER });
-  const route = plugin.resolveMessage({ pending, text: '😀'.repeat(3001) }, { ownerId: OWNER });
+  const route = plugin.resolveMessage({ pending, text: '😀'.repeat(16385) }, { ownerId: OWNER });
   const view = await route.execute();
-  assert.match(view.text, /12,000|12000|3,000|3000|مجاز|حد/i);
+  assert.match(view.text, /65,536|65536|20,000|20000|مجاز|حد/i);
   assert.equal(workspaces.workspace.draftText, before);
   assert.equal(await workspaces.getPendingInput({ ownerId: OWNER }), null);
 });

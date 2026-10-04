@@ -11,6 +11,8 @@ import { AuditLogger } from './core/audit.js';
 import { PluginRouter } from './core/router.js';
 import { buildApprovedActionFailedView, buildCallbackFailureView } from './core/callback-failure-view.js';
 import { createGitHubPlugin } from './plugins/github/plugin.js';
+import { CloudflareService } from './plugins/cloudflare/service.js';
+import { createCloudflarePlugin } from './plugins/cloudflare/plugin.js';
 
 const INTENT_ID_PATTERN = /^[A-Za-z0-9_-]{8}$/;
 const QUICK_MENU = Object.freeze({
@@ -124,10 +126,16 @@ export class NexaDevBot {
       menu: this.menu,
       workspaces: this.workspaceStore.isConfigured() ? this.workspaceStore : null
     });
-    this.registry = new PluginRegistry([this.githubPlugin]);
+    this.cloudflare = new CloudflareService({
+      token: env.CLOUDFLARE_API_TOKEN || '',
+      accountId: env.CLOUDFLARE_ACCOUNT_ID || '',
+      workerName: env.CLOUDFLARE_WORKER_NAME || 'nexa-dev-bot'
+    });
+    this.cloudflarePlugin = createCloudflarePlugin({ cloudflare: this.cloudflare });
+    this.registry = new PluginRegistry([this.githubPlugin, this.cloudflarePlugin]);
     this.policy = new ActionPolicy();
     this.audit = new AuditLogger({
-      secrets: [env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_WEBHOOK_SECRET, env.GITHUB_TOKEN, env.APPROVAL_SIGNING_SECRET]
+      secrets: [env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_WEBHOOK_SECRET, env.GITHUB_TOKEN, env.CLOUDFLARE_API_TOKEN, env.APPROVAL_SIGNING_SECRET]
     });
     this.router = new PluginRouter({ registry: this.registry, policy: this.policy, audit: this.audit });
   }

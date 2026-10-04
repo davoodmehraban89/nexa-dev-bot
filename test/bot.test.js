@@ -44,6 +44,21 @@ function makeBot() {
   return bot;
 }
 
+describe('Nexa Dev Bot - Cloudflare plugin registration', () => {
+  it('registers the Cloudflare READ plugin and fails closed when provider config is absent', async () => {
+    const bot = new NexaDevBot();
+    assert.ok(bot.registry.getPlugin('cloudflare'), 'cloudflare plugin must be registered');
+    assert.deepEqual(bot.registry.getAction('cloudflare.worker.status'), {
+      pluginId: 'cloudflare',
+      actionId: 'cloudflare.worker.status',
+      risk: 'READ'
+    });
+
+    const view = await bot.router.dispatchCallback('cf:status', { isOwner: true, ownerId: '123' });
+    assert.match(view.text, /پیکربندی نشده|not configured/i);
+  });
+});
+
 describe('Nexa Dev Bot - Webhook Dispatcher & In-Place Editing', () => {
   it('/start installs the bottom quick menu and sends the inline Main Menu', async () => {
     const sentMessages = [];

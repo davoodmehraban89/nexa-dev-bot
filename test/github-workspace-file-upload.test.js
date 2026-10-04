@@ -68,7 +68,7 @@ function makePlugin() {
   return { workspaces, plugin: createGitHubPlugin({ github, menu: makeMenu(), workspaces }) };
 }
 
-test('workspace exposes a primary file-upload input route with Telegram-safe callback data', async () => {
+test('workspace keeps file upload as a secondary bounded draft input route', async () => {
   const { workspaces, plugin } = makePlugin();
   const workspaceView = await plugin.resolveCallback(`ws:${WORKSPACE_ID}`, { ownerId: OWNER }).execute();
   const buttons = workspaceView.reply_markup.inline_keyboard.flat();
@@ -80,8 +80,8 @@ test('workspace exposes a primary file-upload input route with Telegram-safe cal
   const route = plugin.resolveCallback(upload.callback_data, { ownerId: OWNER });
   assert.equal(route.actionId, 'github.workspace.input.prepare');
   const prompt = await route.execute();
-  assert.match(prompt.text, /12,?000|12000/);
-  assert.match(prompt.text, /3,?000|3000/);
+  assert.match(prompt.text, /65,?536|65536/);
+  assert.match(prompt.text, /20,?000|20000/);
   assert.match(prompt.text, /UTF-?8|فایل/i);
   assert.deepEqual(await workspaces.getPendingInput({ ownerId: OWNER }), {
     workspaceId: WORKSPACE_ID,
@@ -105,7 +105,7 @@ test('uploaded text file replaces only the local draft and preserves the reposit
   assert.equal(await workspaces.getPendingInput({ ownerId: OWNER }), null);
 });
 
-test('bot downloads a pending workspace document and dispatches its decoded file payload', async () => {
+test('bot downloads a pending workspace document using the expanded workspace byte ceiling', async () => {
   const bot = new NexaDevBot({});
   const calls = [];
   bot.workspaceStore = {
@@ -139,7 +139,7 @@ test('bot downloads a pending workspace document and dispatches its decoded file
   });
 
   assert.equal(result.workspaceInput, true);
-  assert.deepEqual(calls.find(call => call[0] === 'downloadTextFile'), ['downloadTextFile', 'FILE123', { maxBytes: 12000 }]);
+  assert.deepEqual(calls.find(call => call[0] === 'downloadTextFile'), ['downloadTextFile', 'FILE123', { maxBytes: 65536 }]);
   const dispatch = calls.find(call => call[0] === 'dispatchMessage');
   assert.deepEqual(dispatch[1].file, {
     name: 'replacement.txt',
@@ -189,7 +189,7 @@ test('oversized Telegram document is rejected before download or workspace dispa
   const result = await bot.handleMessage({
     chat: { id: 7 },
     from: { id: 42 },
-    document: { file_id: 'HUGE', file_name: 'huge.txt', file_size: 12001 }
+    document: { file_id: 'HUGE', file_name: 'huge.txt', file_size: 65537 }
   });
   assert.equal(result.inputRejected, true);
   assert.equal(downloads, 0);

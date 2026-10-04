@@ -41,28 +41,29 @@ test('editable file policy rejects sensitive paths binary markers LFS and both s
   assert.equal(lfs.editable, false);
   assert.match(lfs.reason, /LFS/i);
 
-  const tooManyChars = validateEditableFile({ path: 'large.txt', text: 'a'.repeat(3001) });
+  const tooManyChars = validateEditableFile({ path: 'large.txt', text: 'a'.repeat(20001) });
   assert.equal(tooManyChars.editable, false);
-  assert.match(tooManyChars.reason, /3,000|3000/);
+  assert.match(tooManyChars.reason, /20,000|20000/);
 
-  const explicitTooManyBytes = validateEditableFile({ path: 'large.txt', text: 'ok', byteLength: 12001 });
+  const explicitTooManyBytes = validateEditableFile({ path: 'large.txt', text: 'ok', byteLength: 65537 });
   assert.equal(explicitTooManyBytes.editable, false);
-  assert.match(explicitTooManyBytes.reason, /12,000|12000/);
+  assert.match(explicitTooManyBytes.reason, /65,536|65536/);
 });
 
 test('editable file policy enforces multibyte UTF-8 byte boundary independently from character boundary', () => {
   const validateEditableFile = requireFn('validateEditableFile');
-  const exact = '😀'.repeat(3000);
+  const exact = '😀'.repeat(16384);
   const exactResult = validateEditableFile({ path: 'emoji.txt', text: exact });
-  assert.equal(exactResult.charLength, 3000);
-  assert.equal(exactResult.byteLength, 12000);
+  assert.equal(exactResult.charLength, 16384);
+  assert.equal(exactResult.byteLength, 65536);
   assert.equal(exactResult.editable, true);
 
   const over = `${exact}a`;
   const overResult = validateEditableFile({ path: 'emoji.txt', text: over });
-  assert.equal(overResult.charLength, 3001);
-  assert.equal(overResult.byteLength, 12001);
+  assert.equal(overResult.charLength, 16385);
+  assert.equal(overResult.byteLength, 65537);
   assert.equal(overResult.editable, false);
+  assert.match(overResult.reason, /65,536|65536/);
 });
 
 test('commit message and target branch normalization fail closed on empty or unsafe values', () => {

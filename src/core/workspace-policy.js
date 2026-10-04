@@ -1,7 +1,12 @@
-const MAX_CHARS = 3000;
-const MAX_BYTES = 12000;
+const MAX_CHARS = 20000;
+const MAX_BYTES = 65536;
 const MAX_COMMIT_MESSAGE = 120;
 const SAFE_HANDLE = /^[A-Za-z0-9_-]{10}$/;
+
+export const WORKSPACE_EDITOR_LIMITS = Object.freeze({
+  maxChars: MAX_CHARS,
+  maxBytes: MAX_BYTES
+});
 
 const encoder = new TextEncoder();
 
@@ -31,8 +36,8 @@ export function validateEditableFile({ path, text, byteLength } = {}) {
   if (sensitivePath(path)) reason = 'Sensitive file path is not editable.';
   else if (source.includes('\0')) reason = 'Binary-like content is not editable.';
   else if (/^version https:\/\/git-lfs\.github\.com\/spec\/v1(?:\r?\n|$)/.test(source)) reason = 'Git LFS pointer files are not editable.';
-  else if (charLength > MAX_CHARS) reason = 'Editable text is limited to 3,000 Unicode characters.';
-  else if (effectiveBytes > MAX_BYTES) reason = 'Editable text is limited to 12,000 UTF-8 bytes.';
+  else if (charLength > MAX_CHARS) reason = 'Editable text is limited to 20,000 Unicode characters.';
+  else if (effectiveBytes > MAX_BYTES) reason = 'Editable text is limited to 65,536 UTF-8 bytes.';
 
   return {
     editable: reason === '',

@@ -1,4 +1,12 @@
 const WORKSPACE_CALLBACK = /^(?:ws|wfile|wtext|wmsg|wdiff|wready|wcancel):([A-Za-z0-9_-]{10})$/;
+const WORKSPACE_ID = /^[A-Za-z0-9_-]{10}$/;
+const INTENT_ID = /^[A-Za-z0-9_-]{8}$/;
+
+const escapeHtml = value => String(value ?? '')
+  .replaceAll('&', '&amp;')
+  .replaceAll('<', '&lt;')
+  .replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;');
 
 function legacyFailureView(data, error) {
   const reason = String(error?.message || 'Provider read failed');
@@ -36,7 +44,7 @@ export async function buildCallbackFailureView({ data, error, ownerId, workspace
     try {
       workspace = await workspaces.getWorkspace({ ownerId: String(ownerId), workspaceId });
     } catch {
-      // Recovery must remain usable even if durable context lookup itself fails.
+      // Recovery remains available even when durable context lookup itself fails.
     }
   }
 
@@ -48,13 +56,15 @@ export async function buildCallbackFailureView({ data, error, ownerId, workspace
   const validationError = missingCommitMessage || longCommitMessage || noDraftChange;
 
   let title = '⚠️ <b>عملیات Workspace متوقف شد</b>';
-  let detail = 'Workspace و Draft شما حذف نشده‌اند. می‌توانید دوباره تلاش کنید یا به Draft برگردید.';
+  let detail = workspace
+    ? 'Workspace و Draft فعلی محفوظ هستند. می‌توانید دوباره تلاش کنید یا به Draft برگردید.'
+    : 'عملیات متوقف شد. برای بازیابی وضعیت، دوباره تلاش کنید یا به منوی اصلی برگردید.';
   if (missingCommitMessage) {
     title = '✍️ <b>پیام Commit لازم است</b>';
-    detail = 'قبل از «آماده Commit»، یک پیام Commit ثبت کنید. Draft فعلی محفوظ است و هیچ تغییری در GitHub انجام نشده است.';
+    detail = 'قبل از «آماده Commit»، یک پیام Commit ثبت کنید. هیچ تغییری در GitHub انجام نشده است.';
   } else if (longCommitMessage) {
     title = '✍️ <b>پیام Commit بیش از حد طولانی است</b>';
-    detail = 'پیام Commit باید حداکثر 120 کاراکتر باشد. Draft فعلی محفوظ است و هیچ تغییری در GitHub انجام نشده است.';
+    detail = 'پیام Commit باید حداکثر 120 کاراکتر باشد. هیچ تغییری در GitHub انجام نشده است.';
   } else if (noDraftChange) {
     title = '📝 <b>تغییری برای Commit وجود ندارد</b>';
     detail = 'محتوای Draft با نسخهٔ اصلی یکسان است. ابتدا Draft را تغییر دهید؛ هیچ تغییری در GitHub انجام نشده است.';
@@ -73,5 +83,61 @@ export async function buildCallbackFailureView({ data, error, ownerId, workspace
     text: `${title}\n➖➖➖➖➖➖➖➖➖➖\n${detail}`,
     reply_markup: { inline_keyboard: rows },
     validationError
+  };
+}
+
+export async function buildApprovedActionFailedView({ payload, error, ownerId, workspaces } = {}) {
+  const reason = String(error?.message || 'GitHub operation failed');
+  const permissionDenied = /403|resource not accessible by personal access token/i.test(reason);
+  const repoId = Number(payload?.input?.repoId);
+  const runId = Number(payload?.input?.runId);
+  const workspaceAction = payload?.actionId === 'github.workspace.commit_branch';
+  const intentId = String(payload?.input?.intentId || '');
+
+  let workspaceId = '';
+  if (
+    workspaceAction &&
+    INTENT_ID.test(intentId) &&
+    ownerId !== undefined &&
+    ownerId !== null &&
+    typeof workspaces?.getIntent === 'function'
+  ) {
+    try {
+      const intent = await workspaces.getIntent({ ownerId: String(ownerId), intentId });
+      const candidate = String(intent?.workspaceId || '');
+      if (WORKSPACE_ID.test(candidate)) workspaceId = candidate;
+    } catch {
+      // Provider failure feedback must still render even if durable recovery lookup fails.
+    }
+  }
+
+  const detail = workspaceAction
+    ? permissionDenied
+      ? 'تأیید شما معتبر بود، اما GitHub درخواست Commit شاخه را با خطای 403 رد کرد. دسترسی Contents WRITE توکن فعلی را بررسی کنید.'
+      : `تأیید شما معتبر بود، اما Commit شاخه انجام نشد: ${escapeHtml(reason)}`
+    : permissionDenied
+      ? 'تأیید شما معتبر بود، اما GitHub درخواست را با خطای 403 رد کرد. دسترسی توکن فعلی برای GitHub Actions WRITE کافی نیست.'
+      : `تأیید شما معتبر بود، اما GitHub عملیات را موفق اعلام نکرد: ${escapeHtml(reason)}`;
+
+  const rows = [];
+  if (workspaceAction && workspaceId) {
+    rows.push([{ text: '🔄 درخواست تأیید تازه', callback_data: `wready:${workspaceId}` }]);
+    rows.push([{ text: '📝 ادامه Draft', callback_data: `ws:${workspaceId}` }]);
+  } else if (!workspaceAction && Number.isSafeInteger(repoId) && Number.isSafeInteger(runId)) {
+    rows.push([{ text: '↩️ بازگشت به Run', callback_data: `run:${repoId}:${runId}` }]);
+  }
+  if (Number.isSafeInteger(repoId)) {
+    rows.push([{ text: '📦 بازگشت به پروژه', callback_data: `repo:${repoId}` }]);
+  }
+  rows.push([{ text: '🏠 منوی اصلی', callback_data: 'menu:main' }]);
+
+  return {
+    text:
+`⚠️ <b>اجرای عملیات در GitHub ناموفق بود</b>
+➖➖➖➖➖➖➖➖➖➖
+${detail}
+
+این تأیید یک‌بار مصرف شده است؛ برای تلاش مجدد باید تأیید تازه ایجاد شود.`,
+    reply_markup: { inline_keyboard: rows }
   };
 }

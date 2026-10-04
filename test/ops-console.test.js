@@ -201,6 +201,19 @@ describe('Nexa Dev Bot - operational menu surfaces', () => {
     }
   });
 
+  it('configuration provider report offers an in-context live GitHub probe with configuration recovery', async () => {
+    const { github, diagnostics } = diagnosticsForMenus();
+    const menu = new OpsMenuManager(github, diagnostics);
+
+    const providers = await menu.renderByCallback('config:providers');
+    assert.ok(callbacks(providers).includes('config:github'), 'provider report must offer a direct live GitHub probe');
+
+    const probe = await menu.renderByCallback('config:github');
+    assert.match(probe.text, /READ زنده موفق/);
+    assert.ok(callbacks(probe).includes('config:github'), 'live probe must support refresh in the same context');
+    assert.ok(callbacks(probe).includes('menu:settings'), 'live probe must recover to configuration, not strand the owner in tools');
+  });
+
   it('never renders configured secrets in operational pages', async () => {
     const { github, diagnostics } = diagnosticsForMenus();
     const menu = new OpsMenuManager(github, diagnostics);

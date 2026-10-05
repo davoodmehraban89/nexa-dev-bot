@@ -11,6 +11,11 @@
 ## Runtime incident path
 Treat failed CI/deploy, provider errors, Worker runtime degradation, approval/replay failures, and GitHub/Cloudflare evidence mismatch as explicit failures. Preserve bounded non-secret evidence: exact SHA, workflow/run/job IDs, deployment/version IDs, action ID, outcome and timestamp. Never persist tokens, secret values, source/draft bodies or signed approval callbacks.
 
+## Emergency Kill Switch
+The global Kill Switch has two durable states: `NORMAL` and `LOCKED`. In `LOCKED`, READ remains available for diagnosis, but every WRITE and DESTRUCTIVE action is denied before provider mutation. Automation execution/resume must also pause while locked. If the durable Kill Switch state cannot be read, WRITE/DESTRUCTIVE and Automation fail closed.
+
+Lock and unlock are owner-only sensitive controls and must not bypass the central Policy/Safe Approval boundary. Unlock must never be inferred from a restart, deploy or missing state. The durable store is the authority. Audit may record state/action/outcome/timestamp but never secret, source/draft body or signed approval material.
+
 ## Rollback
 Rollback only to a known-good deployed version. Any Cloudflare operation changing deployed code remains DESTRUCTIVE and must use owner-bound Safe Approval with durable one-time replay protection. After rollback, independently verify active version/traffic/runtime state and record the evidence.
 
@@ -23,7 +28,7 @@ Every DESTRUCTIVE action requires two independent checks: the existing owner-bou
 Provision the TOTP secret as a Cloudflare Worker secret before deploying this release. Enroll the same Base32 secret in the owner's authenticator application out-of-band. Do not place the secret in Git, Telegram messages, README examples or tickets.
 
 ## Security regression gate
-Before accepting a release, verify owner-only Telegram boundary, central action policy, HMAC approval verification, DESTRUCTIVE TOTP second factor, durable replay guard, owner-scoped Workspace state, explicit provider failures, bounded Telegram rendering, minimal public `/status`, and Production/Preview isolation.
+Before accepting a release, verify owner-only Telegram boundary, central action policy, HMAC approval verification, DESTRUCTIVE TOTP second factor, durable replay guard, Emergency Kill Switch, owner-scoped Workspace state, explicit provider failures, bounded Telegram rendering, minimal public `/status`, and Production/Preview isolation.
 
 ## Recovery
 When a provider or validation action fails, keep the failure visible and preserve a bounded recovery path. Never report a retry as successful until fresh provider/runtime evidence confirms it.

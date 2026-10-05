@@ -4,22 +4,23 @@ import fs from 'node:fs';
 
 const read = path => fs.readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 
-test('final acceptance docs describe production-accepted workspace and exhaustive menu/security gates', () => {
-  const memory = read('PROJECT_MEMORY.md');
+test('final acceptance record closes workspace, exhaustive menu and security gates', () => {
+  const acceptance = read('docs/FINAL_ACCEPTANCE_V2_1.md');
   const readme = read('README.md');
-  assert.match(memory, /Repository Workspace.*PRODUCTION ACCEPTED/i);
-  assert.match(memory, /Telegram Menu.*(COMPLETE|ACCEPTED)/i);
-  assert.match(memory, /Security Hardening.*(COMPLETE|ACCEPTED)/i);
-  assert.match(readme, /public \/status.*minimal/i);
+  assert.match(acceptance, /Repository Workspace.*PRODUCTION ACCEPTED/is);
+  assert.match(acceptance, /Telegram Menu Audit.*COMPLETE/is);
+  assert.match(acceptance, /Security Hardening.*COMPLETE/is);
+  assert.match(readme, /GET \/status.*حداقلی/i);
   assert.match(readme, /Safe Approval/i);
   assert.match(readme, /nexa\/edit-/i);
 });
 
 test('production acceptance keeps Telegram and security invariants documented', () => {
-  const memory = read('PROJECT_MEMORY.md');
-  assert.match(memory, /4096/);
-  assert.match(memory, /64.*byte/i);
-  assert.match(memory, /owner-only/i);
-  assert.match(memory, /replay/i);
-  assert.match(memory, /main.*unchanged/i);
+  const acceptance = read('docs/FINAL_ACCEPTANCE_V2_1.md');
+  assert.match(acceptance, /4096/);
+  assert.match(acceptance, /64 UTF-8 bytes/i);
+  assert.match(acceptance, /owner-only/i);
+  assert.match(acceptance, /replay/i);
+  assert.match(acceptance, /main unchanged/i);
+  assert.match(acceptance, /public `\/status` remains minimal health-only/i);
 });

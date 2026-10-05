@@ -1,7 +1,8 @@
 export class DurableKillSwitchStoreClient {
   constructor({ namespace } = {}) { this.namespace = namespace || null; }
+  isConfigured() { return Boolean(this.namespace && typeof this.namespace.idFromName === 'function' && typeof this.namespace.get === 'function'); }
   #stub() {
-    if (!this.namespace || typeof this.namespace.idFromName !== 'function' || typeof this.namespace.get !== 'function') throw new Error('Kill switch durable store is not configured');
+    if (!this.isConfigured()) throw new Error('Kill switch durable store is not configured');
     return this.namespace.get(this.namespace.idFromName('global-emergency-kill-switch'));
   }
   async get() {

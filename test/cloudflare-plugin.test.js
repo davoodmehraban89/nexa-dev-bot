@@ -14,11 +14,13 @@ function telegramContract(view) {
   }
 }
 
-test('Cloudflare plugin exposes only READ actions in phase 1', () => {
+test('Cloudflare plugin exposes CP4 read and destructive actions explicitly', () => {
   const plugin = createCloudflarePlugin({ cloudflare: { isConfigured: () => true } });
   assert.equal(plugin.manifest.id, 'cloudflare');
   assert.deepEqual(plugin.manifest.actions, {
-    'cloudflare.worker.status': { risk: 'READ' }
+    'cloudflare.worker.status': { risk: 'READ' },
+    'cloudflare.worker.versions': { risk: 'READ' },
+    'cloudflare.worker.deploy_version': { risk: 'DESTRUCTIVE' }
   });
 });
 

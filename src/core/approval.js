@@ -2,6 +2,7 @@ const encoder = new TextEncoder();
 const SIGNING_DOMAIN = 'nexa-approval-v1';
 const INTENT_ID_PATTERN = /^[A-Za-z0-9_-]{8}$/;
 const FULL_SHA_PATTERN = /^[a-f0-9]{40}$/i;
+const VERSION_ID_PATTERN = /^[0-9a-f-]{36}$/i;
 const DEFAULT_CODECS = new Map([
   ['github.workflow.run.rerun_failed', { code: 'r', pluginId: 'github', risk: 'WRITE', target: 'run' }],
   ['github.workflow.run.cancel', { code: 'c', pluginId: 'github', risk: 'WRITE', target: 'run' }],
@@ -25,12 +26,20 @@ export class ApprovalService {
     const normalized = { v: 1, pluginId: payload.pluginId, actionId: payload.actionId, risk: payload.risk, ownerId: String(payload.ownerId ?? ''), input: payload.input ?? {}, issuedAt, expiresAt, nonce };
     if (!normalized.ownerId) throw new Error('Approval owner is required');
     let body;
-    if (normalized.actionId === 'github.pull_request.merge') {
-      const { repoId, prNumber, headSha } = normalized.input || {};
-      if (normalized.pluginId !== 'github' || normalized.risk !== 'DESTRUCTIVE' || !Number.isSafeInteger(Number(repoId)) || !Number.isSafeInteger(Number(prNumber)) || !FULL_SHA_PATTERN.test(String(headSha || ''))) throw new Error('Invalid pull request approval target');
+    if (normalized.actionId === 'github.pull_request.merge' || normalized.actionId === 'cloudflare.worker.deploy_version') {
+      let code = '';
+      if (normalized.actionId === 'github.pull_request.merge') {
+        const { repoId, prNumber, headSha } = normalized.input || {};
+        if (normalized.pluginId !== 'github' || normalized.risk !== 'DESTRUCTIVE' || !Number.isSafeInteger(Number(repoId)) || !Number.isSafeInteger(Number(prNumber)) || !FULL_SHA_PATTERN.test(String(headSha || ''))) throw new Error('Invalid pull request approval target');
+        code = 'm';
+      } else {
+        const { versionId } = normalized.input || {};
+        if (normalized.pluginId !== 'cloudflare' || normalized.risk !== 'DESTRUCTIVE' || !VERSION_ID_PATTERN.test(String(versionId || ''))) throw new Error('Invalid Cloudflare approval target');
+        code = 'c';
+      }
       if (!this.replayStore || typeof this.replayStore.put !== 'function' || typeof this.replayStore.peek !== 'function') throw new Error('Durable approval context storage is not configured');
       await this.replayStore.put({ ownerId: normalized.ownerId, nonce, expiresAt, payload: normalized });
-      body = `s.m.${toBase36Int(expiresAt)}.${nonce}`;
+      body = `s.${code}.${toBase36Int(expiresAt)}.${nonce}`;
     } else body = this.#encodeBody(normalized);
     const signature = await this.#sign(normalized.ownerId, body); const token = `${body}.${bytesToBase64Url(signature.slice(0, this.signatureBytes))}`;
     if (token.length > this.maxTokenLength) throw new Error('Approval token too large for callback data'); return token;
@@ -41,11 +50,12 @@ export class ApprovalService {
     try { suppliedSignature = base64UrlToBytes(signaturePart); } catch { throw new Error('Invalid approval signature'); }
     const expectedSignature = (await this.#sign(ownerId, body)).slice(0, this.signatureBytes); if (!constantTimeEqual(suppliedSignature, expectedSignature)) throw new Error('Invalid approval signature or owner mismatch');
     let payload;
-    if (body.startsWith('s.m.')) {
-      const state = body.split('.'); if (state.length !== 4) throw new Error('Invalid approval payload'); const expiresAt = fromBase36Int(state[2]); const nonce = state[3]; if (expiresAt < this.now()) throw new Error('Approval token expired');
+    if (body.startsWith('s.m.') || body.startsWith('s.c.')) {
+      const state = body.split('.'); if (state.length !== 4) throw new Error('Invalid approval payload'); const code = state[1]; const expiresAt = fromBase36Int(state[2]); const nonce = state[3]; if (expiresAt < this.now()) throw new Error('Approval token expired');
       if (!this.replayStore || typeof this.replayStore.peek !== 'function') throw new Error('Durable approval context storage is not configured');
       payload = await this.replayStore.peek({ ownerId, nonce }); if (!payload) throw new Error('Approval context is unavailable');
-      if (payload.expiresAt !== expiresAt || payload.nonce !== nonce || payload.ownerId !== ownerId || payload.actionId !== 'github.pull_request.merge') throw new Error('Approval context mismatch');
+      const expectedAction = code === 'm' ? 'github.pull_request.merge' : code === 'c' ? 'cloudflare.worker.deploy_version' : '';
+      if (!expectedAction || payload.expiresAt !== expiresAt || payload.nonce !== nonce || payload.ownerId !== ownerId || payload.actionId !== expectedAction) throw new Error('Approval context mismatch');
     } else payload = this.#decodeBody(body, ownerId);
     if (payload.expiresAt < this.now()) throw new Error('Approval token expired'); if (expectations.pluginId && payload.pluginId !== expectations.pluginId) throw new Error('Approval plugin mismatch'); if (expectations.actionId && payload.actionId !== expectations.actionId) throw new Error('Approval action mismatch'); if (expectations.risk && payload.risk !== expectations.risk) throw new Error('Approval risk mismatch'); return payload;
   }

@@ -137,7 +137,7 @@ export class NexaDevBot {
     this.registry = new PluginRegistry([this.githubPlugin, this.cloudflarePlugin]);
     this.policy = new ActionPolicy();
     this.audit = new AuditLogger({
-      secrets: [env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_WEBHOOK_SECRET, env.GITHUB_TOKEN, env.CLOUDFLARE_API_TOKEN, env.APPROVAL_SIGNING_SECRET]
+      secrets: [env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_WEBHOOK_SECRET, env.GITHUB_TOKEN, env.CLOUDFLARE_API_TOKEN, env.APPROVAL_SIGNING_SECRET, env.DESTRUCTIVE_TOTP_SECRET]
     });
     this.router = new PluginRouter({ registry: this.registry, policy: this.policy, audit: this.audit });
   }

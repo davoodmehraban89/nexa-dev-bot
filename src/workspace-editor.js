@@ -26,7 +26,7 @@ function statusForError(error) {
   if (/signature|hash|auth_date|owner|initData|user/i.test(message)) return 403;
   if (/not found|expired/i.test(message)) return 404;
   if (/limited|not editable|binary|LFS|sensitive/i.test(message)) return 422;
-  if (/invalid|required|JSON|body/i.test(message)) return 400;
+  if (/invalid|required|JSON|body|path|member|Change Set/i.test(message)) return 400;
   return 500;
 }
 
@@ -52,13 +52,18 @@ export async function handleWorkspaceEditorRequest(request, {
       const workspaceId = safeWorkspaceId(url.searchParams.get('workspaceId'));
       const workspace = await workspaces.getWorkspace({ ownerId: owner, workspaceId });
       if (!workspace) throw new Error('Workspace not found or expired');
+      const files = Array.isArray(workspace.files) && workspace.files.length ? workspace.files : [{ path: workspace.path, draftText: workspace.draftText }];
+      const requestedPath = String(url.searchParams.get('path') || workspace.path || files[0].path);
+      const selected = files.find(file => file.path === requestedPath);
+      if (!selected) throw new Error('Editor path is not a member of this Change Set');
       return jsonResponse({
         workspace: {
           id: workspace.id,
-          path: workspace.path,
+          path: selected.path,
+          files: files.map(file => ({ path: file.path })),
           state: workspace.state || 'DRAFT',
           baseHeadSha: String(workspace.baseHeadSha || '').slice(0, 10),
-          draftText: String(workspace.draftText ?? '')
+          draftText: String(selected.draftText ?? '')
         },
         limits: WORKSPACE_EDITOR_LIMITS
       });
@@ -78,20 +83,21 @@ export async function handleWorkspaceEditorRequest(request, {
       const workspaceId = safeWorkspaceId(body?.workspaceId);
       const workspace = await workspaces.getWorkspace({ ownerId: owner, workspaceId });
       if (!workspace) throw new Error('Workspace not found or expired');
-      const policy = validateEditableFile({ path: workspace.path, text: body?.text });
+      const files = Array.isArray(workspace.files) && workspace.files.length ? workspace.files : [{ path: workspace.path, draftText: workspace.draftText }];
+      const requestedPath = String(body?.path || workspace.path || files[0].path);
+      const selected = files.find(file => file.path === requestedPath);
+      if (!selected) throw new Error('Editor path is not a member of this Change Set');
+      const policy = validateEditableFile({ path: selected.path, text: body?.text });
       if (!policy.editable) return jsonResponse({ ok: false, error: policy.reason }, 422);
       const digest = await digestText(policy.text);
-      const updated = await workspaces.updateDraft({
-        ownerId: owner,
-        workspaceId,
-        text: policy.text,
-        digest
-      });
+      const updated = typeof workspaces.updateWorkspaceFileDraft === 'function'
+        ? await workspaces.updateWorkspaceFileDraft({ ownerId: owner, workspaceId, path: selected.path, text: policy.text, digest })
+        : await workspaces.updateDraft({ ownerId: owner, workspaceId, text: policy.text, digest });
       return jsonResponse({
         ok: true,
         workspace: {
           id: updated?.id || workspaceId,
-          path: updated?.path || workspace.path,
+          path: selected.path,
           state: updated?.state || 'DRAFT',
           charLength: policy.charLength,
           byteLength: policy.byteLength
@@ -127,6 +133,7 @@ export function renderWorkspaceEditorPage() {
 <body>
 <main>
   <div class="meta"><strong>🧑‍💻 Workspace Editor</strong><span id="counter">—</span></div>
+  <select id="files" aria-label="فایل Change Set" disabled></select>
   <div id="path" class="path">در حال بارگذاری…</div>
   <textarea id="editor" spellcheck="false" autocapitalize="off" autocomplete="off" disabled></textarea>
   <div id="status" class="status">در حال اتصال امن به Workspace…</div>
@@ -138,6 +145,7 @@ export function renderWorkspaceEditorPage() {
   const editor = document.getElementById('editor');
   const status = document.getElementById('status');
   const path = document.getElementById('path');
+  const files = document.getElementById('files');
   const counter = document.getElementById('counter');
   const save = document.getElementById('save');
   const close = document.getElementById('close');
@@ -166,8 +174,11 @@ export function renderWorkspaceEditorPage() {
     if (!tg || !tg.initData) throw new Error('این Editor باید از داخل Telegram باز شود.');
     tg.ready(); tg.expand();
     if (!/^[A-Za-z0-9_-]{10}$/.test(workspaceId)) throw new Error('Workspace نامعتبر است.');
-    const body = await api('/workspace/api/editor?workspaceId=' + encodeURIComponent(workspaceId));
+    const selectedPath = params.get('path') || '';
+    const body = await api('/workspace/api/editor?workspaceId=' + encodeURIComponent(workspaceId) + (selectedPath ? '&path=' + encodeURIComponent(selectedPath) : ''));
     limits = body.limits || limits;
+    files.innerHTML = (body.workspace.files || [{path:body.workspace.path}]).map(file => '<option value="' + file.path.replaceAll('&','&amp;').replaceAll('"','&quot;') + '">' + file.path.replaceAll('&','&amp;').replaceAll('<','&lt;') + '</option>').join('');
+    files.value = body.workspace.path; files.disabled = false;
     path.textContent = body.workspace.path;
     editor.value = body.workspace.draftText || '';
     editor.disabled = false;
@@ -175,10 +186,11 @@ export function renderWorkspaceEditorPage() {
     updateCounter();
   }
   editor.addEventListener('input', updateCounter);
+  files.addEventListener('change', () => { params.set('path', files.value); location.search = params.toString(); });
   save.addEventListener('click', async () => {
     save.disabled = true; setStatus('در حال ذخیره Draft…');
     try {
-      await api('/workspace/api/editor', { method:'PUT', headers:{'content-type':'application/json'}, body:JSON.stringify({workspaceId, text:editor.value}) });
+      await api('/workspace/api/editor', { method:'PUT', headers:{'content-type':'application/json'}, body:JSON.stringify({workspaceId, path:files.value, text:editor.value}) });
       setStatus('Draft ذخیره شد. برای Diff و Commit به ربات برگردید.', 'ok');
       updateCounter();
       if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');

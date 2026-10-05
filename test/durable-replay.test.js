@@ -128,3 +128,53 @@ test('Worker exports ApprovalReplayGuard and Wrangler declares SQLite durable bi
     storage: 'sqlite'
   });
 });
+
+
+test('DurableApprovalReplayStore persists owner-scoped second-factor pending state without exposing it in logs', async () => {
+  let stored = null;
+  const namespace = makeNamespace(async (_id, request) => {
+    const url = new URL(request.url);
+    if (request.method === 'POST' && url.pathname === '/second-factor/put') {
+      stored = await request.json();
+      return Response.json({ stored: true });
+    }
+    if (request.method === 'GET' && url.pathname === '/second-factor/get') {
+      return stored ? Response.json({ pending: stored }) : Response.json({ pending: null }, { status: 404 });
+    }
+    if (request.method === 'POST' && url.pathname === '/second-factor/clear') {
+      stored = null;
+      return Response.json({ cleared: true });
+    }
+    return new Response('Not Found', { status: 404 });
+  });
+  const store = new DurableApprovalReplayStore({ namespace });
+  const expiresAt = Date.now() + 60_000;
+
+  await store.setSecondFactorPending({ ownerId: '123', token: 'signed-token', expiresAt });
+  assert.deepEqual(await store.getSecondFactorPending({ ownerId: '123' }), { token: 'signed-token', expiresAt });
+  await store.clearSecondFactorPending({ ownerId: '123' });
+  assert.equal(await store.getSecondFactorPending({ ownerId: '123' }), null);
+  assert.ok(namespace.ids.every(id => id === '123:second-factor'));
+});
+
+test('ApprovalReplayGuard expires and clears second-factor pending state fail-closed', async () => {
+  const state = makeState();
+  const guard = new ApprovalReplayGuard(state);
+  const expiresAt = Date.now() + 60_000;
+
+  const put = await guard.fetch(new Request('https://approval-replay/second-factor/put', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token: 'signed-token', expiresAt })
+  }));
+  assert.equal(put.status, 200);
+
+  const get = await guard.fetch(new Request('https://approval-replay/second-factor/get'));
+  assert.equal(get.status, 200);
+  assert.deepEqual(await get.json(), { pending: { token: 'signed-token', expiresAt } });
+
+  const clear = await guard.fetch(new Request('https://approval-replay/second-factor/clear', { method: 'POST' }));
+  assert.equal(clear.status, 200);
+  const after = await guard.fetch(new Request('https://approval-replay/second-factor/get'));
+  assert.equal(after.status, 404);
+});

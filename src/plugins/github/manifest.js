@@ -38,6 +38,8 @@ export const githubPluginManifest = Object.freeze({
     'github.workspace.ready': Object.freeze({ risk: 'READ' }),
     'github.workspace.cancel': Object.freeze({ risk: 'READ' }),
     'github.workspace.commit_branch': Object.freeze({ risk: 'WRITE' }),
+    'github.workflow.dispatch': Object.freeze({ risk: 'WRITE' }),
+    'github.workflow.job.rerun': Object.freeze({ risk: 'WRITE' }),
     'github.workflow.run.rerun_failed': Object.freeze({ risk: 'WRITE' }),
     'github.workflow.run.cancel': Object.freeze({ risk: 'WRITE' }),
     'github.pull_request.merge': Object.freeze({ risk: 'DESTRUCTIVE' })

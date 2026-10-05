@@ -17,8 +17,13 @@ Rollback only to a known-good deployed version. Any Cloudflare operation changin
 ## Workspace safety
 Workspace mutations remain Draft → Diff → Commit Message → Ready → Safe Approval → branch commit. The target is `nexa/edit-*`; direct `main` mutation, force update and silent conflict resolution are prohibited.
 
+## DESTRUCTIVE second factor
+Every DESTRUCTIVE action requires two independent checks: the existing owner-bound Safe Approval and a six-digit TOTP generated from the separately provisioned `DESTRUCTIVE_TOTP_SECRET`. If the TOTP secret, durable pending state, approval token or TOTP code is unavailable/invalid/expired, the operation fails closed and performs no provider mutation. Five invalid TOTP attempts cancel the pending second-factor challenge and require a fresh Approval. TOTP codes, the TOTP secret and signed Approval tokens must never be written to audit, incident or application logs.
+
+Provision the TOTP secret as a Cloudflare Worker secret before deploying this release. Enroll the same Base32 secret in the owner's authenticator application out-of-band. Do not place the secret in Git, Telegram messages, README examples or tickets.
+
 ## Security regression gate
-Before accepting a release, verify owner-only Telegram boundary, central action policy, HMAC approval verification, durable replay guard, owner-scoped Workspace state, explicit provider failures, bounded Telegram rendering, minimal public `/status`, and Production/Preview isolation.
+Before accepting a release, verify owner-only Telegram boundary, central action policy, HMAC approval verification, DESTRUCTIVE TOTP second factor, durable replay guard, owner-scoped Workspace state, explicit provider failures, bounded Telegram rendering, minimal public `/status`, and Production/Preview isolation.
 
 ## Recovery
 When a provider or validation action fails, keep the failure visible and preserve a bounded recovery path. Never report a retry as successful until fresh provider/runtime evidence confirms it.

@@ -61,6 +61,8 @@ function approvalSourceCallback(payload = {}) {
 
   const runId = payload.input?.runId;
   if (!Number.isSafeInteger(Number(runId))) throw new Error('Approval input is invalid');
+  if (payload.actionId === 'github.workflow.dispatch') return `dispatchwf:${repoId}:${runId}`;
+  if (payload.actionId === 'github.workflow.job.rerun') return `rerunjob:${repoId}:${runId}`;
   if (payload.actionId === 'github.workflow.run.rerun_failed') return `rerun:${repoId}:${runId}`;
   if (payload.actionId === 'github.workflow.run.cancel') return `cancelrun:${repoId}:${runId}`;
   throw new Error('Approval action is not supported');

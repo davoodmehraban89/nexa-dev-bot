@@ -40,11 +40,13 @@ export class CloudflareService {
     return `${API_BASE}/accounts/${safe(this.accountId)}/workers/scripts/${safe(this.workerName)}${suffix}`;
   }
 
-  async requestJson(suffix, label) {
+  async requestJson(suffix, label, { method = 'GET', body } = {}) {
     this.requireConfigured();
     let response;
     try {
-      response = await this.fetchImpl(this.endpoint(suffix), { method: 'GET', headers: this.headers });
+      const options = { method, headers: this.headers };
+      if (body !== undefined) options.body = JSON.stringify(body);
+      response = await this.fetchImpl(this.endpoint(suffix), options);
     } catch (error) {
       throw new Error(redact(`${label} failed: ${error?.message || error}`, this.token));
     }
@@ -68,6 +70,46 @@ export class CloudflareService {
 
     if (payload === null) throw new Error(`${label} failed: invalid JSON response`);
     return payload?.result ?? payload;
+  }
+
+  async listVersions() {
+    const result = await this.requestJson('/versions', 'Cloudflare versions');
+    const items = Array.isArray(result?.items) ? result.items : Array.isArray(result) ? result : [];
+    return items.slice(0, 20).map(item => ({
+      id: clean(item?.id),
+      createdOn: clean(item?.created_on),
+      triggeredBy: clean(item?.annotations?.['workers/triggered_by'])
+    })).filter(item => item.id);
+  }
+
+  async listDeployments() {
+    const result = await this.requestJson('/deployments', 'Cloudflare deployments');
+    const items = Array.isArray(result?.deployments) ? result.deployments : Array.isArray(result) ? result : [];
+    return items.slice(0, 20).map(item => ({
+      id: clean(item?.id),
+      createdOn: clean(item?.created_on),
+      versions: (Array.isArray(item?.versions) ? item.versions : []).map(version => ({
+        versionId: clean(version?.version_id),
+        percentage: Number.isFinite(Number(version?.percentage)) ? Number(version.percentage) : 0
+      }))
+    }));
+  }
+
+  async deployVersion(versionId) {
+    const target = clean(versionId);
+    if (!/^[0-9a-f-]{36}$/i.test(target)) throw new Error('Cloudflare version ID is invalid');
+    const versions = await this.listVersions();
+    if (!versions.some(version => version.id === target)) throw new Error('Cloudflare version is not known');
+    await this.requestJson('/deployments', 'Cloudflare deploy version', {
+      method: 'POST',
+      body: { strategy: 'percentage', versions: [{ percentage: 100, version_id: target }] }
+    });
+    const snapshot = await this.getWorkerSnapshot();
+    const active = snapshot.deployment?.versions || [];
+    if (active.length !== 1 || active[0].versionId !== target || Number(active[0].percentage) !== 100) {
+      throw new Error('Cloudflare deployment verification failed');
+    }
+    return { versionId: target, deploymentId: snapshot.deployment?.id || '', verified: true };
   }
 
   async getWorkerSnapshot() {

@@ -14,7 +14,7 @@ V2.1 شامل Workspace Editor، Ops Console، Security Center، Configuration C
 - مشاهده Workflow Run، Job، Step، bounded log و Artifact metadata.
 - اجرای کنترل‌شدهٔ `Re-run failed jobs` و `Cancel workflow run` فقط بعد از Safe Approval.
 - مرور پوشه‌ها و فایل‌ها و پیش‌نمایش فایل‌های متنی مناسب.
-- Workspace Editor برای اصلاح فایل روی Draft پایدار، بدون WRITE مستقیم به GitHub.
+- Workspace Editor برای اصلاح یک **multi-file Change Set** محدود و پایدار، بدون WRITE مستقیم به GitHub؛ حالت تک‌فایل با **single-file compatibility** به‌صورت Change Set یک‌عضوی حفظ شده است.
 - Telegram Mini App چندخطی برای ویرایش Draft؛ مسیر Paste عادی Telegram فقط fallback است.
 - ساخت Commit روی Branch جداگانه به شکل `nexa/edit-*`؛ مسیر Workspace به‌صورت مستقیم `main` را تغییر نمی‌دهد.
 - Ops Console فقط‌خواندنی برای Self-check، GitHub READ probe، Cloudflare Worker READ status، Runtime/Bindings، Plugin Registry و Ping داخلی.
@@ -29,7 +29,7 @@ V2.1 شامل Workspace Editor، Ops Console، Security Center، Configuration C
 
 1. `پروژه‌ها` → انتخاب Repository.
 2. `فایل‌ها` → انتخاب فایل متنی مجاز.
-3. `Edit` → Pin شدن Base snapshot و ساخت Workspace.
+3. `Edit` → Pin شدن **exact base SHA** و ساخت Workspace/Change Set.
 4. `Editor` → باز شدن Telegram Mini App.
 5. `ذخیره Draft` → فقط Draft داخل `WORKSPACE_STORE` به‌روزرسانی می‌شود.
 6. `Diff` → مقایسه Original و Draft.

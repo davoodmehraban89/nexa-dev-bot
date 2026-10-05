@@ -1,11 +1,15 @@
 const MAX_CHARS = 20000;
 const MAX_BYTES = 65536;
 const MAX_COMMIT_MESSAGE = 120;
+const MAX_WORKSPACE_FILES = 8;
+const MAX_WORKSPACE_BYTES = 131072;
 const SAFE_HANDLE = /^[A-Za-z0-9_-]{10}$/;
 
 export const WORKSPACE_EDITOR_LIMITS = Object.freeze({
   maxChars: MAX_CHARS,
-  maxBytes: MAX_BYTES
+  maxBytes: MAX_BYTES,
+  maxFiles: MAX_WORKSPACE_FILES,
+  maxAggregateBytes: MAX_WORKSPACE_BYTES
 });
 
 const encoder = new TextEncoder();
@@ -130,4 +134,62 @@ export function buildUnifiedDiff({ path, before, after, maxChars = 2600 } = {}) 
     deletions,
     truncated: true
   };
+}
+
+
+export function validateWorkspaceFiles(files = []) {
+  if (!Array.isArray(files) || files.length === 0) throw new Error('Workspace files are required');
+  if (files.length > MAX_WORKSPACE_FILES) throw new Error(`Workspace is limited to ${MAX_WORKSPACE_FILES} files`);
+  const seen = new Set();
+  let totalBytes = 0;
+  const normalized = files.map(source => {
+    const path = String(source?.path || '').replaceAll('\\', '/');
+    if (!path) throw new Error('Workspace file path is required');
+    if (seen.has(path)) throw new Error(`Duplicate workspace path: ${path}`);
+    seen.add(path);
+    const original = validateEditableFile({ path, text: source?.originalText ?? '' });
+    if (!original.editable) throw new Error(original.reason);
+    const draft = validateEditableFile({ path, text: source?.draftText ?? source?.originalText ?? '' });
+    if (!draft.editable) throw new Error(draft.reason);
+    totalBytes += Math.max(original.byteLength, draft.byteLength);
+    return { ...source, path, originalText: original.text, draftText: draft.text };
+  });
+  if (totalBytes > MAX_WORKSPACE_BYTES) {
+    throw new Error('Workspace aggregate text is limited to 131,072 UTF-8 bytes');
+  }
+  return { valid: true, files: normalized, totalBytes };
+}
+
+export function buildWorkspaceDiff({ files = [], maxChars = 3000 } = {}) {
+  const validated = validateWorkspaceFiles(files);
+  const changed = [];
+  let additions = 0;
+  let deletions = 0;
+  for (const file of validated.files) {
+    if (file.originalText === file.draftText) continue;
+    const diff = buildUnifiedDiff({ path: file.path, before: file.originalText, after: file.draftText, maxChars: 10000 });
+    additions += diff.additions;
+    deletions += diff.deletions;
+    changed.push(diff.text);
+  }
+  const raw = changed.join('\n\n');
+  const limit = Math.max(32, Math.min(10000, Number(maxChars) || 3000));
+  const marker = '\n…';
+  const truncated = raw.length > limit;
+  const text = truncated ? `${raw.slice(0, Math.max(0, limit - marker.length))}${marker}` : raw;
+  return { text, additions, deletions, filesChanged: changed.length, truncated };
+}
+
+export async function digestWorkspaceFiles(files = []) {
+  const validated = validateWorkspaceFiles(files);
+  const canonical = validated.files
+    .map(file => ({
+      path: file.path,
+      blobSha: String(file.blobSha || ''),
+      originalDigest: String(file.originalDigest || ''),
+      draftText: file.draftText,
+      draftDigest: String(file.draftDigest || '')
+    }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+  return digestText(JSON.stringify(canonical));
 }

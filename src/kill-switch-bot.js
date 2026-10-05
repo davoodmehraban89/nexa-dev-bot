@@ -11,8 +11,9 @@ const lockMarkup = mode => ({ inline_keyboard: [[
 export class KillSwitchGuidedNexaDevBot extends GuidedNexaDevBot {
   constructor(env = {}) {
     super(env);
-    this.killSwitch = new KillSwitch({ store: new DurableKillSwitchStoreClient({ namespace: env.KILL_SWITCH_STORE }) });
-    this.router.killSwitch = this.killSwitch;
+    const store = new DurableKillSwitchStoreClient({ namespace: env.KILL_SWITCH_STORE });
+    this.killSwitch = new KillSwitch({ store });
+    if (store.isConfigured()) this.router.killSwitch = this.killSwitch;
   }
 
   async handleMessage(message) {

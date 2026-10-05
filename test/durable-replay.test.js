@@ -151,7 +151,7 @@ test('DurableApprovalReplayStore persists owner-scoped second-factor pending sta
   const expiresAt = Date.now() + 60_000;
 
   await store.setSecondFactorPending({ ownerId: '123', token: 'signed-token', expiresAt });
-  assert.deepEqual(await store.getSecondFactorPending({ ownerId: '123' }), { token: 'signed-token', expiresAt });
+  assert.deepEqual(await store.getSecondFactorPending({ ownerId: '123' }), { token: 'signed-token', expiresAt, attempts: 0 });
   await store.clearSecondFactorPending({ ownerId: '123' });
   assert.equal(await store.getSecondFactorPending({ ownerId: '123' }), null);
   assert.ok(namespace.ids.every(id => id === '123:second-factor'));
@@ -171,7 +171,7 @@ test('ApprovalReplayGuard expires and clears second-factor pending state fail-cl
 
   const get = await guard.fetch(new Request('https://approval-replay/second-factor/get'));
   assert.equal(get.status, 200);
-  assert.deepEqual(await get.json(), { pending: { token: 'signed-token', expiresAt } });
+  assert.deepEqual(await get.json(), { pending: { token: 'signed-token', expiresAt, attempts: 0 } });
 
   const clear = await guard.fetch(new Request('https://approval-replay/second-factor/clear', { method: 'POST' }));
   assert.equal(clear.status, 200);

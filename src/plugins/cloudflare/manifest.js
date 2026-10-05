@@ -6,6 +6,7 @@ export const cloudflarePluginManifest = Object.freeze({
   actions: Object.freeze({
     'cloudflare.worker.status': Object.freeze({ risk: 'READ' }),
     'cloudflare.worker.versions': Object.freeze({ risk: 'READ' }),
-    'cloudflare.worker.deploy_version': Object.freeze({ risk: 'DESTRUCTIVE' })
+    'cloudflare.worker.deploy_version': Object.freeze({ risk: 'DESTRUCTIVE' }),
+    'cloudflare.delivery.status': Object.freeze({ risk: 'READ' })
   })
 });

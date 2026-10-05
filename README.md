@@ -100,6 +100,7 @@ Workspace، Draft، short navigation refs، pending input و Commit intent را 
 - `READ` فقط برای Owner مجاز بدون confirmation اجرا می‌شود.
 - `WRITE` و `DESTRUCTIVE` در درخواست اولیه Provider mutation انجام نمی‌دهند.
 - Approval معتبر به Owner، Action، Risk، Target و Expiry متصل است.
+- عملیات `DESTRUCTIVE` علاوه بر Safe Approval به TOTP مستقل نیز نیاز دارد؛ کد TOTP و Secret آن وارد Audit/Log نمی‌شوند.
 - Replay Guard مصرف یک‌باره را حتی بین Worker isolateهای مختلف enforce می‌کند.
 - لغو Approval هیچ mutationی انجام نمی‌دهد.
 - Provider failure باید صریح نمایش داده شود؛ Success ساختگی ممنوع است.
@@ -118,6 +119,7 @@ Bindings/Secrets اصلی:
 - `TELEGRAM_BOT_TOKEN` — Secret
 - `TELEGRAM_WEBHOOK_SECRET` — Secret و fallback امن امضای Approval
 - `APPROVAL_SIGNING_SECRET` — اختیاری؛ در صورت وجود برای امضا اولویت دارد
+- `DESTRUCTIVE_TOTP_SECRET` — Secret مستقل Base32 برای عامل دوم عملیات `DESTRUCTIVE`؛ بدون آن عملیات مخرب fail-closed می‌شود
 - `OWNER_TELEGRAM_ID` — Owner مجاز
 - `GITHUB_TOKEN` — Secret
 - `GITHUB_OWNER` — اختیاری

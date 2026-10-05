@@ -42,7 +42,7 @@ test('CP3 source-backed callbacks require approval and do not mutate provider be
   const plugin=createGitHubPlugin({github,menu});
   const dispatch=await plugin.resolveCallback('dispatchwf:123:77');
   assert.equal(dispatch.actionId,'github.workflow.dispatch');
-  assert.deepEqual(dispatch.approval.input,{repoId:123,runId:77,workflowId:999,ref:'main'});
+  assert.deepEqual(dispatch.approval.input,{repoId:123,runId:77});
   assert.equal(writes.length,0);
   const rerun=await plugin.resolveCallback('rerunjob:123:88');
   assert.equal(rerun.actionId,'github.workflow.job.rerun');

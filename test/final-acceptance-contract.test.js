@@ -21,6 +21,6 @@ test('production acceptance keeps Telegram and security invariants documented', 
   assert.match(acceptance, /64 UTF-8 bytes/i);
   assert.match(acceptance, /owner-only/i);
   assert.match(acceptance, /replay/i);
-  assert.match(acceptance, /main unchanged/i);
+  assert.match(acceptance, /`main` unchanged/i);
   assert.match(acceptance, /public `\/status` remains minimal health-only/i);
 });

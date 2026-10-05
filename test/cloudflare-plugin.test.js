@@ -20,7 +20,8 @@ test('Cloudflare plugin exposes CP4 read and destructive actions explicitly', ()
   assert.deepEqual(plugin.manifest.actions, {
     'cloudflare.worker.status': { risk: 'READ' },
     'cloudflare.worker.versions': { risk: 'READ' },
-    'cloudflare.worker.deploy_version': { risk: 'DESTRUCTIVE' }
+    'cloudflare.worker.deploy_version': { risk: 'DESTRUCTIVE' },
+    'cloudflare.delivery.status': { risk: 'READ' }
   });
 });
 

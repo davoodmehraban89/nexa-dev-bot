@@ -1,3 +1,4 @@
+import { correlateDeliveryState } from '../../core/cicd-control-plane.js';
 import { cloudflarePluginManifest } from './manifest.js';
 
 const escapeHtml = value => String(value ?? '')
@@ -39,6 +40,7 @@ ${bindings}
 
 Secret values نمایش داده نمی‌شوند.`,
     reply_markup:{inline_keyboard:[
+      [{text:'🚦 CI/CD Control Plane',callback_data:'cf:delivery'}],
       [{text:'📚 نسخه‌ها / Rollback',callback_data:'cf:versions'}],
       [{text:'🔄 بروزرسانی',callback_data:'cf:status'}],
       [{text:'🔙 ابزارها',callback_data:'menu:tools'}]
@@ -59,13 +61,26 @@ ${versions.slice(0,10).map(v=>`• <code>${escapeHtml(v.id)}</code>\n  ${escapeH
   };
 }
 
-export function createCloudflarePlugin({ cloudflare } = {}) {
+export function createCloudflarePlugin({ cloudflare, github } = {}) {
   return {
     manifest: cloudflarePluginManifest,
     resolveCallback(data) {
       const value=String(data||'');
       if(value==='cf:status') return {actionId:'cloudflare.worker.status',kind:'worker-status',async execute(){if(!cloudflare?.isConfigured?.())return unavailableView();return snapshotView(await cloudflare.getWorkerSnapshot());}};
       if(value==='cf:versions') return {actionId:'cloudflare.worker.versions',kind:'versions',async execute(){if(!cloudflare?.isConfigured?.())return unavailableView();return versionsView(await cloudflare.listVersions());}};
+      if(value==='cf:delivery') return {actionId:'cloudflare.delivery.status',kind:'delivery-status',async execute(){
+        if(!cloudflare?.isConfigured?.() || !github) return {text:'🚦 <b>Delivery Control Plane</b>\n❌ Provider evidence is not configured.',reply_markup:{inline_keyboard:[[{text:'🔙 Cloudflare',callback_data:'cf:status'}]]}};
+        const repos=await github.listRepositories();
+        const repo=repos.find(item=>item.name===cloudflare.workerName) || repos[0];
+        if(!repo) throw new Error('GitHub repository evidence is unavailable');
+        const [commits,runs,runtime]=await Promise.all([github.listCommits(repo.id),github.listWorkflowRuns(repo.id,{perPage:20,page:1}),cloudflare.getWorkerSnapshot()]);
+        const targetSha=String(commits[0]?.fullSha||'');
+        const ci=runs.find(run=>run.name==='CI' && run.branch===(repo.defaultBranch||'main') && run.fullSha===targetSha) || null;
+        const deploy=runs.find(run=>/Deploy Cloudflare Worker/i.test(run.name) && run.branch===(repo.defaultBranch||'main') && run.fullSha===targetSha) || null;
+        const state=correlateDeliveryState({targetSha,ci,deploy,runtime});
+        const label=state.state==='success'?'SUCCESS / موفق':state.state.toUpperCase();
+        return {text:`🚦 <b>CI/CD Control Plane</b>\nState: <b>${label}</b>\nSHA: <code>${escapeHtml(targetSha.slice(0,12)||'-')}</code>\nCI: <b>${escapeHtml(ci?.conclusion||ci?.status||'unknown')}</b>\nDeploy: <b>${escapeHtml(deploy?.conclusion||deploy?.status||'unknown')}</b>\nRuntime: <code>${escapeHtml(state.versionId||runtime?.deployment?.versions?.[0]?.versionId||'-')}</code>\n\n${escapeHtml(state.reason)}</b>`,reply_markup:{inline_keyboard:[[{text:'🔄 بروزرسانی',callback_data:'cf:delivery'}],[{text:'🔙 Cloudflare',callback_data:'cf:status'}]]}};
+      }};
       const m=value.match(/^cfdeploy:([0-9a-f-]{36})$/i);
       if(m) {
         const versionId=m[1];

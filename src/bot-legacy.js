@@ -133,7 +133,7 @@ export class NexaDevBot {
       accountId: env.CLOUDFLARE_ACCOUNT_ID || '',
       workerName: env.CLOUDFLARE_WORKER_NAME || 'nexa-dev-bot'
     });
-    this.cloudflarePlugin = createCloudflarePlugin({ cloudflare: this.cloudflare });
+    this.cloudflarePlugin = createCloudflarePlugin({ cloudflare: this.cloudflare, github: this.github });
     this.registry = new PluginRegistry([this.githubPlugin, this.cloudflarePlugin]);
     this.policy = new ActionPolicy();
     this.audit = new AuditLogger({

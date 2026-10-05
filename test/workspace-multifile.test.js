@@ -1,58 +1,43 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateWorkspaceFiles, buildWorkspaceDiff, digestWorkspaceFiles } from '../src/core/workspace-policy.js';
+import { WorkspaceStore } from '../src/durable/workspace-store.js';
+import { DurableWorkspaceStoreClient } from '../src/core/workspace-store.js';
 
-const file = (path, originalText, draftText = originalText) => ({
-  path,
-  blobSha: 'a'.repeat(40),
-  originalText,
-  originalDigest: 'b'.repeat(64),
-  draftText,
-  draftDigest: 'c'.repeat(64)
+function makeState() {
+  const data = new Map();
+  const api = { async get(k){return data.get(k)}, async put(k,v){data.set(k, structuredClone(v))}, async delete(k){return data.delete(k)}, async list(){return new Map(data)} };
+  return { storage: { ...api, async transaction(fn){return fn(api)}, async setAlarm(){} } };
+}
+function makeNamespace() {
+  const states = new Map();
+  return { idFromName:n=>String(n), get(id){ if(!states.has(id)) states.set(id,makeState()); const store=new WorkspaceStore(states.get(id)); return {fetch:r=>store.fetch(r)}; } };
+}
+const base = { repoId:1, repoFullName:'davoodmehraban89/nexa-dev-bot', baseBranch:'main', baseHeadSha:'a'.repeat(40), baseTreeSha:'b'.repeat(40), path:'README.md', blobSha:'c'.repeat(40), originalText:'one\n', originalDigest:'d'.repeat(64), expiresAt:999999 };
+
+test('new workspace exposes versioned files while preserving legacy fields', async () => {
+  const client = new DurableWorkspaceStoreClient({ namespace:makeNamespace(), now:()=>1000 });
+  const ws = await client.createWorkspace({ownerId:'A', ...base});
+  assert.equal(ws.schemaVersion, 2);
+  assert.equal(ws.files.length, 1);
+  assert.equal(ws.files[0].path, 'README.md');
+  assert.equal(ws.path, 'README.md');
 });
 
-test('multi-file workspace policy accepts a bounded unique file set', () => {
-  const result = validateWorkspaceFiles([
-    file('README.md', 'before\n', 'after\n'),
-    file('src/app.js', 'export const a = 1;\n', 'export const a = 2;\n')
-  ]);
-  assert.equal(result.valid, true);
-  assert.equal(result.files.length, 2);
-  assert.ok(result.totalBytes > 0);
+test('workspace can add update and remove files and material changes invalidate READY intent', async () => {
+  const client = new DurableWorkspaceStoreClient({ namespace:makeNamespace(), now:()=>1000 });
+  let ws = await client.createWorkspace({ownerId:'A', ...base});
+  ws = await client.upsertWorkspaceFile({ownerId:'A', workspaceId:ws.id, file:{path:'src/a.js', blobSha:'e'.repeat(40), originalText:'a\n', originalDigest:'1'.repeat(64), draftText:'b\n', draftDigest:'2'.repeat(64)}});
+  assert.deepEqual(ws.files.map(f=>f.path), ['README.md','src/a.js']);
+  assert.equal(ws.currentIntentId, null);
+  ws = await client.updateWorkspaceFileDraft({ownerId:'A', workspaceId:ws.id, path:'README.md', text:'changed\n', digest:'3'.repeat(64)});
+  assert.equal(ws.files.find(f=>f.path==='README.md').draftText, 'changed\n');
+  ws = await client.removeWorkspaceFile({ownerId:'A', workspaceId:ws.id, path:'src/a.js'});
+  assert.deepEqual(ws.files.map(f=>f.path), ['README.md']);
 });
 
-test('multi-file workspace rejects duplicate and sensitive paths and aggregate overflow', () => {
-  assert.throws(() => validateWorkspaceFiles([file('a.txt', 'x'), file('a.txt', 'y')]), /duplicate/i);
-  assert.throws(() => validateWorkspaceFiles([file('.env', 'x')]), /sensitive/i);
-  assert.throws(() => validateWorkspaceFiles([
-    file('a.txt', 'a'.repeat(65536)),
-    file('b.txt', 'b'.repeat(65536)),
-    file('c.txt', 'c')
-  ]), /aggregate|131,072|131072/i);
-});
-
-test('aggregate diff preserves per-file identity and exact total counts', () => {
-  const diff = buildWorkspaceDiff({
-    files: [
-      file('a.txt', 'one\ntwo\n', 'one\nTWO\n'),
-      file('b.txt', 'x\n', 'x\ny\n')
-    ],
-    maxChars: 2600
-  });
-  assert.equal(diff.filesChanged, 2);
-  assert.equal(diff.additions, 3);
-  assert.equal(diff.deletions, 1);
-  assert.match(diff.text, /a\/a\.txt/);
-  assert.match(diff.text, /a\/b\.txt/);
-});
-
-test('workspace material digest is order-independent but changes with material', async () => {
-  const a = file('a.txt', 'x', 'y');
-  const b = file('b.txt', 'm', 'n');
-  const first = await digestWorkspaceFiles([a, b]);
-  const reordered = await digestWorkspaceFiles([b, a]);
-  const changed = await digestWorkspaceFiles([a, { ...b, draftText: 'changed' }]);
-  assert.match(first, /^[a-f0-9]{64}$/);
-  assert.equal(first, reordered);
-  assert.notEqual(first, changed);
+test('workspace rejects duplicate normalized paths and aggregate oversize payloads', async () => {
+  const client = new DurableWorkspaceStoreClient({ namespace:makeNamespace(), now:()=>1000 });
+  const ws = await client.createWorkspace({ownerId:'A', ...base});
+  await assert.rejects(() => client.upsertWorkspaceFile({ownerId:'A', workspaceId:ws.id, file:{path:'README.md', blobSha:'x', originalText:'x', originalDigest:'1', draftText:'x', draftDigest:'2'}}), /already exists|duplicate/i);
+  await assert.rejects(() => client.upsertWorkspaceFile({ownerId:'A', workspaceId:ws.id, file:{path:'huge.txt', blobSha:'x', originalText:'', originalDigest:'1', draftText:'x'.repeat(262145), draftDigest:'2'}}), /aggregate|large|size/i);
 });

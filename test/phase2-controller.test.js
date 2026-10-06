@@ -28,3 +28,11 @@ test('removing a change-set file uses opaque ref and durable remove', async()=>{
  const v=await c.resolveCallback('wremove:R000000001',{ownerId:'42'}).execute();
  assert.equal(removed,'src/a.js'); assert.match(v.text,/README\.md/);
 });
+
+
+test('add-file callback actions are declared READ in the GitHub manifest', async()=>{
+ const { githubPluginManifest } = await import('../src/plugins/github/manifest.js');
+ for (const action of ['github.workspace.file.pick','github.workspace.file.add','github.workspace.file.remove']) {
+   assert.equal(githubPluginManifest.actions[action]?.risk, 'READ', action + ' must be routed as owner-only READ');
+ }
+});

@@ -36,3 +36,10 @@ test('add-file callback actions are declared READ in the GitHub manifest', async
    assert.equal(githubPluginManifest.actions[action]?.risk, 'READ', action + ' must be routed as owner-only READ');
  }
 });
+
+
+test('file picker rejects a repo id that is not bound to the workspace', async()=>{
+ const workspaces={async getWorkspace(){return structuredClone(ws)}};
+ const c=createWorkspaceController({github:{async listFiles(){throw new Error('must not read mismatched repo')}},workspaces});
+ await assert.rejects(()=>c.resolveCallback('wfiles:W000000001:2',{ownerId:'42'}).execute(),/repository mismatch/i);
+});

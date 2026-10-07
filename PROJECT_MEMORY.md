@@ -1,5 +1,5 @@
 # PROJECT_MEMORY.md
-
+..
 ## Project Identity
 - Name: Nexa Dev Bot
 - Repository: `davoodmehraban89/nexa-dev-bot`

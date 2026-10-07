@@ -63,3 +63,12 @@ test('multi-file workspace exposes a direct editor button for every file', async
  assert.equal(editors[1].web_app.url,'https://example.com/workspace/editor?workspaceId=W000000001&path=src%2Fa.js');
  assert.match(editors[1].text,/src\/a\.js/);
 });
+
+test('ready view lists every changed file in the sealed change set', async()=>{
+ const workspaces={async getWorkspace(){return structuredClone(ws)},async sealIntent({intent}){return {id:'INTENT01',...intent}}};
+ const c=createWorkspaceController({github:{},workspaces});
+ const v=await c.resolveCallback('wready:W000000001',{ownerId:'42'}).execute();
+ assert.match(v.text,/README\.md/);
+ assert.match(v.text,/src\/a\.js/);
+ assert.match(v.text,/2/);
+});

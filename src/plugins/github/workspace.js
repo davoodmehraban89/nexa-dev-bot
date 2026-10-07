@@ -364,7 +364,7 @@ export function createWorkspaceController({ github, workspaces, editorUrl = DEFA
     });
     if (!intent?.id || !/^[A-Za-z0-9_-]{8}$/.test(intent.id)) throw new Error('Commit intent ID is invalid');
     return {
-      text: `✅ <b>آمادهٔ تأیید Commit</b>\nفایل: <code>${escapeHtml(workspace.path)}</code>\nBranch: <code>${escapeHtml(targetBranch)}</code>\nBase: <code>${escapeHtml(String(workspace.baseHeadSha).slice(0, 10))}</code>\n\nمرحلهٔ بعد فقط درخواست تأیید امن را می‌سازد؛ تا تأیید معتبر مصرف نشود GitHub WRITE اجرا نمی‌شود.`,
+      text: `✅ <b>آمادهٔ تأیید Commit</b>\n${workspaceFiles ? `Change Set: <b>${changedFiles.length} فایل تغییرکرده</b>\n${changedFiles.map(file => `• <code>${escapeHtml(file.path)}</code>`).join('\n')}` : `فایل: <code>${escapeHtml(workspace.path)}</code>`}\nBranch: <code>${escapeHtml(targetBranch)}</code>\nBase: <code>${escapeHtml(String(workspace.baseHeadSha).slice(0, 10))}</code>\n\nمرحلهٔ بعد فقط درخواست تأیید امن را می‌سازد؛ تا تأیید معتبر مصرف نشود GitHub WRITE اجرا نمی‌شود.`,
       reply_markup: {
         inline_keyboard: [
           [{ text: '✅ تأیید و Commit', callback_data: `wscommit:${workspace.repoId}:${intent.id}` }],

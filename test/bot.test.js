@@ -192,6 +192,22 @@ describe('Nexa Dev Bot - Webhook Dispatcher & In-Place Editing', () => {
     assert.equal(edits[0].text, 'routed project');
   });
 
+  it('menu:main falls back to local menu when no plugin route claims it', async () => {
+    const bot = makeBot();
+    const edits = [];
+    bot.telegram.answerCallbackQuery = async () => ({ ok: true });
+    bot.router.dispatchCallback = async () => null;
+    bot.telegram.editMessageText = async (chatId, messageId, text, replyMarkup) => {
+      edits.push({ chatId, messageId, text, replyMarkup });
+      return { ok: true };
+    };
+    const res = await bot.handleUpdate({ callback_query: { id: 'cb_main_local', data: 'menu:main', from: { id: 123456 }, message: { message_id: 501, chat: { id: 123456 } } } });
+    assert.equal(res.ok, true);
+    assert.equal(res.edited, true);
+    assert.equal(edits.length, 1);
+    assert.match(edits[0].text, /Nexa Dev Bot/);
+  });
+
   it('callback navigation still edits when answerCallbackQuery fails', async () => {
     const editedMessages = [];
     const bot = makeBot();

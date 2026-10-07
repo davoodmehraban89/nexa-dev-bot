@@ -66,13 +66,14 @@ function parseCallback(data) {
   return null;
 }
 
-function editorUrlFor(workspace, editorUrl) {
+function editorUrlFor(workspace, editorUrl, path = '') {
   const configured = String(editorUrl || '').trim();
   if (!configured) return '';
   try {
     const url = new URL(configured);
     if (url.protocol !== 'https:') return '';
     url.searchParams.set('workspaceId', workspace.id);
+    if (path) url.searchParams.set('path', path);
     return url.toString();
   } catch {
     return '';
@@ -208,6 +209,13 @@ export function createWorkspaceController({ github, workspaces, editorUrl = DEFA
     const commitMessage = workspace.commitMessage ? `<code>${escapeHtml(short(workspace.commitMessage, 120))}</code>` : '<i>ثبت نشده</i>';
     const list = files.map((file, i) => `${file.draftText !== file.originalText ? '●' : '○'} <code>${escapeHtml(file.path)}</code>${refs[i]?.refId && files.length > 1 ? ` — <i>قابل حذف</i>` : ''}`).join('\n');
     const buttons = workspaceButtons(workspace, editorUrl);
+    if (editorUrl && files.length > 1) {
+      const fileEditors = files.map(file => [{ text: 'Edit ' + short(file.path, 34), web_app: { url: editorUrlFor(workspace, editorUrl, file.path) } }]);
+      buttons.unshift(...fileEditors);
+      const genericEditorUrl = editorUrlFor(workspace, editorUrl);
+      const genericEditorIndex = buttons.findIndex(row => row.some(button => button.web_app?.url === genericEditorUrl));
+      if (genericEditorIndex >= 0) buttons[genericEditorIndex] = buttons[genericEditorIndex].filter(button => !button.web_app);
+    }
     buttons.unshift([{ text: '➕ افزودن فایل', callback_data: `wfiles:${workspace.id}:${workspace.repoId}` }]);
     if (files.length > 1 && refs[1]?.refId) buttons.unshift([{ text: `➖ حذف ${short(files[1].path, 28)}`, callback_data: `wremove:${refs[1].refId}` }]);
     return { text: `📝 <b>Repository Workspace</b>\nChange Set: <b>${files.length} فایل</b> · تغییرکرده: <b>${changedCount}</b>\n${list}\nوضعیت: <b>${escapeHtml(workspace.state || 'DRAFT')}</b>\nBase: <code>${escapeHtml(String(workspace.baseHeadSha || '').slice(0, 10))}</code>\nپیام Commit: ${commitMessage}\n\nذخیره فقط Draft محلی را تغییر می‌دهد؛ GitHub فقط بعد از Diff، Ready و Safe Approval تغییر می‌کند.`, reply_markup:{inline_keyboard:buttons} };

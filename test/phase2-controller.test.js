@@ -52,3 +52,14 @@ test('file picker lists candidates from the exact workspace base snapshot', asyn
  await c.resolveCallback('wfiles:W000000001:1',{ownerId:'42'}).execute();
  assert.deepEqual(seen,{repoId:1,path:'',options:{ref:ws.baseHeadSha}});
 });
+
+test('multi-file workspace exposes a direct editor button for every file', async()=>{
+ const workspaces={async getWorkspace(){return structuredClone(ws)},async createNavigationRefs({refs}){return refs.map((_,i)=>({refId:'R'+String(i).padStart(9,'0')}))}};
+ const c=createWorkspaceController({github:{},workspaces,editorUrl:'https://example.com/workspace/editor'});
+ const v=await c.resolveCallback('ws:W000000001',{ownerId:'42'}).execute();
+ const editors=v.reply_markup.inline_keyboard.flat().filter(button=>button.web_app?.url);
+ assert.equal(editors.length,2);
+ assert.equal(editors[0].web_app.url,'https://example.com/workspace/editor?workspaceId=W000000001&path=README.md');
+ assert.equal(editors[1].web_app.url,'https://example.com/workspace/editor?workspaceId=W000000001&path=src%2Fa.js');
+ assert.match(editors[1].text,/src\/a\.js/);
+});

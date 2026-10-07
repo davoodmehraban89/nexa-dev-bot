@@ -204,6 +204,11 @@ export class NexaDevBot {
         isOwner: true,
         ownerId: ownerId === undefined || ownerId === null ? '' : String(ownerId)
       });
+      if (!routed) {
+        const view = await this.menu.renderByCallback(data);
+        const res = await this.telegram.editMessageText(chatId, messageId, view.text, view.reply_markup);
+        return { ok: true, edited: true, callbackAnswered, res };
+      }
       if (routed?.requiresApproval) {
         const approval = routed.approval;
         const repoId = approval?.input?.repoId;

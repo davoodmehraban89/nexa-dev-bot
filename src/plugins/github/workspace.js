@@ -219,7 +219,7 @@ export function createWorkspaceController({ github, workspaces, editorUrl = DEFA
     const workspace = await requireWorkspace(workspaceId, ownerId);
     if (Number(workspace.repoId) !== Number(repoId)) throw new Error('Workspace repository mismatch');
     const existingPaths = new Set((Array.isArray(workspace.files) && workspace.files.length ? workspace.files : [{ path: workspace.path }]).map(file => file.path));
-    const items = (await github.listFiles(repoId, '')).filter(item => item.type === 'file' && !existingPaths.has(item.path)).slice(0, 20);
+    const items = (await github.listFiles(repoId, '', { ref: workspace.baseHeadSha })).filter(item => item.type === 'file' && !existingPaths.has(item.path)).slice(0, 20);
     const refs = await workspaces.createNavigationRefs({ ownerId, refs: items.map(item => ({ repoId, workspaceId, path:item.path, type:'workspace-add', sha:item.sha })) });
     return { text:`➕ <b>افزودن فایل به Change Set</b>\n${items.length ? 'یک فایل را انتخاب کنید.' : 'فایل قابل افزودن دیگری در این نما نیست.'}`, reply_markup:{inline_keyboard:items.map((item,i)=>[{text:`📄 ${short(item.path,42)}`,callback_data:`wadd:${refs[i].refId}`}]).concat([[{text:'↩️ Workspace',callback_data:`ws:${workspaceId}`} ]])} };
   };

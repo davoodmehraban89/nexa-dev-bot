@@ -43,3 +43,12 @@ test('file picker rejects a repo id that is not bound to the workspace', async()
  const c=createWorkspaceController({github:{async listFiles(){throw new Error('must not read mismatched repo')}},workspaces});
  await assert.rejects(()=>c.resolveCallback('wfiles:W000000001:2',{ownerId:'42'}).execute(),/repository mismatch/i);
 });
+
+test('file picker lists candidates from the exact workspace base snapshot', async()=>{
+ let seen;
+ const workspaces={async getWorkspace(){return structuredClone(ws)},async createNavigationRefs({refs}){return refs.map((_,i)=>({refId:'R'+String(i).padStart(9,'0')}))}};
+ const github={async listFiles(repoId,path,options){seen={repoId,path,options};return [{type:'file',path:'src/new.js',sha:'e'.repeat(40)}]}};
+ const c=createWorkspaceController({github,workspaces});
+ await c.resolveCallback('wfiles:W000000001:1',{ownerId:'42'}).execute();
+ assert.deepEqual(seen,{repoId:1,path:'',options:{ref:ws.baseHeadSha}});
+});

@@ -105,6 +105,18 @@ test('workspace store isolates refs and workspaces by owner', async () => {
   assert.equal(await client.getWorkspace({ ownerId: 'B', workspaceId: workspace.id }), null);
 });
 
+test('workspace navigation refs preserve bounded workspace metadata', async () => {
+  const Client = requireExport(clientModule, 'DurableWorkspaceStoreClient');
+  const Store = requireExport(durableModule, 'WorkspaceStore');
+  const namespace = makeNamespace(Store);
+  const client = new Client({ namespace, now: () => 1_000 });
+
+  const [ref] = await client.createNavigationRefs({ ownerId: 'A', refs: [{ repoId: 1, workspaceId: 'W000000001', path: 'src/a.js', type: 'workspace-add', sha: 'a'.repeat(40) }] });
+  assert.deepEqual(await client.resolveNavigationRef({ ownerId: 'A', refId: ref.refId }), {
+    repoId: 1, workspaceId: 'W000000001', path: 'src/a.js', type: 'workspace-add', sha: 'a'.repeat(40), expiresAt: 901000
+  });
+});
+
 test('expired refs and workspaces read as missing and schedule cleanup', async () => {
   const Client = requireExport(clientModule, 'DurableWorkspaceStoreClient');
   const Store = requireExport(durableModule, 'WorkspaceStore');

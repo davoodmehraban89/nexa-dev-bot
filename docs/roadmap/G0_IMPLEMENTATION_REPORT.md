@@ -63,3 +63,7 @@ Use `docs/handoff/START_HERE.md` and `docs/handoff/NEXT_CHAT_PROMPT_FA.md`. Firs
 - Repository API currently reports **public** visibility. Earlier private/billing observations are historical, not current blockers. No visibility setting was changed during this checkpoint.
 - **G0 is still NOT ACCEPTED.** Fresh authorized owner-device R-26 Approval/Telegram/Cloudflare/GitHub evidence, focused sensitive-change review, and written owner gate acceptance remain outstanding. No G1 work, merge, deployment, or new provider write is authorized by CI success alone.
 - This checkpoint is a documentation-only change; its new head will require its own exact-head CI result before being described as verified. Next smallest task: collect/record the owner-produced R-26 acceptance evidence without fabricating it.
+
+## Exact-head CI follow-up — 2026-10-24
+- After the previous documentation checkpoint, GitHub Actions [run 40122093061](https://github.com/davoodmehraban89/nexa-dev-bot/actions/runs/40122093061) completed **successfully** on exact commit `cf71f479f25321262fd17e07a5d7ccef71064d40`. This closes the prior “new documentation head not yet checked” uncertainty. PR #65 remained open/draft at this observation.
+- This report-only commit changes no runtime behavior and supplies no fresh owner-device R-26 evidence. The G0 gate remains unaccepted, and G1 remains blocked.

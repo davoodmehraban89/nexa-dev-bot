@@ -29,3 +29,6 @@ test('body stream error propagates', async () => {
   });
   await assert.rejects(readBoundedJson(request, 10), /io fail/);
 });
+
+test('non-integer Content-Length is rejected', async () =>
+  await assert.rejects(readBoundedJson(req('{}', { 'content-length': '1.5' }), 10), RangeError));

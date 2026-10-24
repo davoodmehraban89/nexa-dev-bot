@@ -67,3 +67,20 @@ Use `docs/handoff/START_HERE.md` and `docs/handoff/NEXT_CHAT_PROMPT_FA.md`. Firs
 ## Exact-head CI follow-up — 2026-10-24
 - After the previous documentation checkpoint, GitHub Actions [run 40122093061](https://github.com/davoodmehraban89/nexa-dev-bot/actions/runs/40122093061) completed **successfully** on exact commit `cf71f479f25321262fd17e07a5d7ccef71064d40`. This closes the prior “new documentation head not yet checked” uncertainty. PR #65 remained open/draft at this observation.
 - This report-only commit changes no runtime behavior and supplies no fresh owner-device R-26 evidence. The G0 gate remains unaccepted, and G1 remains blocked.
+
+## R-26 owner acceptance evidence checklist — 2026-10-24
+This is an evidence collection checklist, **not** a completed smoke or permission to perform provider writes. Historical Phase 1 proof in `docs/FINAL_ACCEPTANCE_V2_1.md` must not be presented as fresh candidate evidence.
+
+| Step | Required owner-provided evidence | Current status |
+| --- | --- | --- |
+| 1. Candidate identity | Exact candidate SHA, CI run URL, Cloudflare Worker deployment/version identifier if the owner authorizes a candidate environment; identify staging vs production | Not supplied for fresh owner smoke |
+| 2. Telegram owner session | Date/time, device OS/version, bot identity, visible workspace start; omit Telegram initData, chat IDs and secrets | Not supplied |
+| 3. Draft and Diff | Sanitized screen recording showing selected test repository, permitted non-sensitive test file, draft edit, Diff, and commit message; do not record source/draft bodies or secret fields in shared logs | Not supplied |
+| 4. Safe Approval | Evidence that the exact intended action/target is presented and confirmed by the owner; redact signed callbacks, OTP/TOTP and any credential | Not supplied |
+| 5. GitHub outcome | Link to a newly created `nexa/edit-*` branch commit, commit SHA and changed-file list; verify default branch HEAD unchanged and no duplicate commit from repeat callback | Not supplied |
+| 6. Runtime correlation | Authorized Worker request/deployment correlation metadata and error-free result without raw payloads; preserve timestamp and environment | Not supplied |
+| 7. Owner acceptance | Explicit written G0 acceptance decision with any exceptions, after focused security review and evidence reconciliation | Not supplied |
+
+**Safety gate:** Do not create a test branch/commit, redeploy, change secrets or unlock the Kill Switch solely to fill this checklist. Owner-authorized smoke is an independent acceptance action. The current implementation's at-most-once webhook crash gap and incomplete R-07 remain open and must be disclosed in the review.
+
+**CI verified before this documentation update:** [run 40122397401](https://github.com/davoodmehraban89/nexa-dev-bot/actions/runs/40122397401) passed on exact prior head `f89dc07ff959e14888b8843a22391de47ef011b6`. New documentation commit requires its own exact-head check. G0 remains NOT ACCEPTED; no G1 work.

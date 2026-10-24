@@ -4,6 +4,7 @@ import {
   validateEditableFile
 } from './core/workspace-policy.js';
 import { validateTelegramWebAppInitData } from './core/telegram-webapp-auth.js';
+import { readBoundedJson } from './core/bounded-json.js';
 
 const WORKSPACE_ID = /^[A-Za-z0-9_-]{10}$/;
 
@@ -70,15 +71,13 @@ export async function handleWorkspaceEditorRequest(request, {
     }
 
     if (request.method === 'PUT') {
-      const contentLength = Number(request.headers.get('content-length'));
-      if (Number.isFinite(contentLength) && contentLength > WORKSPACE_EDITOR_LIMITS.maxBytes + 4096) {
-        return jsonResponse({ ok: false, error: 'Editor request body is too large' }, 413);
-      }
       let body;
       try {
-        body = await request.json();
-      } catch {
-        throw new Error('Editor request body must be valid JSON');
+        body = await readBoundedJson(request, WORKSPACE_EDITOR_LIMITS.maxBytes + 4096);
+      } catch (error) {
+        if (error instanceof RangeError) return jsonResponse({ ok: false, error: 'Editor request body is too large' }, 413);
+        if (error instanceof SyntaxError) return jsonResponse({ ok: false, error: 'Editor request body must be valid JSON' }, 400);
+        throw error;
       }
       const workspaceId = safeWorkspaceId(body?.workspaceId);
       const workspace = await workspaces.getWorkspace({ ownerId: owner, workspaceId });
@@ -107,7 +106,8 @@ export async function handleWorkspaceEditorRequest(request, {
 
     return jsonResponse({ ok: false, error: 'Method not allowed' }, 405);
   } catch (error) {
-    return jsonResponse({ ok: false, error: String(error?.message || 'Workspace editor request failed') }, statusForError(error));
+    const status = statusForError(error);
+    return jsonResponse({ ok: false, error: status === 500 ? 'Workspace editor request failed' : String(error?.message || 'Workspace editor request failed') }, status);
   }
 }
 

@@ -12,19 +12,20 @@ test('/start installs a persistent bottom quick menu and still sends the inline 
     return { ok: true, result: { message_id: 100 + sent.length } };
   };
 
-  const result = await bot.handleMessage({ chat: { id: 7 }, from: { id: 42 }, text: '/start' });
+  const result = await bot.handleMessage({
+    chat: { id: 7 },
+    from: { id: 42 },
+    text: '/start'
+  });
 
   assert.equal(result.ok, true);
   assert.equal(sent.length, 2);
   assert.equal(sent[0].replyMarkup.is_persistent, true);
   assert.equal(sent[0].replyMarkup.resize_keyboard, true);
-  assert.deepEqual(sent[0].replyMarkup.keyboard.flat().map(button => button.text), [
-    '🏠 منوی اصلی',
-    '📁 پروژه‌ها',
-    '📊 وضعیت',
-    '🔧 ابزارها',
-    '🔐 امنیت'
-  ]);
+  assert.deepEqual(
+    sent[0].replyMarkup.keyboard.flat().map((button) => button.text),
+    ['🏠 منوی اصلی', '📁 پروژه‌ها', '📊 وضعیت', '🔧 ابزارها', '🔐 امنیت']
+  );
   assert.ok(sent[1].replyMarkup.inline_keyboard);
 });
 
@@ -44,7 +45,10 @@ test('persistent menu text has precedence over pending draft input', async () =>
   bot.router = {
     async dispatchMessage() {
       workspaceDispatches += 1;
-      return { text: 'should not happen', reply_markup: { inline_keyboard: [] } };
+      return {
+        text: 'should not happen',
+        reply_markup: { inline_keyboard: [] }
+      };
     }
   };
   bot.telegram.sendMessage = async (chatId, text, replyMarkup) => {
@@ -52,7 +56,11 @@ test('persistent menu text has precedence over pending draft input', async () =>
     return { ok: true };
   };
 
-  const result = await bot.handleMessage({ chat: { id: 7 }, from: { id: 42 }, text: '🏠 منوی اصلی' });
+  const result = await bot.handleMessage({
+    chat: { id: 7 },
+    from: { id: 42 },
+    text: '🏠 منوی اصلی'
+  });
 
   assert.equal(result.ok, true);
   assert.equal(result.quickMenu, 'main');
@@ -79,7 +87,11 @@ test('Paste text opens a focused ForceReply prompt without replacing the workspa
     assert.equal(data, `wtext:${WORKSPACE_ID}`);
     return {
       text: '📝 متن جدید Draft را ارسال کنید',
-      reply_markup: { inline_keyboard: [[{ text: '↩️ بازگشت', callback_data: `ws:${WORKSPACE_ID}` }]] }
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '↩️ بازگشت', callback_data: `ws:${WORKSPACE_ID}` }]
+        ]
+      }
     };
   };
 

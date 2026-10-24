@@ -1,65 +1,819 @@
 import { DEFAULT_CONFIG } from './config.js';
 
-const clampPage = value => Math.max(1, Math.min(100, Number(value) || 1));
-const clampPerPage = (value, fallback = 10) => Math.max(1, Math.min(20, Number(value) || fallback));
-const boundedPatch = value => String(value || '').slice(0, 1200);
-const numericId = (value, label) => { const text = String(value ?? ''); if (!/^\d+$/.test(text)) throw new Error(`Invalid ${label} ID`); return text; };
-const fullSha = (value, label = 'Git commit') => { const text = String(value || ''); if (!/^[a-f0-9]{40}$/i.test(text)) throw new Error(`Invalid ${label} SHA`); return text; };
-const gitBranch = value => { const branch = String(value || ''); if (!branch || branch.includes('..') || branch.startsWith('/') || branch.endsWith('/') || branch.includes('\0')) throw new Error('Invalid Git branch'); return branch; };
-const encodedBranch = value => gitBranch(value).split('/').map(encodeURIComponent).join('/');
-const encodedPath = value => String(value || '').split('/').filter(Boolean).map(encodeURIComponent).join('/');
-const decodeBase64Utf8 = value => { let binary; try { binary = atob(String(value || '').replace(/\s/g, '')); } catch { throw new Error('GitHub file content is not valid base64'); } const bytes = Uint8Array.from(binary, char => char.charCodeAt(0)); try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { throw new Error('GitHub file content is not valid UTF-8 text'); } };
+const clampPage = (value) => Math.max(1, Math.min(100, Number(value) || 1));
+const clampPerPage = (value, fallback = 10) =>
+  Math.max(1, Math.min(20, Number(value) || fallback));
+const boundedPatch = (value) => String(value || '').slice(0, 1200);
+const numericId = (value, label) => {
+  const text = String(value ?? '');
+  if (!/^\d+$/.test(text)) throw new Error(`Invalid ${label} ID`);
+  return text;
+};
+const fullSha = (value, label = 'Git commit') => {
+  const text = String(value || '');
+  if (!/^[a-f0-9]{40}$/i.test(text)) throw new Error(`Invalid ${label} SHA`);
+  return text;
+};
+const gitBranch = (value) => {
+  const branch = String(value || '');
+  if (
+    !branch ||
+    branch.includes('..') ||
+    branch.startsWith('/') ||
+    branch.endsWith('/') ||
+    branch.includes('\0')
+  )
+    throw new Error('Invalid Git branch');
+  return branch;
+};
+const encodedBranch = (value) =>
+  gitBranch(value).split('/').map(encodeURIComponent).join('/');
+const encodedPath = (value) =>
+  String(value || '')
+    .split('/')
+    .filter(Boolean)
+    .map(encodeURIComponent)
+    .join('/');
+const decodeBase64Utf8 = (value) => {
+  let binary;
+  try {
+    binary = atob(String(value || '').replace(/\s/g, ''));
+  } catch {
+    throw new Error('GitHub file content is not valid base64');
+  }
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error('GitHub file content is not valid UTF-8 text');
+  }
+};
 
 export class GitHubService {
-  constructor(token = '', owner = DEFAULT_CONFIG.defaultOwner) { this.token = token; this.owner = owner; this.baseUrl = 'https://api.github.com'; }
-  requireToken() { if (!this.token) throw new Error('GITHUB_TOKEN is not configured'); }
-  getHeaders() { this.requireToken(); return { 'User-Agent': 'Nexa-Dev-Bot-v1.1', 'Accept': 'application/vnd.github+json', 'Authorization': `Bearer ${this.token}`, 'X-GitHub-Api-Version': '2022-11-28' }; }
-  async requestJson(url, label, { method = 'GET', body, allowEmpty = false, allowNotFound = false } = {}) { const headers = this.getHeaders(); const options = { method, headers }; if (body !== undefined) { options.body = JSON.stringify(body); options.headers = { ...headers, 'Content-Type': 'application/json' }; } const res = await fetch(url, options); const raw = await res.text(); let parsed = null; if (raw) { try { parsed = JSON.parse(raw); } catch { parsed = null; } } if (!res.ok) { if (allowNotFound && res.status === 404) return null; const providerMessage = parsed?.message || raw.slice(0, 240); const detail = providerMessage ? ` ${providerMessage}` : ''; const error = new Error(`${label} failed: ${res.status}${detail}`); error.status = res.status; throw error; } if (allowEmpty) return { accepted: true, status: res.status }; if (!raw) return null; if (parsed === null) throw new Error(`${label} failed: invalid JSON response`); return parsed; }
-  async requestText(url, label, { maxChars = 12000 } = {}) { const res = await fetch(url, { method: 'GET', headers: this.getHeaders() }); const raw = await res.text(); if (!res.ok) { const detail = raw ? ` ${raw.slice(0, 240)}` : ''; throw new Error(`${label} failed: ${res.status}${detail}`); } const limit = Math.max(1, Math.min(20000, Number(maxChars) || 12000)); return { text: raw.length > limit ? raw.slice(-limit) : raw, truncated: raw.length > limit }; }
-  repoUrl(repo, suffix = '') { return `${this.baseUrl}/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(repo)}${suffix}`; }
-  repositoryLookupUrl(repoRef) { const value = String(repoRef || ''); return /^\d+$/.test(value) ? `${this.baseUrl}/repositories/${value}` : this.repoUrl(value); }
-  repositoryApiBase(fullName) { const parts = String(fullName || '').split('/').filter(Boolean); if (parts.length !== 2) throw new Error('GitHub repository full_name is invalid'); return `${this.baseUrl}/repos/${parts.map(encodeURIComponent).join('/')}`; }
-  async getRepositoryContext(repoRef) { const value = String(repoRef || ''); try { const raw = await this.requestJson(this.repositoryLookupUrl(value), 'GitHub repository'); return { raw, apiBase: this.repositoryApiBase(raw.full_name) }; } catch (error) { if (!/^\d+$/.test(value) || error?.status !== 404) throw error; const repositories = await this.listRepositories(); const match = repositories.find(repo => repo.id === value); if (!match?.fullName) throw error; const apiBase = this.repositoryApiBase(match.fullName); const raw = await this.requestJson(apiBase, 'GitHub repository'); return { raw, apiBase: this.repositoryApiBase(raw.full_name) }; } }
-  mapRepository(r) { return { id: String(r.id ?? r.name), name: r.name, fullName: r.full_name, private: !!r.private, description: r.description || '', defaultBranch: r.default_branch || 'main', archived: !!r.archived, htmlUrl: r.html_url || '', stars: r.stargazers_count ?? 0, forks: r.forks_count ?? 0 }; }
-  mapWorkflowRun(run = {}) { const headSha = String(run.head_sha || ''); const mapped = { id: run.id, name: run.name || 'Workflow', status: run.status || '', conclusion: run.conclusion || null, event: run.event || '', branch: run.head_branch || '', sha: headSha.slice(0, 7), runNumber: run.run_number ?? null, url: run.html_url || '', createdAt: run.created_at || '', updatedAt: run.updated_at || '' }; if (/^[a-f0-9]{40}$/i.test(headSha)) mapped.fullSha = headSha.toLowerCase(); if (Number.isSafeInteger(Number(run.workflow_id))) mapped.workflowId = Number(run.workflow_id); return mapped; }
-  mapWorkflowJob(job = {}) { return { id: job.id, name: job.name || 'Job', status: job.status || '', conclusion: job.conclusion || null, startedAt: job.started_at || '', completedAt: job.completed_at || '', url: job.html_url || '', steps: (job.steps || []).slice(0, 30).map(step => ({ number: step.number, name: step.name || 'Step', status: step.status || '', conclusion: step.conclusion || null })) }; }
-  mapPullRequestFile(file = {}) { return { filename: file.filename || '', status: file.status || '', additions: file.additions ?? 0, deletions: file.deletions ?? 0, changes: file.changes ?? 0, patch: boundedPatch(file.patch) }; }
-  mapIssue(issue = {}) { return { number: issue.number, title: issue.title || '', state: issue.state || '', author: issue.user?.login || 'unknown', comments: issue.comments ?? 0, url: issue.html_url || '' }; }
-  async listRepositories() { const data = await this.requestJson(`${this.baseUrl}/user/repos?sort=updated&per_page=20&affiliation=owner,collaborator,organization_member`, 'GitHub repositories'); return data.map(r => { const repo = this.mapRepository(r); return { ...repo, title: `${repo.name} ${repo.private ? '🔒' : '🌐'}` }; }); }
-  async getRepository(repoRef) { const { raw } = await this.getRepositoryContext(repoRef); return this.mapRepository(raw); }
-  async listPullRequests(repoRef, { perPage = 10, page = 1 } = {}) { const count = clampPerPage(perPage, 10); const pageNumber = clampPage(page); const pageQuery = pageNumber > 1 ? `&page=${pageNumber}` : ''; const { apiBase } = await this.getRepositoryContext(repoRef); const data = await this.requestJson(`${apiBase}/pulls?state=all&per_page=${count}${pageQuery}`, 'GitHub pull requests'); return data.map(pr => ({ number: pr.number, title: pr.title, author: pr.user?.login || 'unknown', state: pr.state, merged: !!pr.merged_at, createdAt: pr.created_at, url: pr.html_url })); }
-  async getPullRequest(repoRef, prNumber) { const number = numericId(prNumber, 'pull request'); const { apiBase } = await this.getRepositoryContext(repoRef); const pr = await this.requestJson(`${apiBase}/pulls/${number}`, 'GitHub pull request'); return { number: pr.number, title: pr.title || '', author: pr.user?.login || 'unknown', state: pr.state || '', merged: !!(pr.merged ?? pr.merged_at), body: pr.body || '', url: pr.html_url || '', head: pr.head?.ref || '', headSha: pr.head?.sha || '', base: pr.base?.ref || '', additions: pr.additions ?? 0, deletions: pr.deletions ?? 0, changedFiles: pr.changed_files ?? 0 }; }
-  async listPullRequestFiles(repoRef, prNumber, { perPage = 20, page = 1 } = {}) { const number = numericId(prNumber, 'pull request'); const count = clampPerPage(perPage, 20); const pageNumber = clampPage(page); const { apiBase } = await this.getRepositoryContext(repoRef); const data = await this.requestJson(`${apiBase}/pulls/${number}/files?per_page=${count}&page=${pageNumber}`, 'GitHub pull request files'); return data.map(file => this.mapPullRequestFile(file)); }
-  async listCommits(repoRef) { const { apiBase } = await this.getRepositoryContext(repoRef); const data = await this.requestJson(`${apiBase}/commits?per_page=5`, 'GitHub commits'); return data.map(c => ({ sha: String(c.sha || '').slice(0, 7), fullSha: String(c.sha || ''), message: String(c.commit?.message || '').split('\n')[0], author: c.author?.login || c.commit?.author?.name || 'Unknown', date: c.commit?.author?.date ? c.commit.author.date.slice(0, 10) : '' })); }
-  async getCommit(repoRef, sha) { const commitSha = fullSha(sha); const { apiBase } = await this.getRepositoryContext(repoRef); const c = await this.requestJson(`${apiBase}/commits/${commitSha}`, 'GitHub commit'); const files = (c.files || []).slice(0, 20).map(file => ({ filename: file.filename || '', status: file.status || '', additions: file.additions ?? 0, deletions: file.deletions ?? 0, changes: file.changes ?? 0 })); return { sha: commitSha, shortSha: commitSha.slice(0, 7), message: String(c.commit?.message || ''), author: c.author?.login || c.commit?.author?.name || 'Unknown', date: c.commit?.author?.date || '', additions: c.stats?.additions ?? 0, deletions: c.stats?.deletions ?? 0, changedFiles: files.length, files }; }
-  async listCommitChecks(repoRef, sha, { perPage = 20, page = 1 } = {}) { const commitSha = fullSha(sha); const count = clampPerPage(perPage, 20); const pageNumber = clampPage(page); const { apiBase } = await this.getRepositoryContext(repoRef); const data = await this.requestJson(`${apiBase}/commits/${commitSha}/check-runs?per_page=${count}&page=${pageNumber}`, 'GitHub check runs'); return (data.check_runs || []).map(check => ({ id: check.id, name: check.name || 'Check', status: check.status || '', conclusion: check.conclusion || null, url: check.html_url || '' })); }
-  async listFiles(repoRef, path = '', { ref } = {}) { const { apiBase } = await this.getRepositoryContext(repoRef); const suffix = path ? `/contents/${encodedPath(path)}` : '/contents'; const query = ref ? `?ref=${encodeURIComponent(String(ref))}` : ''; const data = await this.requestJson(`${apiBase}${suffix}${query}`, 'GitHub contents'); if (!Array.isArray(data)) throw new Error('GitHub contents response is not a directory listing'); return data.map(item => ({ name: item.name, path: item.path, type: item.type === 'dir' ? 'dir' : 'file', size: item.size ?? 0, sha: item.sha || '' })); }
-  async getGitRef(repoRef, branch, { allowMissing = false } = {}) { const branchName = gitBranch(branch); const { apiBase } = await this.getRepositoryContext(repoRef); const data = await this.requestJson(`${apiBase}/git/ref/heads/${encodedBranch(branchName)}`, 'GitHub branch ref', { allowNotFound: allowMissing }); if (data === null) return null; return { branch: branchName, sha: fullSha(data?.object?.sha, 'Git branch head') }; }
-  async getBranchSnapshot(repoRef, branch) { const branchName = gitBranch(branch); const { apiBase } = await this.getRepositoryContext(repoRef); const ref = await this.requestJson(`${apiBase}/git/ref/heads/${encodedBranch(branchName)}`, 'GitHub branch ref'); const headSha = fullSha(ref?.object?.sha, 'Git branch head'); const commit = await this.requestJson(`${apiBase}/git/commits/${headSha}`, 'GitHub branch commit'); const treeSha = fullSha(commit?.tree?.sha, 'Git tree'); return { branch: branchName, headSha, treeSha }; }
-  async getFileAtRef(repoRef, path, ref) { const filePath = String(path || ''); if (!filePath || filePath.startsWith('/') || filePath.includes('\0')) throw new Error('Invalid GitHub file path'); const commitRef = fullSha(ref); const { apiBase } = await this.getRepositoryContext(repoRef); const data = await this.requestJson(`${apiBase}/contents/${encodedPath(filePath)}?ref=${commitRef}`, 'GitHub file'); if (!data || Array.isArray(data) || data.type !== 'file') throw new Error('GitHub contents response is not a file'); if (data.encoding !== 'base64') throw new Error('GitHub file encoding is not supported'); const content = decodeBase64Utf8(data.content || ''); return { path: data.path || filePath, sha: String(data.sha || ''), size: Number(data.size) || 0, encoding: 'utf-8', content }; }
-  async createGitBlob(repoRef, text) { const { apiBase } = await this.getRepositoryContext(repoRef); const data = await this.requestJson(`${apiBase}/git/blobs`, 'GitHub create blob', { method: 'POST', body: { content: String(text ?? ''), encoding: 'utf-8' } }); return { sha: fullSha(data?.sha, 'Git blob') }; }
-  async createGitTree(repoRef, { baseTreeSha, entries } = {}) { const base = fullSha(baseTreeSha, 'Git base tree'); if (!Array.isArray(entries)) throw new Error('Git tree entries are required'); const tree = entries.map(entry => { const path = String(entry?.path || ''); if (!path || path.startsWith('/') || path.includes('\0')) throw new Error('Invalid Git tree path'); if (entry?.mode !== '100644' || entry?.type !== 'blob') throw new Error('Unsupported Git tree entry'); return { path, mode: '100644', type: 'blob', sha: fullSha(entry.sha, 'Git blob') }; }); const { apiBase } = await this.getRepositoryContext(repoRef); const data = await this.requestJson(`${apiBase}/git/trees`, 'GitHub create tree', { method: 'POST', body: { base_tree: base, tree } }); return { sha: fullSha(data?.sha, 'Git tree') }; }
-  async createGitCommit(repoRef, { message, treeSha, parentSha, timestamp } = {}) { const commitMessage = String(message || ''); if (!commitMessage) throw new Error('Git commit message is required'); const tree = fullSha(treeSha, 'Git tree'); const parent = fullSha(parentSha, 'Git parent commit'); const date = new Date(String(timestamp || '')); if (Number.isNaN(date.getTime()) || date.toISOString() !== String(timestamp)) throw new Error('Invalid Git commit timestamp'); const identity = { name: 'Nexa Dev Bot', email: 'nexa-dev-bot@users.noreply.github.com', date: String(timestamp) }; const { apiBase } = await this.getRepositoryContext(repoRef); const data = await this.requestJson(`${apiBase}/git/commits`, 'GitHub create commit', { method: 'POST', body: { message: commitMessage, tree, parents: [parent], author: identity, committer: identity } }); return { sha: fullSha(data?.sha, 'Git commit') }; }
-  async createGitBranchRef(repoRef, { branch, sha } = {}) { const branchName = gitBranch(branch); const commitSha = fullSha(sha, 'Git commit'); const { apiBase } = await this.getRepositoryContext(repoRef); const data = await this.requestJson(`${apiBase}/git/refs`, 'GitHub create branch ref', { method: 'POST', body: { ref: `refs/heads/${branchName}`, sha: commitSha } }); return { ref: String(data?.ref || `refs/heads/${branchName}`), sha: fullSha(data?.object?.sha || commitSha, 'Git commit') }; }
-  async listTree(repoRef, sha) { if (!/^[a-f0-9]{40}$/i.test(String(sha || ''))) throw new Error('Invalid Git tree SHA'); const { apiBase } = await this.getRepositoryContext(repoRef); const data = await this.requestJson(`${apiBase}/git/trees/${encodeURIComponent(sha)}`, 'GitHub tree'); return (data.tree || []).filter(item => item.type === 'tree' || item.type === 'blob').map(item => ({ name: item.path, path: item.path, type: item.type === 'tree' ? 'dir' : 'file', size: item.size ?? 0, sha: item.sha || '' })); }
-  async getBlob(repoRef, sha) { if (!/^[a-f0-9]{40}$/i.test(String(sha || ''))) throw new Error('Invalid Git blob SHA'); const { apiBase } = await this.getRepositoryContext(repoRef); const data = await this.requestJson(`${apiBase}/git/blobs/${encodeURIComponent(sha)}`, 'GitHub blob'); return { encoding: data.encoding || '', size: data.size ?? 0, content: data.content || '' }; }
-  async getRepoStatus(repoRef) { const { raw, apiBase } = await this.getRepositoryContext(repoRef); const runsData = await this.requestJson(`${apiBase}/actions/runs?per_page=3`, 'GitHub Actions runs'); const runs = runsData.workflow_runs || []; return { repo: String(repoRef), repoName: raw.name, defaultBranch: raw.default_branch || 'main', lastRuns: runs.map(r => ({ name: r.name, status: r.status, conclusion: r.conclusion, commit: r.head_commit?.message?.slice(0, 80) || '', url: r.html_url || '' })) }; }
-  async listWorkflowRuns(repoRef, { perPage = 10, page = 1 } = {}) { const count = clampPerPage(perPage, 10); const pageNumber = clampPage(page); const { apiBase } = await this.getRepositoryContext(repoRef); const pageQuery = pageNumber > 1 ? `&page=${pageNumber}` : ''; const data = await this.requestJson(`${apiBase}/actions/runs?per_page=${count}${pageQuery}`, 'GitHub workflow runs'); return (data.workflow_runs || []).map(run => this.mapWorkflowRun(run)); }
-  async getWorkflowRun(repoRef, runId) { const id = numericId(runId, 'workflow run'); const { apiBase } = await this.getRepositoryContext(repoRef); return this.mapWorkflowRun(await this.requestJson(`${apiBase}/actions/runs/${id}`, 'GitHub workflow run')); }
-  async listWorkflowJobs(repoRef, runId) { const id = numericId(runId, 'workflow run'); const { apiBase } = await this.getRepositoryContext(repoRef); const data = await this.requestJson(`${apiBase}/actions/runs/${id}/jobs?per_page=20`, 'GitHub workflow jobs'); return (data.jobs || []).map(job => this.mapWorkflowJob(job)); }
-  async getWorkflowJob(repoRef, jobId) { const id = numericId(jobId, 'workflow job'); const { apiBase } = await this.getRepositoryContext(repoRef); return this.mapWorkflowJob(await this.requestJson(`${apiBase}/actions/jobs/${id}`, 'GitHub workflow job')); }
-  async getWorkflowJobLog(repoRef, jobId, { maxChars = 12000 } = {}) { const id = numericId(jobId, 'workflow job'); const { apiBase } = await this.getRepositoryContext(repoRef); return this.requestText(`${apiBase}/actions/jobs/${id}/logs`, 'GitHub workflow job log', { maxChars }); }
-  async listWorkflowArtifacts(repoRef, runId, { perPage = 20, page = 1 } = {}) { const id = numericId(runId, 'workflow run'); const count = clampPerPage(perPage, 20); const pageNumber = clampPage(page); const { apiBase } = await this.getRepositoryContext(repoRef); const data = await this.requestJson(`${apiBase}/actions/runs/${id}/artifacts?per_page=${count}&page=${pageNumber}`, 'GitHub workflow artifacts'); return (data.artifacts || []).map(artifact => ({ id: artifact.id, name: artifact.name || 'Artifact', size: artifact.size_in_bytes ?? 0, expired: !!artifact.expired, createdAt: artifact.created_at || '', expiresAt: artifact.expires_at || '', downloadUrl: artifact.archive_download_url || '' })); }
-  async listBranches(repoRef, { perPage = 20, page = 1 } = {}) { const count = clampPerPage(perPage, 20); const pageNumber = clampPage(page); const { apiBase } = await this.getRepositoryContext(repoRef); const data = await this.requestJson(`${apiBase}/branches?per_page=${count}&page=${pageNumber}`, 'GitHub branches'); return data.map(branch => ({ name: branch.name || '', sha: branch.commit?.sha || '', protected: !!branch.protected })); }
-  async compareWithDefault(repoRef, headSha) { const head = fullSha(headSha); const { raw, apiBase } = await this.getRepositoryContext(repoRef); const base = raw.default_branch || 'main'; const data = await this.requestJson(`${apiBase}/compare/${encodeURIComponent(base)}...${head}`, 'GitHub compare'); return { base, head, status: data.status || '', aheadBy: data.ahead_by ?? 0, behindBy: data.behind_by ?? 0, totalCommits: data.total_commits ?? 0, baseSha: data.base_commit?.sha || '', mergeBaseSha: data.merge_base_commit?.sha || '', files: (data.files || []).slice(0, 20).map(file => this.mapPullRequestFile(file)) }; }
-  async listIssues(repoRef, { perPage = 10, page = 1 } = {}) { const count = clampPerPage(perPage, 10); const pageNumber = clampPage(page); const { apiBase } = await this.getRepositoryContext(repoRef); const data = await this.requestJson(`${apiBase}/issues?state=all&per_page=${count}&page=${pageNumber}`, 'GitHub issues'); return data.filter(issue => !issue.pull_request).map(issue => this.mapIssue(issue)); }
-  async listIssuesPage(repoRef, { page = 1 } = {}) { const pageNumber = clampPage(page); const { apiBase } = await this.getRepositoryContext(repoRef); const data = await this.requestJson(`${apiBase}/issues?state=all&per_page=20&page=${pageNumber}`, 'GitHub issues'); return { items: data.filter(issue => !issue.pull_request).map(issue => this.mapIssue(issue)), hasMore: data.length === 20 }; }
-  async getIssue(repoRef, issueNumber) { const number = numericId(issueNumber, 'issue'); const { apiBase } = await this.getRepositoryContext(repoRef); const issue = await this.requestJson(apiBase + '/issues/' + number, 'GitHub issue'); return { ...this.mapIssue(issue), body: issue.body || '', labels: (issue.labels || []).map(label => typeof label === 'string' ? label : label.name).filter(Boolean), assignees: (issue.assignees || []).map(user => user.login).filter(Boolean), createdAt: issue.created_at || '', updatedAt: issue.updated_at || '' }; }
-  async listReleases(repoRef, { perPage = 10, page = 1 } = {}) { const count = clampPerPage(perPage, 10); const pageNumber = clampPage(page); const { apiBase } = await this.getRepositoryContext(repoRef); const data = await this.requestJson(`${apiBase}/releases?per_page=${count}&page=${pageNumber}`, 'GitHub releases'); return data.map(release => ({ id: release.id, tag: release.tag_name || '', name: release.name || release.tag_name || 'Release', draft: !!release.draft, prerelease: !!release.prerelease, publishedAt: release.published_at || release.created_at || '', url: release.html_url || '' })); }
-  async getRelease(repoRef, releaseId) { const id = numericId(releaseId, 'release'); const { apiBase } = await this.getRepositoryContext(repoRef); const release = await this.requestJson(apiBase + '/releases/' + id, 'GitHub release'); return { id: release.id, tag: release.tag_name || '', name: release.name || release.tag_name || 'Release', body: release.body || '', draft: !!release.draft, prerelease: !!release.prerelease, publishedAt: release.published_at || release.created_at || '', author: release.author?.login || 'unknown', target: release.target_commitish || '', url: release.html_url || '' }; }
-  async mergePullRequest(repoRef, prNumber, { expectedHeadSha, mergeMethod = 'squash' } = {}) { const number = numericId(prNumber, 'pull request'); const method = String(mergeMethod || 'squash'); if (!['merge', 'squash', 'rebase'].includes(method)) throw new Error('Unsupported merge method'); const expected = fullSha(expectedHeadSha, 'expected pull request head'); const { apiBase } = await this.getRepositoryContext(repoRef); const result = await this.requestJson(`${apiBase}/pulls/${number}/merge`, 'GitHub pull request merge', { method: 'PUT', body: { sha: expected, merge_method: method } }); if (!result?.merged) throw new Error(`GitHub pull request merge failed: ${String(result?.message || 'not merged').slice(0, 240)}`); return { merged: true, sha: String(result.sha || ''), message: String(result.message || '') }; }
-  async dispatchWorkflow(repoRef, workflowId, { ref, inputs = {} } = {}) { const id = numericId(workflowId, 'workflow'); const targetRef = String(ref || ''); if (!targetRef || targetRef.includes('\0')) throw new Error('Workflow dispatch ref is required'); if (!inputs || typeof inputs !== 'object' || Array.isArray(inputs)) throw new Error('Workflow dispatch inputs must be an object'); const { apiBase } = await this.getRepositoryContext(repoRef); return this.requestJson(`${apiBase}/actions/workflows/${id}/dispatches`, 'GitHub workflow dispatch', { method: 'POST', body: { ref: targetRef, inputs }, allowEmpty: true }); }
-  async rerunJob(repoRef, jobId) { const id = numericId(jobId, 'workflow job'); const { apiBase } = await this.getRepositoryContext(repoRef); return this.requestJson(`${apiBase}/actions/jobs/${id}/rerun`, 'GitHub rerun workflow job', { method: 'POST', allowEmpty: true }); }
-  async rerunFailedWorkflowRun(repoRef, runId) { const id = numericId(runId, 'workflow run'); const { apiBase } = await this.getRepositoryContext(repoRef); return this.requestJson(`${apiBase}/actions/runs/${id}/rerun-failed-jobs`, 'GitHub rerun failed jobs', { method: 'POST', allowEmpty: true }); }
-  async cancelWorkflowRun(repoRef, runId) { const id = numericId(runId, 'workflow run'); const { apiBase } = await this.getRepositoryContext(repoRef); return this.requestJson(`${apiBase}/actions/runs/${id}/cancel`, 'GitHub cancel workflow run', { method: 'POST', allowEmpty: true }); }
+  constructor(token = '', owner = DEFAULT_CONFIG.defaultOwner) {
+    this.token = token;
+    this.owner = owner;
+    this.baseUrl = 'https://api.github.com';
+  }
+  requireToken() {
+    if (!this.token) throw new Error('GITHUB_TOKEN is not configured');
+  }
+  getHeaders() {
+    this.requireToken();
+    return {
+      'User-Agent': 'Nexa-Dev-Bot-v1.1',
+      'Accept': 'application/vnd.github+json',
+      'Authorization': `Bearer ${this.token}`,
+      'X-GitHub-Api-Version': '2022-11-28'
+    };
+  }
+  async requestJson(
+    url,
+    label,
+    { method = 'GET', body, allowEmpty = false, allowNotFound = false } = {}
+  ) {
+    const headers = this.getHeaders();
+    const options = { method, headers };
+    if (body !== undefined) {
+      options.body = JSON.stringify(body);
+      options.headers = { ...headers, 'Content-Type': 'application/json' };
+    }
+    const res = await fetch(url, options);
+    const raw = await res.text();
+    let parsed = null;
+    if (raw) {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = null;
+      }
+    }
+    if (!res.ok) {
+      if (allowNotFound && res.status === 404) return null;
+      const providerMessage = parsed?.message || raw.slice(0, 240);
+      const detail = providerMessage ? ` ${providerMessage}` : '';
+      const error = new Error(`${label} failed: ${res.status}${detail}`);
+      error.status = res.status;
+      throw error;
+    }
+    if (allowEmpty) return { accepted: true, status: res.status };
+    if (!raw) return null;
+    if (parsed === null)
+      throw new Error(`${label} failed: invalid JSON response`);
+    return parsed;
+  }
+  async requestText(url, label, { maxChars = 12000 } = {}) {
+    const res = await fetch(url, { method: 'GET', headers: this.getHeaders() });
+    const raw = await res.text();
+    if (!res.ok) {
+      const detail = raw ? ` ${raw.slice(0, 240)}` : '';
+      throw new Error(`${label} failed: ${res.status}${detail}`);
+    }
+    const limit = Math.max(1, Math.min(20000, Number(maxChars) || 12000));
+    return {
+      text: raw.length > limit ? raw.slice(-limit) : raw,
+      truncated: raw.length > limit
+    };
+  }
+  repoUrl(repo, suffix = '') {
+    return `${this.baseUrl}/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(repo)}${suffix}`;
+  }
+  repositoryLookupUrl(repoRef) {
+    const value = String(repoRef || '');
+    return /^\d+$/.test(value)
+      ? `${this.baseUrl}/repositories/${value}`
+      : this.repoUrl(value);
+  }
+  repositoryApiBase(fullName) {
+    const parts = String(fullName || '')
+      .split('/')
+      .filter(Boolean);
+    if (parts.length !== 2)
+      throw new Error('GitHub repository full_name is invalid');
+    return `${this.baseUrl}/repos/${parts.map(encodeURIComponent).join('/')}`;
+  }
+  async getRepositoryContext(repoRef) {
+    const value = String(repoRef || '');
+    try {
+      const raw = await this.requestJson(
+        this.repositoryLookupUrl(value),
+        'GitHub repository'
+      );
+      return { raw, apiBase: this.repositoryApiBase(raw.full_name) };
+    } catch (error) {
+      if (!/^\d+$/.test(value) || error?.status !== 404) throw error;
+      const repositories = await this.listRepositories();
+      const match = repositories.find((repo) => repo.id === value);
+      if (!match?.fullName) throw error;
+      const apiBase = this.repositoryApiBase(match.fullName);
+      const raw = await this.requestJson(apiBase, 'GitHub repository');
+      return { raw, apiBase: this.repositoryApiBase(raw.full_name) };
+    }
+  }
+  mapRepository(r) {
+    return {
+      id: String(r.id ?? r.name),
+      name: r.name,
+      fullName: r.full_name,
+      private: !!r.private,
+      description: r.description || '',
+      defaultBranch: r.default_branch || 'main',
+      archived: !!r.archived,
+      htmlUrl: r.html_url || '',
+      stars: r.stargazers_count ?? 0,
+      forks: r.forks_count ?? 0
+    };
+  }
+  mapWorkflowRun(run = {}) {
+    const headSha = String(run.head_sha || '');
+    const mapped = {
+      id: run.id,
+      name: run.name || 'Workflow',
+      status: run.status || '',
+      conclusion: run.conclusion || null,
+      event: run.event || '',
+      branch: run.head_branch || '',
+      sha: headSha.slice(0, 7),
+      runNumber: run.run_number ?? null,
+      url: run.html_url || '',
+      createdAt: run.created_at || '',
+      updatedAt: run.updated_at || ''
+    };
+    if (/^[a-f0-9]{40}$/i.test(headSha)) mapped.fullSha = headSha.toLowerCase();
+    if (Number.isSafeInteger(Number(run.workflow_id)))
+      mapped.workflowId = Number(run.workflow_id);
+    return mapped;
+  }
+  mapWorkflowJob(job = {}) {
+    return {
+      id: job.id,
+      name: job.name || 'Job',
+      status: job.status || '',
+      conclusion: job.conclusion || null,
+      startedAt: job.started_at || '',
+      completedAt: job.completed_at || '',
+      url: job.html_url || '',
+      steps: (job.steps || []).slice(0, 30).map((step) => ({
+        number: step.number,
+        name: step.name || 'Step',
+        status: step.status || '',
+        conclusion: step.conclusion || null
+      }))
+    };
+  }
+  mapPullRequestFile(file = {}) {
+    return {
+      filename: file.filename || '',
+      status: file.status || '',
+      additions: file.additions ?? 0,
+      deletions: file.deletions ?? 0,
+      changes: file.changes ?? 0,
+      patch: boundedPatch(file.patch)
+    };
+  }
+  mapIssue(issue = {}) {
+    return {
+      number: issue.number,
+      title: issue.title || '',
+      state: issue.state || '',
+      author: issue.user?.login || 'unknown',
+      comments: issue.comments ?? 0,
+      url: issue.html_url || ''
+    };
+  }
+  async listRepositories() {
+    const data = await this.requestJson(
+      `${this.baseUrl}/user/repos?sort=updated&per_page=20&affiliation=owner,collaborator,organization_member`,
+      'GitHub repositories'
+    );
+    return data.map((r) => {
+      const repo = this.mapRepository(r);
+      return { ...repo, title: `${repo.name} ${repo.private ? '🔒' : '🌐'}` };
+    });
+  }
+  async getRepository(repoRef) {
+    const { raw } = await this.getRepositoryContext(repoRef);
+    return this.mapRepository(raw);
+  }
+  async listPullRequests(repoRef, { perPage = 10, page = 1 } = {}) {
+    const count = clampPerPage(perPage, 10);
+    const pageNumber = clampPage(page);
+    const pageQuery = pageNumber > 1 ? `&page=${pageNumber}` : '';
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/pulls?state=all&per_page=${count}${pageQuery}`,
+      'GitHub pull requests'
+    );
+    return data.map((pr) => ({
+      number: pr.number,
+      title: pr.title,
+      author: pr.user?.login || 'unknown',
+      state: pr.state,
+      merged: !!pr.merged_at,
+      createdAt: pr.created_at,
+      url: pr.html_url
+    }));
+  }
+  async getPullRequest(repoRef, prNumber) {
+    const number = numericId(prNumber, 'pull request');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const pr = await this.requestJson(
+      `${apiBase}/pulls/${number}`,
+      'GitHub pull request'
+    );
+    return {
+      number: pr.number,
+      title: pr.title || '',
+      author: pr.user?.login || 'unknown',
+      state: pr.state || '',
+      merged: !!(pr.merged ?? pr.merged_at),
+      body: pr.body || '',
+      url: pr.html_url || '',
+      head: pr.head?.ref || '',
+      headSha: pr.head?.sha || '',
+      base: pr.base?.ref || '',
+      additions: pr.additions ?? 0,
+      deletions: pr.deletions ?? 0,
+      changedFiles: pr.changed_files ?? 0
+    };
+  }
+  async listPullRequestFiles(
+    repoRef,
+    prNumber,
+    { perPage = 20, page = 1 } = {}
+  ) {
+    const number = numericId(prNumber, 'pull request');
+    const count = clampPerPage(perPage, 20);
+    const pageNumber = clampPage(page);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/pulls/${number}/files?per_page=${count}&page=${pageNumber}`,
+      'GitHub pull request files'
+    );
+    return data.map((file) => this.mapPullRequestFile(file));
+  }
+  async listCommits(repoRef) {
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/commits?per_page=5`,
+      'GitHub commits'
+    );
+    return data.map((c) => ({
+      sha: String(c.sha || '').slice(0, 7),
+      fullSha: String(c.sha || ''),
+      message: String(c.commit?.message || '').split('\n')[0],
+      author: c.author?.login || c.commit?.author?.name || 'Unknown',
+      date: c.commit?.author?.date ? c.commit.author.date.slice(0, 10) : ''
+    }));
+  }
+  async getCommit(repoRef, sha) {
+    const commitSha = fullSha(sha);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const c = await this.requestJson(
+      `${apiBase}/commits/${commitSha}`,
+      'GitHub commit'
+    );
+    const files = (c.files || []).slice(0, 20).map((file) => ({
+      filename: file.filename || '',
+      status: file.status || '',
+      additions: file.additions ?? 0,
+      deletions: file.deletions ?? 0,
+      changes: file.changes ?? 0
+    }));
+    return {
+      sha: commitSha,
+      shortSha: commitSha.slice(0, 7),
+      message: String(c.commit?.message || ''),
+      author: c.author?.login || c.commit?.author?.name || 'Unknown',
+      date: c.commit?.author?.date || '',
+      additions: c.stats?.additions ?? 0,
+      deletions: c.stats?.deletions ?? 0,
+      changedFiles: files.length,
+      files
+    };
+  }
+  async listCommitChecks(repoRef, sha, { perPage = 20, page = 1 } = {}) {
+    const commitSha = fullSha(sha);
+    const count = clampPerPage(perPage, 20);
+    const pageNumber = clampPage(page);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/commits/${commitSha}/check-runs?per_page=${count}&page=${pageNumber}`,
+      'GitHub check runs'
+    );
+    return (data.check_runs || []).map((check) => ({
+      id: check.id,
+      name: check.name || 'Check',
+      status: check.status || '',
+      conclusion: check.conclusion || null,
+      url: check.html_url || ''
+    }));
+  }
+  async listFiles(repoRef, path = '', { ref } = {}) {
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const suffix = path ? `/contents/${encodedPath(path)}` : '/contents';
+    const query = ref ? `?ref=${encodeURIComponent(String(ref))}` : '';
+    const data = await this.requestJson(
+      `${apiBase}${suffix}${query}`,
+      'GitHub contents'
+    );
+    if (!Array.isArray(data))
+      throw new Error('GitHub contents response is not a directory listing');
+    return data.map((item) => ({
+      name: item.name,
+      path: item.path,
+      type: item.type === 'dir' ? 'dir' : 'file',
+      size: item.size ?? 0,
+      sha: item.sha || ''
+    }));
+  }
+  async getGitRef(repoRef, branch, { allowMissing = false } = {}) {
+    const branchName = gitBranch(branch);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/git/ref/heads/${encodedBranch(branchName)}`,
+      'GitHub branch ref',
+      { allowNotFound: allowMissing }
+    );
+    if (data === null) return null;
+    return {
+      branch: branchName,
+      sha: fullSha(data?.object?.sha, 'Git branch head')
+    };
+  }
+  async getBranchSnapshot(repoRef, branch) {
+    const branchName = gitBranch(branch);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const ref = await this.requestJson(
+      `${apiBase}/git/ref/heads/${encodedBranch(branchName)}`,
+      'GitHub branch ref'
+    );
+    const headSha = fullSha(ref?.object?.sha, 'Git branch head');
+    const commit = await this.requestJson(
+      `${apiBase}/git/commits/${headSha}`,
+      'GitHub branch commit'
+    );
+    const treeSha = fullSha(commit?.tree?.sha, 'Git tree');
+    return { branch: branchName, headSha, treeSha };
+  }
+  async getFileAtRef(repoRef, path, ref) {
+    const filePath = String(path || '');
+    if (!filePath || filePath.startsWith('/') || filePath.includes('\0'))
+      throw new Error('Invalid GitHub file path');
+    const commitRef = fullSha(ref);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/contents/${encodedPath(filePath)}?ref=${commitRef}`,
+      'GitHub file'
+    );
+    if (!data || Array.isArray(data) || data.type !== 'file')
+      throw new Error('GitHub contents response is not a file');
+    if (data.encoding !== 'base64')
+      throw new Error('GitHub file encoding is not supported');
+    const content = decodeBase64Utf8(data.content || '');
+    return {
+      path: data.path || filePath,
+      sha: String(data.sha || ''),
+      size: Number(data.size) || 0,
+      encoding: 'utf-8',
+      content
+    };
+  }
+  async createGitBlob(repoRef, text) {
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/git/blobs`,
+      'GitHub create blob',
+      {
+        method: 'POST',
+        body: { content: String(text ?? ''), encoding: 'utf-8' }
+      }
+    );
+    return { sha: fullSha(data?.sha, 'Git blob') };
+  }
+  async createGitTree(repoRef, { baseTreeSha, entries } = {}) {
+    const base = fullSha(baseTreeSha, 'Git base tree');
+    if (!Array.isArray(entries))
+      throw new Error('Git tree entries are required');
+    const tree = entries.map((entry) => {
+      const path = String(entry?.path || '');
+      if (!path || path.startsWith('/') || path.includes('\0'))
+        throw new Error('Invalid Git tree path');
+      if (entry?.mode !== '100644' || entry?.type !== 'blob')
+        throw new Error('Unsupported Git tree entry');
+      return {
+        path,
+        mode: '100644',
+        type: 'blob',
+        sha: fullSha(entry.sha, 'Git blob')
+      };
+    });
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/git/trees`,
+      'GitHub create tree',
+      { method: 'POST', body: { base_tree: base, tree } }
+    );
+    return { sha: fullSha(data?.sha, 'Git tree') };
+  }
+  async createGitCommit(
+    repoRef,
+    { message, treeSha, parentSha, timestamp } = {}
+  ) {
+    const commitMessage = String(message || '');
+    if (!commitMessage) throw new Error('Git commit message is required');
+    const tree = fullSha(treeSha, 'Git tree');
+    const parent = fullSha(parentSha, 'Git parent commit');
+    const date = new Date(String(timestamp || ''));
+    if (
+      Number.isNaN(date.getTime()) ||
+      date.toISOString() !== String(timestamp)
+    )
+      throw new Error('Invalid Git commit timestamp');
+    const identity = {
+      name: 'Nexa Dev Bot',
+      email: 'nexa-dev-bot@users.noreply.github.com',
+      date: String(timestamp)
+    };
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/git/commits`,
+      'GitHub create commit',
+      {
+        method: 'POST',
+        body: {
+          message: commitMessage,
+          tree,
+          parents: [parent],
+          author: identity,
+          committer: identity
+        }
+      }
+    );
+    return { sha: fullSha(data?.sha, 'Git commit') };
+  }
+  async createGitBranchRef(repoRef, { branch, sha } = {}) {
+    const branchName = gitBranch(branch);
+    const commitSha = fullSha(sha, 'Git commit');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/git/refs`,
+      'GitHub create branch ref',
+      {
+        method: 'POST',
+        body: { ref: `refs/heads/${branchName}`, sha: commitSha }
+      }
+    );
+    return {
+      ref: String(data?.ref || `refs/heads/${branchName}`),
+      sha: fullSha(data?.object?.sha || commitSha, 'Git commit')
+    };
+  }
+  async listTree(repoRef, sha) {
+    if (!/^[a-f0-9]{40}$/i.test(String(sha || '')))
+      throw new Error('Invalid Git tree SHA');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/git/trees/${encodeURIComponent(sha)}`,
+      'GitHub tree'
+    );
+    return (data.tree || [])
+      .filter((item) => item.type === 'tree' || item.type === 'blob')
+      .map((item) => ({
+        name: item.path,
+        path: item.path,
+        type: item.type === 'tree' ? 'dir' : 'file',
+        size: item.size ?? 0,
+        sha: item.sha || ''
+      }));
+  }
+  async getBlob(repoRef, sha) {
+    if (!/^[a-f0-9]{40}$/i.test(String(sha || '')))
+      throw new Error('Invalid Git blob SHA');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/git/blobs/${encodeURIComponent(sha)}`,
+      'GitHub blob'
+    );
+    return {
+      encoding: data.encoding || '',
+      size: data.size ?? 0,
+      content: data.content || ''
+    };
+  }
+  async getRepoStatus(repoRef) {
+    const { raw, apiBase } = await this.getRepositoryContext(repoRef);
+    const runsData = await this.requestJson(
+      `${apiBase}/actions/runs?per_page=3`,
+      'GitHub Actions runs'
+    );
+    const runs = runsData.workflow_runs || [];
+    return {
+      repo: String(repoRef),
+      repoName: raw.name,
+      defaultBranch: raw.default_branch || 'main',
+      lastRuns: runs.map((r) => ({
+        name: r.name,
+        status: r.status,
+        conclusion: r.conclusion,
+        commit: r.head_commit?.message?.slice(0, 80) || '',
+        url: r.html_url || ''
+      }))
+    };
+  }
+  async listWorkflowRuns(repoRef, { perPage = 10, page = 1 } = {}) {
+    const count = clampPerPage(perPage, 10);
+    const pageNumber = clampPage(page);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const pageQuery = pageNumber > 1 ? `&page=${pageNumber}` : '';
+    const data = await this.requestJson(
+      `${apiBase}/actions/runs?per_page=${count}${pageQuery}`,
+      'GitHub workflow runs'
+    );
+    return (data.workflow_runs || []).map((run) => this.mapWorkflowRun(run));
+  }
+  async getWorkflowRun(repoRef, runId) {
+    const id = numericId(runId, 'workflow run');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    return this.mapWorkflowRun(
+      await this.requestJson(
+        `${apiBase}/actions/runs/${id}`,
+        'GitHub workflow run'
+      )
+    );
+  }
+  async listWorkflowJobs(repoRef, runId) {
+    const id = numericId(runId, 'workflow run');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/actions/runs/${id}/jobs?per_page=20`,
+      'GitHub workflow jobs'
+    );
+    return (data.jobs || []).map((job) => this.mapWorkflowJob(job));
+  }
+  async getWorkflowJob(repoRef, jobId) {
+    const id = numericId(jobId, 'workflow job');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    return this.mapWorkflowJob(
+      await this.requestJson(
+        `${apiBase}/actions/jobs/${id}`,
+        'GitHub workflow job'
+      )
+    );
+  }
+  async getWorkflowJobLog(repoRef, jobId, { maxChars = 12000 } = {}) {
+    const id = numericId(jobId, 'workflow job');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    return this.requestText(
+      `${apiBase}/actions/jobs/${id}/logs`,
+      'GitHub workflow job log',
+      { maxChars }
+    );
+  }
+  async listWorkflowArtifacts(repoRef, runId, { perPage = 20, page = 1 } = {}) {
+    const id = numericId(runId, 'workflow run');
+    const count = clampPerPage(perPage, 20);
+    const pageNumber = clampPage(page);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/actions/runs/${id}/artifacts?per_page=${count}&page=${pageNumber}`,
+      'GitHub workflow artifacts'
+    );
+    return (data.artifacts || []).map((artifact) => ({
+      id: artifact.id,
+      name: artifact.name || 'Artifact',
+      size: artifact.size_in_bytes ?? 0,
+      expired: !!artifact.expired,
+      createdAt: artifact.created_at || '',
+      expiresAt: artifact.expires_at || '',
+      downloadUrl: artifact.archive_download_url || ''
+    }));
+  }
+  async listBranches(repoRef, { perPage = 20, page = 1 } = {}) {
+    const count = clampPerPage(perPage, 20);
+    const pageNumber = clampPage(page);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/branches?per_page=${count}&page=${pageNumber}`,
+      'GitHub branches'
+    );
+    return data.map((branch) => ({
+      name: branch.name || '',
+      sha: branch.commit?.sha || '',
+      protected: !!branch.protected
+    }));
+  }
+  async compareWithDefault(repoRef, headSha) {
+    const head = fullSha(headSha);
+    const { raw, apiBase } = await this.getRepositoryContext(repoRef);
+    const base = raw.default_branch || 'main';
+    const data = await this.requestJson(
+      `${apiBase}/compare/${encodeURIComponent(base)}...${head}`,
+      'GitHub compare'
+    );
+    return {
+      base,
+      head,
+      status: data.status || '',
+      aheadBy: data.ahead_by ?? 0,
+      behindBy: data.behind_by ?? 0,
+      totalCommits: data.total_commits ?? 0,
+      baseSha: data.base_commit?.sha || '',
+      mergeBaseSha: data.merge_base_commit?.sha || '',
+      files: (data.files || [])
+        .slice(0, 20)
+        .map((file) => this.mapPullRequestFile(file))
+    };
+  }
+  async listIssues(repoRef, { perPage = 10, page = 1 } = {}) {
+    const count = clampPerPage(perPage, 10);
+    const pageNumber = clampPage(page);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/issues?state=all&per_page=${count}&page=${pageNumber}`,
+      'GitHub issues'
+    );
+    return data
+      .filter((issue) => !issue.pull_request)
+      .map((issue) => this.mapIssue(issue));
+  }
+  async listIssuesPage(repoRef, { page = 1 } = {}) {
+    const pageNumber = clampPage(page);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/issues?state=all&per_page=20&page=${pageNumber}`,
+      'GitHub issues'
+    );
+    return {
+      items: data
+        .filter((issue) => !issue.pull_request)
+        .map((issue) => this.mapIssue(issue)),
+      hasMore: data.length === 20
+    };
+  }
+  async getIssue(repoRef, issueNumber) {
+    const number = numericId(issueNumber, 'issue');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const issue = await this.requestJson(
+      apiBase + '/issues/' + number,
+      'GitHub issue'
+    );
+    return {
+      ...this.mapIssue(issue),
+      body: issue.body || '',
+      labels: (issue.labels || [])
+        .map((label) => (typeof label === 'string' ? label : label.name))
+        .filter(Boolean),
+      assignees: (issue.assignees || [])
+        .map((user) => user.login)
+        .filter(Boolean),
+      createdAt: issue.created_at || '',
+      updatedAt: issue.updated_at || ''
+    };
+  }
+  async listReleases(repoRef, { perPage = 10, page = 1 } = {}) {
+    const count = clampPerPage(perPage, 10);
+    const pageNumber = clampPage(page);
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const data = await this.requestJson(
+      `${apiBase}/releases?per_page=${count}&page=${pageNumber}`,
+      'GitHub releases'
+    );
+    return data.map((release) => ({
+      id: release.id,
+      tag: release.tag_name || '',
+      name: release.name || release.tag_name || 'Release',
+      draft: !!release.draft,
+      prerelease: !!release.prerelease,
+      publishedAt: release.published_at || release.created_at || '',
+      url: release.html_url || ''
+    }));
+  }
+  async getRelease(repoRef, releaseId) {
+    const id = numericId(releaseId, 'release');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const release = await this.requestJson(
+      apiBase + '/releases/' + id,
+      'GitHub release'
+    );
+    return {
+      id: release.id,
+      tag: release.tag_name || '',
+      name: release.name || release.tag_name || 'Release',
+      body: release.body || '',
+      draft: !!release.draft,
+      prerelease: !!release.prerelease,
+      publishedAt: release.published_at || release.created_at || '',
+      author: release.author?.login || 'unknown',
+      target: release.target_commitish || '',
+      url: release.html_url || ''
+    };
+  }
+  async mergePullRequest(
+    repoRef,
+    prNumber,
+    { expectedHeadSha, mergeMethod = 'squash' } = {}
+  ) {
+    const number = numericId(prNumber, 'pull request');
+    const method = String(mergeMethod || 'squash');
+    if (!['merge', 'squash', 'rebase'].includes(method))
+      throw new Error('Unsupported merge method');
+    const expected = fullSha(expectedHeadSha, 'expected pull request head');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    const result = await this.requestJson(
+      `${apiBase}/pulls/${number}/merge`,
+      'GitHub pull request merge',
+      { method: 'PUT', body: { sha: expected, merge_method: method } }
+    );
+    if (!result?.merged)
+      throw new Error(
+        `GitHub pull request merge failed: ${String(result?.message || 'not merged').slice(0, 240)}`
+      );
+    return {
+      merged: true,
+      sha: String(result.sha || ''),
+      message: String(result.message || '')
+    };
+  }
+  async dispatchWorkflow(repoRef, workflowId, { ref, inputs = {} } = {}) {
+    const id = numericId(workflowId, 'workflow');
+    const targetRef = String(ref || '');
+    if (!targetRef || targetRef.includes('\0'))
+      throw new Error('Workflow dispatch ref is required');
+    if (!inputs || typeof inputs !== 'object' || Array.isArray(inputs))
+      throw new Error('Workflow dispatch inputs must be an object');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    return this.requestJson(
+      `${apiBase}/actions/workflows/${id}/dispatches`,
+      'GitHub workflow dispatch',
+      { method: 'POST', body: { ref: targetRef, inputs }, allowEmpty: true }
+    );
+  }
+  async rerunJob(repoRef, jobId) {
+    const id = numericId(jobId, 'workflow job');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    return this.requestJson(
+      `${apiBase}/actions/jobs/${id}/rerun`,
+      'GitHub rerun workflow job',
+      { method: 'POST', allowEmpty: true }
+    );
+  }
+  async rerunFailedWorkflowRun(repoRef, runId) {
+    const id = numericId(runId, 'workflow run');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    return this.requestJson(
+      `${apiBase}/actions/runs/${id}/rerun-failed-jobs`,
+      'GitHub rerun failed jobs',
+      { method: 'POST', allowEmpty: true }
+    );
+  }
+  async cancelWorkflowRun(repoRef, runId) {
+    const id = numericId(runId, 'workflow run');
+    const { apiBase } = await this.getRepositoryContext(repoRef);
+    return this.requestJson(
+      `${apiBase}/actions/runs/${id}/cancel`,
+      'GitHub cancel workflow run',
+      { method: 'POST', allowEmpty: true }
+    );
+  }
 }

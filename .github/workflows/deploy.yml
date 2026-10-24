@@ -2,7 +2,7 @@ name: Deploy Cloudflare Worker
 
 on:
   workflow_run:
-    workflows: ["CI"]
+    workflows: ['CI']
     types: [completed]
 
 permissions:
@@ -29,7 +29,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version: '22'
           package-manager-cache: false
 
       - name: Verify Cloudflare deployment credentials

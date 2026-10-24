@@ -7,15 +7,17 @@ import { OpsMenuManager } from '../src/ops-menu.js';
 function fakeRegistry() {
   return {
     getPlugins() {
-      return [{
-        manifest: {
-          id: 'github',
-          actions: {
-            'github.repos.list': { risk: 'READ' },
-            'github.workspace.commit_branch': { risk: 'WRITE' }
+      return [
+        {
+          manifest: {
+            id: 'github',
+            actions: {
+              'github.repos.list': { risk: 'READ' },
+              'github.workspace.commit_branch': { risk: 'WRITE' }
+            }
           }
         }
-      }];
+      ];
     }
   };
 }
@@ -51,7 +53,10 @@ function diagnosticsForMenus({ githubFailure = false } = {}) {
 }
 
 function callbacks(view) {
-  return (view.reply_markup?.inline_keyboard || []).flat().map(button => button.callback_data).filter(Boolean);
+  return (view.reply_markup?.inline_keyboard || [])
+    .flat()
+    .map((button) => button.callback_data)
+    .filter(Boolean);
 }
 
 describe('Nexa Dev Bot - operational diagnostics', () => {
@@ -79,7 +84,9 @@ describe('Nexa Dev Bot - operational diagnostics', () => {
     assert.equal(snapshot.actionCount, 2);
 
     const serialized = JSON.stringify(snapshot);
-    for (const secret of Object.values(env).filter(value => String(value).includes('secret'))) {
+    for (const secret of Object.values(env).filter((value) =>
+      String(value).includes('secret')
+    )) {
       assert.ok(!serialized.includes(secret), `snapshot leaked ${secret}`);
     }
   });
@@ -104,7 +111,9 @@ describe('Nexa Dev Bot - operational diagnostics', () => {
       env: {},
       github: {
         owner: 'davoodmehraban89',
-        async listRepositories() { throw new Error('GITHUB_TOKEN is missing'); }
+        async listRepositories() {
+          throw new Error('GITHUB_TOKEN is missing');
+        }
       },
       registry: fakeRegistry(),
       replayStore: { isConfigured: () => false },
@@ -114,20 +123,37 @@ describe('Nexa Dev Bot - operational diagnostics', () => {
 
     const report = await diagnostics.runSelfCheck();
     assert.equal(report.ok, false);
-    const byId = Object.fromEntries(report.checks.map(check => [check.id, check]));
-    for (const id of ['telegram', 'webhook', 'owner', 'github-token', 'replay-guard', 'workspace-store', 'approval-signer', 'github-live']) {
+    const byId = Object.fromEntries(
+      report.checks.map((check) => [check.id, check])
+    );
+    for (const id of [
+      'telegram',
+      'webhook',
+      'owner',
+      'github-token',
+      'replay-guard',
+      'workspace-store',
+      'approval-signer',
+      'github-live'
+    ]) {
       assert.equal(byId[id]?.ok, false, `${id} should fail closed`);
     }
   });
 
   it('configures Cloudflare Worker Previews with isolated Durable Object bindings', () => {
-    const config = JSON.parse(readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8'));
+    const config = JSON.parse(
+      readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8')
+    );
     const production = config.durable_objects?.bindings || [];
     const preview = config.previews?.durable_objects?.bindings || [];
     assert.ok(config.previews, 'wrangler previews block is required');
     for (const binding of production) {
       assert.ok(
-        preview.some(candidate => candidate.name === binding.name && candidate.class_name === binding.class_name),
+        preview.some(
+          (candidate) =>
+            candidate.name === binding.name &&
+            candidate.class_name === binding.class_name
+        ),
         `preview missing durable binding ${binding.name}`
       );
     }
@@ -140,7 +166,13 @@ describe('Nexa Dev Bot - operational menu surfaces', () => {
     const menu = new OpsMenuManager(github, diagnostics);
     const view = menu.getToolsView();
     const values = callbacks(view);
-    for (const callback of ['ops:selfcheck', 'ops:github', 'ops:runtime', 'ops:plugins', 'tool:ping']) {
+    for (const callback of [
+      'ops:selfcheck',
+      'ops:github',
+      'ops:runtime',
+      'ops:plugins',
+      'tool:ping'
+    ]) {
       assert.ok(values.includes(callback), `missing ${callback}`);
     }
     assert.match(view.text, /تشخیص|Diagnostics|عیب.?یابی/);
@@ -156,7 +188,10 @@ describe('Nexa Dev Bot - operational menu surfaces', () => {
     assert.doesNotMatch(okView.text, /99\.9|100% SLA|ms latency/i);
 
     const badContext = diagnosticsForMenus({ githubFailure: true });
-    const badMenu = new OpsMenuManager(badContext.github, badContext.diagnostics);
+    const badMenu = new OpsMenuManager(
+      badContext.github,
+      badContext.diagnostics
+    );
     const badView = await badMenu.getServiceStatusView();
     assert.match(badView.text, /GitHub.*❌|❌.*GitHub/s);
     assert.match(badView.text, /403/);
@@ -167,7 +202,11 @@ describe('Nexa Dev Bot - operational menu surfaces', () => {
     const menu = new OpsMenuManager(github, diagnostics);
 
     const security = menu.getSecurityView();
-    for (const callback of ['security:selfcheck', 'security:policy', 'security:approval']) {
+    for (const callback of [
+      'security:selfcheck',
+      'security:policy',
+      'security:approval'
+    ]) {
       assert.ok(callbacks(security).includes(callback), `missing ${callback}`);
     }
     assert.match(security.text, /مرکز امنیت/);
@@ -175,7 +214,12 @@ describe('Nexa Dev Bot - operational menu surfaces', () => {
     const config = menu.getSettingsView();
     assert.match(config.text, /پیکربندی/);
     assert.doesNotMatch(config.text, /تنظیمات Nexa Dev/);
-    for (const callback of ['config:runtime', 'config:providers', 'config:editor', 'config:plugins']) {
+    for (const callback of [
+      'config:runtime',
+      'config:providers',
+      'config:editor',
+      'config:plugins'
+    ]) {
       assert.ok(callbacks(config).includes(callback), `missing ${callback}`);
     }
   });
@@ -185,18 +229,35 @@ describe('Nexa Dev Bot - operational menu surfaces', () => {
     const menu = new OpsMenuManager(github, diagnostics);
     const encoder = new TextEncoder();
     const routes = [
-      'menu:status', 'menu:tools', 'menu:security', 'menu:settings',
-      'ops:selfcheck', 'ops:github', 'ops:runtime', 'ops:plugins',
-      'security:selfcheck', 'security:policy', 'security:approval',
-      'config:runtime', 'config:providers', 'config:editor', 'config:plugins'
+      'menu:status',
+      'menu:tools',
+      'menu:security',
+      'menu:settings',
+      'ops:selfcheck',
+      'ops:github',
+      'ops:runtime',
+      'ops:plugins',
+      'security:selfcheck',
+      'security:policy',
+      'security:approval',
+      'config:runtime',
+      'config:providers',
+      'config:editor',
+      'config:plugins'
     ];
 
     for (const route of routes) {
       const view = await menu.renderByCallback(route);
       assert.ok(view?.text, `${route} returned no text`);
-      assert.ok(view.text.length <= 4096, `${route} exceeds Telegram message limit`);
+      assert.ok(
+        view.text.length <= 4096,
+        `${route} exceeds Telegram message limit`
+      );
       for (const callback of callbacks(view)) {
-        assert.ok(encoder.encode(callback).length <= 64, `${callback} exceeds callback limit`);
+        assert.ok(
+          encoder.encode(callback).length <= 64,
+          `${callback} exceeds callback limit`
+        );
       }
     }
   });
@@ -206,12 +267,21 @@ describe('Nexa Dev Bot - operational menu surfaces', () => {
     const menu = new OpsMenuManager(github, diagnostics);
 
     const providers = await menu.renderByCallback('config:providers');
-    assert.ok(callbacks(providers).includes('config:github'), 'provider report must offer a direct live GitHub probe');
+    assert.ok(
+      callbacks(providers).includes('config:github'),
+      'provider report must offer a direct live GitHub probe'
+    );
 
     const probe = await menu.renderByCallback('config:github');
     assert.match(probe.text, /READ زنده موفق/);
-    assert.ok(callbacks(probe).includes('config:github'), 'live probe must support refresh in the same context');
-    assert.ok(callbacks(probe).includes('menu:settings'), 'live probe must recover to configuration, not strand the owner in tools');
+    assert.ok(
+      callbacks(probe).includes('config:github'),
+      'live probe must support refresh in the same context'
+    );
+    assert.ok(
+      callbacks(probe).includes('menu:settings'),
+      'live probe must recover to configuration, not strand the owner in tools'
+    );
   });
 
   it('never renders configured secrets in operational pages', async () => {
@@ -224,9 +294,17 @@ describe('Nexa Dev Bot - operational menu surfaces', () => {
       menu.renderByCallback('security:selfcheck'),
       menu.renderByCallback('config:providers')
     ]);
-    const combined = pages.map(page => page.text).join('\n');
-    for (const secret of ['tg-secret-value', 'webhook-secret-value', 'github-secret-value', 'approval-secret-value']) {
-      assert.ok(!combined.includes(secret), `operational page leaked ${secret}`);
+    const combined = pages.map((page) => page.text).join('\n');
+    for (const secret of [
+      'tg-secret-value',
+      'webhook-secret-value',
+      'github-secret-value',
+      'approval-secret-value'
+    ]) {
+      assert.ok(
+        !combined.includes(secret),
+        `operational page leaked ${secret}`
+      );
     }
   });
 });

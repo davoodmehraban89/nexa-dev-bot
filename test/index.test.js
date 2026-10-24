@@ -32,7 +32,10 @@ function webhookRequest(update = startUpdate) {
 
 describe('Nexa Dev Bot - Cloudflare Worker Entrypoint', () => {
   it('GET / returns online status without fabricated uptime', async () => {
-    const res = await worker.fetch(new Request('https://example.test/', { method: 'GET' }), runtime);
+    const res = await worker.fetch(
+      new Request('https://example.test/', { method: 'GET' }),
+      runtime
+    );
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.status, 'online');
@@ -42,14 +45,33 @@ describe('Nexa Dev Bot - Cloudflare Worker Entrypoint', () => {
   });
 
   it('GET /status stays public-minimal and does not expose owner-only operational diagnostics', async () => {
-    const res = await worker.fetch(new Request('https://example.test/status', { method: 'GET' }), runtime);
+    const res = await worker.fetch(
+      new Request('https://example.test/status', { method: 'GET' }),
+      runtime
+    );
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.deepEqual(Object.keys(body).sort(), ['bot', 'mode', 'status', 'version']);
+    assert.deepEqual(Object.keys(body).sort(), [
+      'bot',
+      'mode',
+      'status',
+      'version'
+    ]);
     assert.equal(body.status, 'online');
     const serialized = JSON.stringify(body);
-    for (const privateDetail of ['WORKSPACE_STORE', 'APPROVAL_REPLAY_GUARD', 'GitHub live READ', 'Cloudflare deployment', 'observability', 'credential', 'configured']) {
-      assert.ok(!serialized.includes(privateDetail), `public status leaked ${privateDetail}`);
+    for (const privateDetail of [
+      'WORKSPACE_STORE',
+      'APPROVAL_REPLAY_GUARD',
+      'GitHub live READ',
+      'Cloudflare deployment',
+      'observability',
+      'credential',
+      'configured'
+    ]) {
+      assert.ok(
+        !serialized.includes(privateDetail),
+        `public status leaked ${privateDetail}`
+      );
     }
   });
 
@@ -57,10 +79,13 @@ describe('Nexa Dev Bot - Cloudflare Worker Entrypoint', () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url) => {
       if (String(url).startsWith('https://api.telegram.org/')) {
-        return new Response(JSON.stringify({ ok: true, result: { message_id: 303 } }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' }
-        });
+        return new Response(
+          JSON.stringify({ ok: true, result: { message_id: 303 } }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+          }
+        );
       }
       return originalFetch(url);
     };
@@ -87,11 +112,14 @@ describe('Nexa Dev Bot - Cloudflare Worker Entrypoint', () => {
   });
 
   it('arbitrary POST paths are not treated as webhooks', async () => {
-    const res = await worker.fetch(new Request('https://example.test/', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}'
-    }), runtime);
+    const res = await worker.fetch(
+      new Request('https://example.test/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}'
+      }),
+      runtime
+    );
     assert.equal(res.status, 404);
   });
 
@@ -105,13 +133,16 @@ describe('Nexa Dev Bot - Cloudflare Worker Entrypoint', () => {
 
     globalThis.fetch = async (url) => {
       if (String(url).startsWith('https://api.telegram.org/')) {
-        return new Response(JSON.stringify({
-          ok: false,
-          description: `Unauthorized ${approvalSecret} ${cloudflareSecret}`
-        }), {
-          status: 401,
-          headers: { 'content-type': 'application/json' }
-        });
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            description: `Unauthorized ${approvalSecret} ${cloudflareSecret}`
+          }),
+          {
+            status: 401,
+            headers: { 'content-type': 'application/json' }
+          }
+        );
       }
       return originalFetch(url);
     };
@@ -125,11 +156,11 @@ describe('Nexa Dev Bot - Cloudflare Worker Entrypoint', () => {
         CLOUDFLARE_API_TOKEN: cloudflareSecret
       });
       assert.equal(res.status, 400);
-      assert.ok(logs.some(line => /telegram_webhook_error/i.test(line)));
-      assert.ok(logs.some(line => /401|Unauthorized/i.test(line)));
-      assert.ok(logs.every(line => !line.includes(secretToken)));
-      assert.ok(logs.every(line => !line.includes(approvalSecret)));
-      assert.ok(logs.every(line => !line.includes(cloudflareSecret)));
+      assert.ok(logs.some((line) => /telegram_webhook_error/i.test(line)));
+      assert.ok(logs.some((line) => /401|Unauthorized/i.test(line)));
+      assert.ok(logs.every((line) => !line.includes(secretToken)));
+      assert.ok(logs.every((line) => !line.includes(approvalSecret)));
+      assert.ok(logs.every((line) => !line.includes(cloudflareSecret)));
     } finally {
       globalThis.fetch = originalFetch;
       console.error = originalError;

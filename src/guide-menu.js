@@ -16,8 +16,10 @@ function guideNav(page) {
   const rows = [];
   const step = Number(page);
   const move = [];
-  if (step > 1) move.push({ text: '⬅️ فصل قبلی', callback_data: `help:${step - 1}` });
-  if (step < GUIDE_MAX_PAGE) move.push({ text: 'فصل بعدی ➡️', callback_data: `help:${step + 1}` });
+  if (step > 1)
+    move.push({ text: '⬅️ فصل قبلی', callback_data: `help:${step - 1}` });
+  if (step < GUIDE_MAX_PAGE)
+    move.push({ text: 'فصل بعدی ➡️', callback_data: `help:${step + 1}` });
   if (move.length) rows.push(move);
   rows.push([
     { text: '📘 فهرست راهنما', callback_data: 'menu:help' },
@@ -49,16 +51,18 @@ function guidePage(page) {
 export class GuideMenuManager extends MenuManager {
   getMainMenuView() {
     const view = super.getMainMenuView();
-    const rows = view.reply_markup.inline_keyboard.map(row => [...row]);
+    const rows = view.reply_markup.inline_keyboard.map((row) => [...row]);
     rows.push([{ text: '📘 راهنما', callback_data: 'menu:help' }]);
     return { ...view, reply_markup: { inline_keyboard: rows } };
   }
 
   getGuideIndexView() {
-    const rows = Object.entries(GUIDE_TITLES).map(([page, title]) => ([{
-      text: `${page}️⃣ ${title}`,
-      callback_data: `help:${page}`
-    }]));
+    const rows = Object.entries(GUIDE_TITLES).map(([page, title]) => [
+      {
+        text: `${page}️⃣ ${title}`,
+        callback_data: `help:${page}`
+      }
+    ]);
     rows.push([{ text: '🏠 منوی اصلی', callback_data: 'menu:main' }]);
     return {
       text: `📘 <b>راهنمای Nexa Dev — V2.1</b>\n➖➖➖➖➖➖➖➖➖➖\nاین راهنما دکمه‌های فعلی Bot، ابزارهای عملیاتی، مسیر کامل اصلاح فایل و مرز Production را توضیح می‌دهد. یک فصل را انتخاب کنید:`,
@@ -72,7 +76,8 @@ export class GuideMenuManager extends MenuManager {
 
   async renderByCallback(callbackData) {
     const value = String(callbackData || '');
-    if (value === 'menu:help' || value === 'help:index') return this.getGuideIndexView();
+    if (value === 'menu:help' || value === 'help:index')
+      return this.getGuideIndexView();
     const match = value.match(/^help:([1-7])$/);
     if (match) return this.getGuidePageView(Number(match[1]));
     return super.renderByCallback(callbackData);

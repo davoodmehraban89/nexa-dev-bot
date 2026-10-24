@@ -8,13 +8,14 @@ import { readBoundedJson } from './core/bounded-json.js';
 
 const WORKSPACE_ID = /^[A-Za-z0-9_-]{10}$/;
 
-const jsonResponse = (payload, status = 200) => new Response(JSON.stringify(payload), {
-  status,
-  headers: {
-    'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store'
-  }
-});
+const jsonResponse = (payload, status = 200) =>
+  new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store'
+    }
+  });
 
 function safeWorkspaceId(value) {
   const id = String(value || '');
@@ -27,18 +28,18 @@ function statusForError(error) {
   if (/signature|hash|auth_date|owner|initData|user/i.test(message)) return 403;
   if (/not found|expired/i.test(message)) return 404;
   if (/limited|not editable|binary|LFS|sensitive/i.test(message)) return 422;
-  if (/invalid|required|JSON|body|path|member|Change Set/i.test(message)) return 400;
+  if (/invalid|required|JSON|body|path|member|Change Set/i.test(message))
+    return 400;
   return 500;
 }
 
-export async function handleWorkspaceEditorRequest(request, {
-  workspaces,
-  botToken,
-  ownerId,
-  now = () => Date.now()
-} = {}) {
+export async function handleWorkspaceEditorRequest(
+  request,
+  { workspaces, botToken, ownerId, now = () => Date.now() } = {}
+) {
   try {
-    if (!workspaces) throw new Error('Durable workspace store is not configured');
+    if (!workspaces)
+      throw new Error('Durable workspace store is not configured');
     const initData = request.headers.get('x-telegram-init-data') || '';
     const identity = await validateTelegramWebAppInitData(initData, {
       botToken,
@@ -51,17 +52,26 @@ export async function handleWorkspaceEditorRequest(request, {
 
     if (request.method === 'GET') {
       const workspaceId = safeWorkspaceId(url.searchParams.get('workspaceId'));
-      const workspace = await workspaces.getWorkspace({ ownerId: owner, workspaceId });
+      const workspace = await workspaces.getWorkspace({
+        ownerId: owner,
+        workspaceId
+      });
       if (!workspace) throw new Error('Workspace not found or expired');
-      const files = Array.isArray(workspace.files) && workspace.files.length ? workspace.files : [{ path: workspace.path, draftText: workspace.draftText }];
-      const requestedPath = String(url.searchParams.get('path') || workspace.path || files[0].path);
-      const selected = files.find(file => file.path === requestedPath);
-      if (!selected) throw new Error('Editor path is not a member of this Change Set');
+      const files =
+        Array.isArray(workspace.files) && workspace.files.length
+          ? workspace.files
+          : [{ path: workspace.path, draftText: workspace.draftText }];
+      const requestedPath = String(
+        url.searchParams.get('path') || workspace.path || files[0].path
+      );
+      const selected = files.find((file) => file.path === requestedPath);
+      if (!selected)
+        throw new Error('Editor path is not a member of this Change Set');
       return jsonResponse({
         workspace: {
           id: workspace.id,
           path: selected.path,
-          files: files.map(file => ({ path: file.path })),
+          files: files.map((file) => ({ path: file.path })),
           state: workspace.state || 'DRAFT',
           baseHeadSha: String(workspace.baseHeadSha || '').slice(0, 10),
           draftText: String(selected.draftText ?? '')
@@ -73,25 +83,61 @@ export async function handleWorkspaceEditorRequest(request, {
     if (request.method === 'PUT') {
       let body;
       try {
-        body = await readBoundedJson(request, WORKSPACE_EDITOR_LIMITS.maxBytes + 4096);
+        body = await readBoundedJson(
+          request,
+          WORKSPACE_EDITOR_LIMITS.maxBytes + 4096
+        );
       } catch (error) {
-        if (error instanceof RangeError) return jsonResponse({ ok: false, error: 'Editor request body is too large' }, 413);
-        if (error instanceof SyntaxError) return jsonResponse({ ok: false, error: 'Editor request body must be valid JSON' }, 400);
+        if (error instanceof RangeError)
+          return jsonResponse(
+            { ok: false, error: 'Editor request body is too large' },
+            413
+          );
+        if (error instanceof SyntaxError)
+          return jsonResponse(
+            { ok: false, error: 'Editor request body must be valid JSON' },
+            400
+          );
         throw error;
       }
       const workspaceId = safeWorkspaceId(body?.workspaceId);
-      const workspace = await workspaces.getWorkspace({ ownerId: owner, workspaceId });
+      const workspace = await workspaces.getWorkspace({
+        ownerId: owner,
+        workspaceId
+      });
       if (!workspace) throw new Error('Workspace not found or expired');
-      const files = Array.isArray(workspace.files) && workspace.files.length ? workspace.files : [{ path: workspace.path, draftText: workspace.draftText }];
-      const requestedPath = String(body?.path || workspace.path || files[0].path);
-      const selected = files.find(file => file.path === requestedPath);
-      if (!selected) throw new Error('Editor path is not a member of this Change Set');
-      const policy = validateEditableFile({ path: selected.path, text: body?.text });
-      if (!policy.editable) return jsonResponse({ ok: false, error: policy.reason }, 422);
+      const files =
+        Array.isArray(workspace.files) && workspace.files.length
+          ? workspace.files
+          : [{ path: workspace.path, draftText: workspace.draftText }];
+      const requestedPath = String(
+        body?.path || workspace.path || files[0].path
+      );
+      const selected = files.find((file) => file.path === requestedPath);
+      if (!selected)
+        throw new Error('Editor path is not a member of this Change Set');
+      const policy = validateEditableFile({
+        path: selected.path,
+        text: body?.text
+      });
+      if (!policy.editable)
+        return jsonResponse({ ok: false, error: policy.reason }, 422);
       const digest = await digestText(policy.text);
-      const updated = typeof workspaces.updateWorkspaceFileDraft === 'function'
-        ? await workspaces.updateWorkspaceFileDraft({ ownerId: owner, workspaceId, path: selected.path, text: policy.text, digest })
-        : await workspaces.updateDraft({ ownerId: owner, workspaceId, text: policy.text, digest });
+      const updated =
+        typeof workspaces.updateWorkspaceFileDraft === 'function'
+          ? await workspaces.updateWorkspaceFileDraft({
+              ownerId: owner,
+              workspaceId,
+              path: selected.path,
+              text: policy.text,
+              digest
+            })
+          : await workspaces.updateDraft({
+              ownerId: owner,
+              workspaceId,
+              text: policy.text,
+              digest
+            });
       return jsonResponse({
         ok: true,
         workspace: {
@@ -107,7 +153,16 @@ export async function handleWorkspaceEditorRequest(request, {
     return jsonResponse({ ok: false, error: 'Method not allowed' }, 405);
   } catch (error) {
     const status = statusForError(error);
-    return jsonResponse({ ok: false, error: status === 500 ? 'Workspace editor request failed' : String(error?.message || 'Workspace editor request failed') }, status);
+    return jsonResponse(
+      {
+        ok: false,
+        error:
+          status === 500
+            ? 'Workspace editor request failed'
+            : String(error?.message || 'Workspace editor request failed')
+      },
+      status
+    );
   }
 }
 
@@ -219,7 +274,8 @@ export function workspaceEditorPageResponse() {
       'cache-control': 'no-store',
       'x-content-type-options': 'nosniff',
       'referrer-policy': 'no-referrer',
-      'content-security-policy': "default-src 'none'; script-src 'unsafe-inline' https://telegram.org; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'"
+      'content-security-policy':
+        "default-src 'none'; script-src 'unsafe-inline' https://telegram.org; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'"
     }
   });
 }

@@ -78,34 +78,59 @@ function makeWorkspace(overrides = {}) {
   };
 }
 
-function makeWorkspaces({ intent = makeIntent(), workspace = makeWorkspace(), disposition = 'start' } = {}) {
+function makeWorkspaces({
+  intent = makeIntent(),
+  workspace = makeWorkspace(),
+  disposition = 'start'
+} = {}) {
   const calls = [];
   let mutableIntent = structuredClone(intent);
   return {
     calls,
     async getIntent({ ownerId, intentId }) {
       calls.push(['getIntent', ownerId, intentId]);
-      return ownerId === OWNER && intentId === mutableIntent.id ? structuredClone(mutableIntent) : null;
+      return ownerId === OWNER && intentId === mutableIntent.id
+        ? structuredClone(mutableIntent)
+        : null;
     },
     async getWorkspace({ ownerId, workspaceId }) {
       calls.push(['getWorkspace', ownerId, workspaceId]);
-      return ownerId === OWNER && workspaceId === workspace.id ? structuredClone(workspace) : null;
+      return ownerId === OWNER && workspaceId === workspace.id
+        ? structuredClone(workspace)
+        : null;
     },
     async beginCommit({ ownerId, intentId }) {
       calls.push(['beginCommit', ownerId, intentId]);
-      if (mutableIntent.state === 'COMMITTED') return { disposition: 'committed', intent: structuredClone(mutableIntent) };
-      if (mutableIntent.state === 'COMMITTING') return { disposition: 'resume', intent: structuredClone(mutableIntent) };
+      if (mutableIntent.state === 'COMMITTED')
+        return {
+          disposition: 'committed',
+          intent: structuredClone(mutableIntent)
+        };
+      if (mutableIntent.state === 'COMMITTING')
+        return {
+          disposition: 'resume',
+          intent: structuredClone(mutableIntent)
+        };
       mutableIntent = { ...mutableIntent, state: 'COMMITTING' };
       return { disposition, intent: structuredClone(mutableIntent) };
     },
     async setCandidateCommit({ ownerId, intentId, commitSha }) {
       calls.push(['setCandidateCommit', ownerId, intentId, commitSha]);
-      mutableIntent = { ...mutableIntent, candidateCommitSha: commitSha, state: 'COMMITTING' };
+      mutableIntent = {
+        ...mutableIntent,
+        candidateCommitSha: commitSha,
+        state: 'COMMITTING'
+      };
       return structuredClone(mutableIntent);
     },
     async completeCommit({ ownerId, intentId, commitSha, branch }) {
       calls.push(['completeCommit', ownerId, intentId, commitSha, branch]);
-      mutableIntent = { ...mutableIntent, commitSha, branch, state: 'COMMITTED' };
+      mutableIntent = {
+        ...mutableIntent,
+        commitSha,
+        branch,
+        state: 'COMMITTED'
+      };
       return structuredClone(mutableIntent);
     },
     async markStale({ ownerId, intentId, reason }) {
@@ -116,7 +141,11 @@ function makeWorkspaces({ intent = makeIntent(), workspace = makeWorkspace(), di
   };
 }
 
-function makeGitHub({ baseHead = BASE_HEAD, existingRef = null, createRefError = null } = {}) {
+function makeGitHub({
+  baseHead = BASE_HEAD,
+  existingRef = null,
+  createRefError = null
+} = {}) {
   const calls = [];
   return {
     calls,
@@ -150,8 +179,12 @@ function makeGitHub({ baseHead = BASE_HEAD, existingRef = null, createRefError =
 
 function minimalMenu() {
   return {
-    async getReposListView() { return { text: 'repos', reply_markup: { inline_keyboard: [] } }; },
-    async renderByCallback(data) { return { text: `legacy:${data}`, reply_markup: { inline_keyboard: [] } }; }
+    async getReposListView() {
+      return { text: 'repos', reply_markup: { inline_keyboard: [] } };
+    },
+    async renderByCallback(data) {
+      return { text: `legacy:${data}`, reply_markup: { inline_keyboard: [] } };
+    }
   };
 }
 
@@ -179,33 +212,59 @@ test('workspace approval uses compact <=56 byte token and binds owner action ris
     risk: 'WRITE'
   });
   assert.deepEqual(payload.input, { repoId: REPO_ID, intentId: INTENT_ID });
-  await assert.rejects(() => approvals.consume(token, { ownerId: OWNER }), /already used/i);
+  await assert.rejects(
+    () => approvals.consume(token, { ownerId: OWNER }),
+    /already used/i
+  );
 
   const second = await approvals.issue({
-    pluginId: 'github', actionId: 'github.workspace.commit_branch', risk: 'WRITE', ownerId: OWNER,
+    pluginId: 'github',
+    actionId: 'github.workspace.commit_branch',
+    risk: 'WRITE',
+    ownerId: OWNER,
     input: { repoId: REPO_ID, intentId: INTENT_ID }
   });
   now += 121_000;
-  await assert.rejects(() => approvals.verify(second, { ownerId: OWNER }), /expired/i);
-  await assert.rejects(() => approvals.issue({
-    pluginId: 'github', actionId: 'github.workspace.commit_branch', risk: 'WRITE', ownerId: OWNER,
-    input: { repoId: REPO_ID, intentId: 'too-short' }
-  }), /intent/i);
+  await assert.rejects(
+    () => approvals.verify(second, { ownerId: OWNER }),
+    /expired/i
+  );
+  await assert.rejects(
+    () =>
+      approvals.issue({
+        pluginId: 'github',
+        actionId: 'github.workspace.commit_branch',
+        risk: 'WRITE',
+        ownerId: OWNER,
+        input: { repoId: REPO_ID, intentId: 'too-short' }
+      }),
+    /intent/i
+  );
 });
 
 test('wscommit resolves to WRITE approval metadata before execution and performs zero GitHub or workspace calls pre-approval', async () => {
   const github = makeGitHub();
   const workspaces = makeWorkspaces();
-  const plugin = createGitHubPlugin({ github, menu: minimalMenu(), workspaces });
+  const plugin = createGitHubPlugin({
+    github,
+    menu: minimalMenu(),
+    workspaces
+  });
   const router = new PluginRouter({
     registry: new PluginRegistry([plugin]),
     policy: new ActionPolicy(),
     audit: new AuditLogger({ sink: () => {} })
   });
-  const result = await router.dispatchCallback(`wscommit:${REPO_ID}:${INTENT_ID}`, { isOwner: true, ownerId: OWNER });
+  const result = await router.dispatchCallback(
+    `wscommit:${REPO_ID}:${INTENT_ID}`,
+    { isOwner: true, ownerId: OWNER }
+  );
   assert.equal(result.requiresApproval, true);
   assert.equal(result.actionId, 'github.workspace.commit_branch');
-  assert.deepEqual(result.approval.input, { repoId: REPO_ID, intentId: INTENT_ID });
+  assert.deepEqual(result.approval.input, {
+    repoId: REPO_ID,
+    intentId: INTENT_ID
+  });
   assert.equal(result.approval.cancelCallback, `repo:${REPO_ID}`);
   assert.deepEqual(github.calls, []);
   assert.deepEqual(workspaces.calls, []);
@@ -214,75 +273,179 @@ test('wscommit resolves to WRITE approval metadata before execution and performs
 test('approved orchestration fails closed on changed workspace material or stale base before any Git object creation', async () => {
   assert.equal(typeof workspaceModule.commitWorkspaceIntent, 'function');
 
-  const changedWorkspaces = makeWorkspaces({ workspace: makeWorkspace({ currentIntentId: null, draftDigest: '9'.repeat(64) }) });
+  const changedWorkspaces = makeWorkspaces({
+    workspace: makeWorkspace({
+      currentIntentId: null,
+      draftDigest: '9'.repeat(64)
+    })
+  });
   const changedGitHub = makeGitHub();
-  await assert.rejects(() => workspaceModule.commitWorkspaceIntent({
-    github: changedGitHub, workspaces: changedWorkspaces, ownerId: OWNER, repoId: REPO_ID, intentId: INTENT_ID
-  }), /intent|material|changed|stale/i);
-  assert.equal(changedGitHub.calls.some(call => call[0].startsWith('createGit')), false);
+  await assert.rejects(
+    () =>
+      workspaceModule.commitWorkspaceIntent({
+        github: changedGitHub,
+        workspaces: changedWorkspaces,
+        ownerId: OWNER,
+        repoId: REPO_ID,
+        intentId: INTENT_ID
+      }),
+    /intent|material|changed|stale/i
+  );
+  assert.equal(
+    changedGitHub.calls.some((call) => call[0].startsWith('createGit')),
+    false
+  );
 
   const staleWorkspaces = makeWorkspaces();
   const staleGitHub = makeGitHub({ baseHead: '9'.repeat(40) });
-  await assert.rejects(() => workspaceModule.commitWorkspaceIntent({
-    github: staleGitHub, workspaces: staleWorkspaces, ownerId: OWNER, repoId: REPO_ID, intentId: INTENT_ID
-  }), /base|stale|changed/i);
-  assert.equal(staleGitHub.calls.some(call => call[0].startsWith('createGit')), false);
-  assert.ok(staleWorkspaces.calls.some(call => call[0] === 'markStale'));
+  await assert.rejects(
+    () =>
+      workspaceModule.commitWorkspaceIntent({
+        github: staleGitHub,
+        workspaces: staleWorkspaces,
+        ownerId: OWNER,
+        repoId: REPO_ID,
+        intentId: INTENT_ID
+      }),
+    /base|stale|changed/i
+  );
+  assert.equal(
+    staleGitHub.calls.some((call) => call[0].startsWith('createGit')),
+    false
+  );
+  assert.ok(staleWorkspaces.calls.some((call) => call[0] === 'markStale'));
 });
 
 test('approved orchestration rejects an unexpected existing target branch without creating Git objects', async () => {
   const workspaces = makeWorkspaces();
-  const github = makeGitHub({ existingRef: { branch: TARGET_BRANCH, sha: '8'.repeat(40) } });
-  await assert.rejects(() => workspaceModule.commitWorkspaceIntent({
-    github, workspaces, ownerId: OWNER, repoId: REPO_ID, intentId: INTENT_ID
-  }), /already exists|target branch|unexpected/i);
-  assert.equal(github.calls.some(call => call[0].startsWith('createGit')), false);
+  const github = makeGitHub({
+    existingRef: { branch: TARGET_BRANCH, sha: '8'.repeat(40) }
+  });
+  await assert.rejects(
+    () =>
+      workspaceModule.commitWorkspaceIntent({
+        github,
+        workspaces,
+        ownerId: OWNER,
+        repoId: REPO_ID,
+        intentId: INTENT_ID
+      }),
+    /already exists|target branch|unexpected/i
+  );
+  assert.equal(
+    github.calls.some((call) => call[0].startsWith('createGit')),
+    false
+  );
 });
 
 test('successful approved orchestration is blob -> tree -> commit -> durable candidate -> create ref -> durable COMMITTED', async () => {
   const workspaces = makeWorkspaces();
   const github = makeGitHub();
-  const result = await workspaceModule.commitWorkspaceIntent({ github, workspaces, ownerId: OWNER, repoId: REPO_ID, intentId: INTENT_ID });
-  assert.deepEqual(result, { commitSha: COMMIT_SHA, branch: TARGET_BRANCH, idempotent: false });
-  assert.deepEqual(github.calls.map(call => call[0]), [
-    'getBranchSnapshot', 'getGitRef', 'createGitBlob', 'createGitTree', 'createGitCommit', 'createGitBranchRef'
-  ]);
-  const blobCall = github.calls.find(call => call[0] === 'createGitBlob');
+  const result = await workspaceModule.commitWorkspaceIntent({
+    github,
+    workspaces,
+    ownerId: OWNER,
+    repoId: REPO_ID,
+    intentId: INTENT_ID
+  });
+  assert.deepEqual(result, {
+    commitSha: COMMIT_SHA,
+    branch: TARGET_BRANCH,
+    idempotent: false
+  });
+  assert.deepEqual(
+    github.calls.map((call) => call[0]),
+    [
+      'getBranchSnapshot',
+      'getGitRef',
+      'createGitBlob',
+      'createGitTree',
+      'createGitCommit',
+      'createGitBranchRef'
+    ]
+  );
+  const blobCall = github.calls.find((call) => call[0] === 'createGitBlob');
   assert.equal(blobCall[2], 'after\n');
-  const treeCall = github.calls.find(call => call[0] === 'createGitTree');
+  const treeCall = github.calls.find((call) => call[0] === 'createGitTree');
   assert.deepEqual(treeCall[2], {
     baseTreeSha: BASE_TREE,
-    entries: [{ path: 'src/app.js', mode: '100644', type: 'blob', sha: CONTENT_BLOB }]
+    entries: [
+      { path: 'src/app.js', mode: '100644', type: 'blob', sha: CONTENT_BLOB }
+    ]
   });
-  const commitCall = github.calls.find(call => call[0] === 'createGitCommit');
+  const commitCall = github.calls.find((call) => call[0] === 'createGitCommit');
   assert.deepEqual(commitCall[2], {
-    message: 'edit app', treeSha: NEW_TREE, parentSha: BASE_HEAD, timestamp: TIMESTAMP
+    message: 'edit app',
+    treeSha: NEW_TREE,
+    parentSha: BASE_HEAD,
+    timestamp: TIMESTAMP
   });
-  assert.ok(workspaces.calls.some(call => call[0] === 'setCandidateCommit' && call[3] === COMMIT_SHA));
-  assert.ok(workspaces.calls.some(call => call[0] === 'completeCommit' && call[3] === COMMIT_SHA && call[4] === TARGET_BRANCH));
+  assert.ok(
+    workspaces.calls.some(
+      (call) => call[0] === 'setCandidateCommit' && call[3] === COMMIT_SHA
+    )
+  );
+  assert.ok(
+    workspaces.calls.some(
+      (call) =>
+        call[0] === 'completeCommit' &&
+        call[3] === COMMIT_SHA &&
+        call[4] === TARGET_BRANCH
+    )
+  );
 });
 
 test('COMMITTED and COMMITTING retries reconcile idempotently without a second provider write', async () => {
-  const committedIntent = makeIntent({ state: 'COMMITTED', commitSha: COMMIT_SHA, branch: TARGET_BRANCH });
+  const committedIntent = makeIntent({
+    state: 'COMMITTED',
+    commitSha: COMMIT_SHA,
+    branch: TARGET_BRANCH
+  });
   const committedWorkspaces = makeWorkspaces({ intent: committedIntent });
   const committedGitHub = makeGitHub();
-  assert.deepEqual(await workspaceModule.commitWorkspaceIntent({
-    github: committedGitHub, workspaces: committedWorkspaces, ownerId: OWNER, repoId: REPO_ID, intentId: INTENT_ID
-  }), { commitSha: COMMIT_SHA, branch: TARGET_BRANCH, idempotent: true });
+  assert.deepEqual(
+    await workspaceModule.commitWorkspaceIntent({
+      github: committedGitHub,
+      workspaces: committedWorkspaces,
+      ownerId: OWNER,
+      repoId: REPO_ID,
+      intentId: INTENT_ID
+    }),
+    { commitSha: COMMIT_SHA, branch: TARGET_BRANCH, idempotent: true }
+  );
   assert.deepEqual(committedGitHub.calls, []);
 
-  const resumingIntent = makeIntent({ state: 'COMMITTING', candidateCommitSha: COMMIT_SHA });
+  const resumingIntent = makeIntent({
+    state: 'COMMITTING',
+    candidateCommitSha: COMMIT_SHA
+  });
   const resumingWorkspaces = makeWorkspaces({ intent: resumingIntent });
-  const resumingGitHub = makeGitHub({ existingRef: { branch: TARGET_BRANCH, sha: COMMIT_SHA } });
-  assert.deepEqual(await workspaceModule.commitWorkspaceIntent({
-    github: resumingGitHub, workspaces: resumingWorkspaces, ownerId: OWNER, repoId: REPO_ID, intentId: INTENT_ID
-  }), { commitSha: COMMIT_SHA, branch: TARGET_BRANCH, idempotent: true });
-  assert.deepEqual(resumingGitHub.calls.map(call => call[0]), ['getGitRef']);
-  assert.ok(resumingWorkspaces.calls.some(call => call[0] === 'completeCommit'));
+  const resumingGitHub = makeGitHub({
+    existingRef: { branch: TARGET_BRANCH, sha: COMMIT_SHA }
+  });
+  assert.deepEqual(
+    await workspaceModule.commitWorkspaceIntent({
+      github: resumingGitHub,
+      workspaces: resumingWorkspaces,
+      ownerId: OWNER,
+      repoId: REPO_ID,
+      intentId: INTENT_ID
+    }),
+    { commitSha: COMMIT_SHA, branch: TARGET_BRANCH, idempotent: true }
+  );
+  assert.deepEqual(
+    resumingGitHub.calls.map((call) => call[0]),
+    ['getGitRef']
+  );
+  assert.ok(
+    resumingWorkspaces.calls.some((call) => call[0] === 'completeCommit')
+  );
 });
 
 test('ambiguous create-ref error reconciles only the exact candidate SHA and rejects different or missing refs', async () => {
-  const ambiguous = new Error('GitHub create branch ref failed: 422 Reference already exists');
+  const ambiguous = new Error(
+    'GitHub create branch ref failed: 422 Reference already exists'
+  );
   const sequenceGitHub = makeGitHub({ createRefError: ambiguous });
   let refReads = 0;
   sequenceGitHub.getGitRef = async (repoId, branch, options) => {
@@ -291,9 +454,16 @@ test('ambiguous create-ref error reconciles only the exact candidate SHA and rej
     return refReads === 1 ? null : { branch, sha: COMMIT_SHA };
   };
   const workspaces = makeWorkspaces();
-  assert.deepEqual(await workspaceModule.commitWorkspaceIntent({
-    github: sequenceGitHub, workspaces, ownerId: OWNER, repoId: REPO_ID, intentId: INTENT_ID
-  }), { commitSha: COMMIT_SHA, branch: TARGET_BRANCH, idempotent: true });
+  assert.deepEqual(
+    await workspaceModule.commitWorkspaceIntent({
+      github: sequenceGitHub,
+      workspaces,
+      ownerId: OWNER,
+      repoId: REPO_ID,
+      intentId: INTENT_ID
+    }),
+    { commitSha: COMMIT_SHA, branch: TARGET_BRANCH, idempotent: true }
+  );
 
   for (const ref of [null, { branch: TARGET_BRANCH, sha: '7'.repeat(40) }]) {
     const github = makeGitHub({ createRefError: ambiguous });
@@ -303,16 +473,30 @@ test('ambiguous create-ref error reconciles only the exact candidate SHA and rej
       reads += 1;
       return reads === 1 ? null : ref;
     };
-    await assert.rejects(() => workspaceModule.commitWorkspaceIntent({
-      github, workspaces: makeWorkspaces(), ownerId: OWNER, repoId: REPO_ID, intentId: INTENT_ID
-    }), /422|reconcile|branch|candidate/i);
+    await assert.rejects(
+      () =>
+        workspaceModule.commitWorkspaceIntent({
+          github,
+          workspaces: makeWorkspaces(),
+          ownerId: OWNER,
+          repoId: REPO_ID,
+          intentId: INTENT_ID
+        }),
+      /422|reconcile|branch|candidate/i
+    );
   }
 });
 
 test('router audit merges only allowlisted workspace metadata and never source draft text or signed token material', async () => {
   const events = [];
   const plugin = {
-    manifest: { id: 'safe', name: 'safe', version: 1, commands: [], actions: { 'safe.write': { risk: 'WRITE' } } },
+    manifest: {
+      id: 'safe',
+      name: 'safe',
+      version: 1,
+      commands: [],
+      actions: { 'safe.write': { risk: 'WRITE' } }
+    },
     resolveCallback() {
       return {
         actionId: 'safe.write',
@@ -331,8 +515,9 @@ test('router audit merges only allowlisted workspace metadata and never source d
     }
   };
   const router = new PluginRouter({
-    registry: new PluginRegistry([plugin]), policy: new ActionPolicy(),
-    audit: new AuditLogger({ sink: event => events.push(event) })
+    registry: new PluginRegistry([plugin]),
+    policy: new ActionPolicy(),
+    audit: new AuditLogger({ sink: (event) => events.push(event) })
   });
   await router.dispatchCallback('x', { isOwner: true, approved: true });
   const serialized = JSON.stringify(events);

@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const approvalModule = await import('../src/core/approval.js').catch(() => null);
+const approvalModule = await import('../src/core/approval.js').catch(
+  () => null
+);
 
 function makeReplayStore() {
   const used = new Set();
@@ -21,7 +23,10 @@ test('ApprovalService module exists', () => {
 });
 
 test('ApprovalService issues and verifies a signed owner-bound token', async () => {
-  assert.ok(approvalModule?.ApprovalService, 'ApprovalService module must exist');
+  assert.ok(
+    approvalModule?.ApprovalService,
+    'ApprovalService module must exist'
+  );
   let now = 1_700_000_000_000;
   const service = new approvalModule.ApprovalService({
     secret: 'test-signing-secret',
@@ -37,7 +42,10 @@ test('ApprovalService issues and verifies a signed owner-bound token', async () 
     input: { repoId: 7, runId: 9 }
   });
 
-  assert.ok(`approve:${token}`.length <= 64, 'approval callback must fit Telegram callback_data');
+  assert.ok(
+    `approve:${token}`.length <= 64,
+    'approval callback must fit Telegram callback_data'
+  );
 
   const payload = await service.verify(token, {
     ownerId: '42',
@@ -58,7 +66,10 @@ test('ApprovalService issues and verifies a signed owner-bound token', async () 
 });
 
 test('ApprovalService rejects tampered, expired and mismatched tokens', async () => {
-  assert.ok(approvalModule?.ApprovalService, 'ApprovalService module must exist');
+  assert.ok(
+    approvalModule?.ApprovalService,
+    'ApprovalService module must exist'
+  );
   let now = 1_700_000_000_000;
   const service = new approvalModule.ApprovalService({
     secret: 'test-signing-secret',
@@ -73,18 +84,34 @@ test('ApprovalService rejects tampered, expired and mismatched tokens', async ()
     input: { repoId: 7, runId: 9 }
   });
 
-  await assert.rejects(() => service.verify(`${token}x`, { ownerId: '42' }), /invalid approval/i);
-  await assert.rejects(() => service.verify(token, { ownerId: '99' }), /owner/i);
-  await assert.rejects(() => service.verify(token, {
-    ownerId: '42',
-    actionId: 'github.workflow.run.rerun_failed'
-  }), /action/i);
+  await assert.rejects(
+    () => service.verify(`${token}x`, { ownerId: '42' }),
+    /invalid approval/i
+  );
+  await assert.rejects(
+    () => service.verify(token, { ownerId: '99' }),
+    /owner/i
+  );
+  await assert.rejects(
+    () =>
+      service.verify(token, {
+        ownerId: '42',
+        actionId: 'github.workflow.run.rerun_failed'
+      }),
+    /action/i
+  );
   now += 2000;
-  await assert.rejects(() => service.verify(token, { ownerId: '42' }), /expired/i);
+  await assert.rejects(
+    () => service.verify(token, { ownerId: '42' }),
+    /expired/i
+  );
 });
 
 test('ApprovalService consume is one-time and rejects replay', async () => {
-  assert.ok(approvalModule?.ApprovalService, 'ApprovalService module must exist');
+  assert.ok(
+    approvalModule?.ApprovalService,
+    'ApprovalService module must exist'
+  );
   const service = new approvalModule.ApprovalService({
     secret: 'test-signing-secret',
     now: () => 1_700_000_000_000,
@@ -100,7 +127,10 @@ test('ApprovalService consume is one-time and rejects replay', async () => {
 
   const first = await service.consume(token, { ownerId: '42' });
   assert.equal(first.actionId, 'github.workflow.run.cancel');
-  await assert.rejects(() => service.consume(token, { ownerId: '42' }), /already used/i);
+  await assert.rejects(
+    () => service.consume(token, { ownerId: '42' }),
+    /already used/i
+  );
 });
 
 test('ApprovalService fails closed for missing replay protection on consume', async () => {
@@ -116,11 +146,17 @@ test('ApprovalService fails closed for missing replay protection on consume', as
     input: { repoId: 7, runId: 9 }
   });
 
-  await assert.rejects(() => service.consume(token, { ownerId: '42' }), /replay protection is not configured/i);
+  await assert.rejects(
+    () => service.consume(token, { ownerId: '42' }),
+    /replay protection is not configured/i
+  );
 });
 
 test('ApprovalService fails closed for missing secret and oversized callback token', async () => {
-  assert.ok(approvalModule?.ApprovalService, 'ApprovalService module must exist');
+  assert.ok(
+    approvalModule?.ApprovalService,
+    'ApprovalService module must exist'
+  );
   const missing = new approvalModule.ApprovalService({ secret: '' });
   await assert.rejects(() => missing.issue({ pluginId: 'github' }), /secret/i);
 
@@ -129,11 +165,15 @@ test('ApprovalService fails closed for missing secret and oversized callback tok
     maxTokenLength: 64,
     now: () => 1_700_000_000_000
   });
-  await assert.rejects(() => service.issue({
-    pluginId: 'github',
-    actionId: 'github.workflow.run.cancel',
-    risk: 'WRITE',
-    ownerId: '42',
-    input: { text: 'x'.repeat(200) }
-  }), /too large/i);
+  await assert.rejects(
+    () =>
+      service.issue({
+        pluginId: 'github',
+        actionId: 'github.workflow.run.cancel',
+        risk: 'WRITE',
+        ownerId: '42',
+        input: { text: 'x'.repeat(200) }
+      }),
+    /too large/i
+  );
 });

@@ -14,7 +14,7 @@ test('numeric private repository lookup falls back through accessible repositori
   const calls = [];
   const repoId = 1401612143;
 
-  globalThis.fetch = async url => {
+  globalThis.fetch = async (url) => {
     const value = String(url);
     calls.push(value);
 
@@ -23,21 +23,25 @@ test('numeric private repository lookup falls back through accessible repositori
     }
 
     if (value.startsWith('https://api.github.com/user/repos?')) {
-      return json([{
-        id: repoId,
-        name: 'nexa-dev-bot',
-        full_name: 'davoodmehraban89/nexa-dev-bot',
-        private: true,
-        default_branch: 'main',
-        archived: false,
-        description: 'Personal Telegram developer console for GitHub',
-        html_url: 'https://github.com/davoodmehraban89/nexa-dev-bot',
-        stargazers_count: 0,
-        forks_count: 0
-      }]);
+      return json([
+        {
+          id: repoId,
+          name: 'nexa-dev-bot',
+          full_name: 'davoodmehraban89/nexa-dev-bot',
+          private: true,
+          default_branch: 'main',
+          archived: false,
+          description: 'Personal Telegram developer console for GitHub',
+          html_url: 'https://github.com/davoodmehraban89/nexa-dev-bot',
+          stargazers_count: 0,
+          forks_count: 0
+        }
+      ]);
     }
 
-    if (value === 'https://api.github.com/repos/davoodmehraban89/nexa-dev-bot') {
+    if (
+      value === 'https://api.github.com/repos/davoodmehraban89/nexa-dev-bot'
+    ) {
       return json({
         id: repoId,
         name: 'nexa-dev-bot',
@@ -62,8 +66,16 @@ test('numeric private repository lookup falls back through accessible repositori
     assert.equal(repo.id, String(repoId));
     assert.equal(repo.fullName, 'davoodmehraban89/nexa-dev-bot');
     assert.ok(calls.includes(`https://api.github.com/repositories/${repoId}`));
-    assert.ok(calls.some(value => value.startsWith('https://api.github.com/user/repos?')));
-    assert.ok(calls.includes('https://api.github.com/repos/davoodmehraban89/nexa-dev-bot'));
+    assert.ok(
+      calls.some((value) =>
+        value.startsWith('https://api.github.com/user/repos?')
+      )
+    );
+    assert.ok(
+      calls.includes(
+        'https://api.github.com/repos/davoodmehraban89/nexa-dev-bot'
+      )
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -74,11 +86,14 @@ test('numeric repository lookup does not fall back for non-404 provider failures
   const calls = [];
   const repoId = 1401612143;
 
-  globalThis.fetch = async url => {
+  globalThis.fetch = async (url) => {
     const value = String(url);
     calls.push(value);
     if (value === `https://api.github.com/repositories/${repoId}`) {
-      return json({ message: 'Resource not accessible by personal access token' }, 403);
+      return json(
+        { message: 'Resource not accessible by personal access token' },
+        403
+      );
     }
     throw new Error(`Unexpected fallback URL: ${value}`);
   };
@@ -100,20 +115,22 @@ test('numeric repository 404 preserves the original failure when no accessible r
   const calls = [];
   const repoId = 1401612143;
 
-  globalThis.fetch = async url => {
+  globalThis.fetch = async (url) => {
     const value = String(url);
     calls.push(value);
     if (value === `https://api.github.com/repositories/${repoId}`) {
       return json({ message: 'Not Found' }, 404);
     }
     if (value.startsWith('https://api.github.com/user/repos?')) {
-      return json([{
-        id: 42,
-        name: 'another-repo',
-        full_name: 'davoodmehraban89/another-repo',
-        private: true,
-        default_branch: 'main'
-      }]);
+      return json([
+        {
+          id: 42,
+          name: 'another-repo',
+          full_name: 'davoodmehraban89/another-repo',
+          private: true,
+          default_branch: 'main'
+        }
+      ]);
     }
     throw new Error(`Unexpected URL: ${value}`);
   };

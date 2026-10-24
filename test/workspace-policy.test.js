@@ -8,14 +8,17 @@ try {
   policy = {};
 }
 
-const requireFn = name => {
+const requireFn = (name) => {
   assert.equal(typeof policy[name], 'function', `${name} must be implemented`);
   return policy[name];
 };
 
 test('editable file policy accepts bounded UTF-8 text', () => {
   const validateEditableFile = requireFn('validateEditableFile');
-  const result = validateEditableFile({ path: 'src/app.js', text: 'export const ok = true;\n' });
+  const result = validateEditableFile({
+    path: 'src/app.js',
+    text: 'export const ok = true;\n'
+  });
   assert.deepEqual(result, {
     editable: true,
     reason: '',
@@ -27,7 +30,18 @@ test('editable file policy accepts bounded UTF-8 text', () => {
 
 test('editable file policy rejects sensitive paths binary markers LFS and both size ceilings', () => {
   const validateEditableFile = requireFn('validateEditableFile');
-  for (const path of ['.env', '.env.production', 'keys/id_rsa', 'id_ed25519', 'tls/cert.pem', 'tls/private.key', 'a.p12', 'a.pfx', 'credentials.json', 'service-account-prod.json']) {
+  for (const path of [
+    '.env',
+    '.env.production',
+    'keys/id_rsa',
+    'id_ed25519',
+    'tls/cert.pem',
+    'tls/private.key',
+    'a.p12',
+    'a.pfx',
+    'credentials.json',
+    'service-account-prod.json'
+  ]) {
     const result = validateEditableFile({ path, text: 'safe-looking text' });
     assert.equal(result.editable, false, path);
     assert.match(result.reason, /sensitive/i);
@@ -37,15 +51,25 @@ test('editable file policy rejects sensitive paths binary markers LFS and both s
   assert.equal(binary.editable, false);
   assert.match(binary.reason, /binary/i);
 
-  const lfs = validateEditableFile({ path: 'asset.txt', text: 'version https://git-lfs.github.com/spec/v1\noid sha256:abc\nsize 123\n' });
+  const lfs = validateEditableFile({
+    path: 'asset.txt',
+    text: 'version https://git-lfs.github.com/spec/v1\noid sha256:abc\nsize 123\n'
+  });
   assert.equal(lfs.editable, false);
   assert.match(lfs.reason, /LFS/i);
 
-  const tooManyChars = validateEditableFile({ path: 'large.txt', text: 'a'.repeat(20001) });
+  const tooManyChars = validateEditableFile({
+    path: 'large.txt',
+    text: 'a'.repeat(20001)
+  });
   assert.equal(tooManyChars.editable, false);
   assert.match(tooManyChars.reason, /20,000|20000/);
 
-  const explicitTooManyBytes = validateEditableFile({ path: 'large.txt', text: 'ok', byteLength: 65537 });
+  const explicitTooManyBytes = validateEditableFile({
+    path: 'large.txt',
+    text: 'ok',
+    byteLength: 65537
+  });
   assert.equal(explicitTooManyBytes.editable, false);
   assert.match(explicitTooManyBytes.reason, /65,536|65536/);
 });
@@ -70,7 +94,10 @@ test('commit message and target branch normalization fail closed on empty or uns
   const normalizeCommitMessage = requireFn('normalizeCommitMessage');
   const makeTargetBranch = requireFn('makeTargetBranch');
 
-  assert.equal(normalizeCommitMessage('  test: verify mobile editor  '), 'test: verify mobile editor');
+  assert.equal(
+    normalizeCommitMessage('  test: verify mobile editor  '),
+    'test: verify mobile editor'
+  );
   assert.throws(() => normalizeCommitMessage('   '), /commit message/i);
   assert.throws(() => normalizeCommitMessage('x'.repeat(121)), /120/);
 
@@ -83,7 +110,12 @@ test('unified diff reports exact additions deletions and marks bounded truncatio
   const buildUnifiedDiff = requireFn('buildUnifiedDiff');
   const before = 'alpha\nbeta\ngamma\n';
   const after = 'alpha\nBETA\ngamma\ndelta\n';
-  const full = buildUnifiedDiff({ path: 'src/app.js', before, after, maxChars: 2600 });
+  const full = buildUnifiedDiff({
+    path: 'src/app.js',
+    before,
+    after,
+    maxChars: 2600
+  });
   assert.equal(full.additions, 2);
   assert.equal(full.deletions, 1);
   assert.equal(full.truncated, false);

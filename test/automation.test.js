@@ -1,3 +1,35 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {createAutomation,transitionAutomation}from'../src/core/automation.js';
-test('CP7 state machine pauses resumes and completes',()=>{let s=createAutomation({id:'1',ownerId:'o',recipe:'ci-recovery',steps:[{key:'a'},{key:'b'}]});s=transitionAutomation(s,{type:'pause',intent:{key:'a'}});assert.equal(s.status,'awaiting_approval');s=transitionAutomation(s,{type:'resume',key:'a'});s=transitionAutomation(s,{type:'complete_step',key:'a'});assert.equal(s.cursor,1);s=transitionAutomation(s,{type:'complete_step',key:'b'});assert.equal(s.status,'completed');});
-test('CP7 idempotency prevents duplicate step effects',()=>{let s=createAutomation({id:'1',ownerId:'o',recipe:'r',steps:[{key:'a'}]});s=transitionAutomation(s,{type:'complete_step',key:'a'});assert.equal(transitionAutomation(s,{type:'inspect'}).status,'completed');assert.throws(()=>transitionAutomation(s,{type:'resume',key:'a'}));});
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  createAutomation,
+  transitionAutomation
+} from '../src/core/automation.js';
+test('CP7 state machine pauses resumes and completes', () => {
+  let s = createAutomation({
+    id: '1',
+    ownerId: 'o',
+    recipe: 'ci-recovery',
+    steps: [{ key: 'a' }, { key: 'b' }]
+  });
+  s = transitionAutomation(s, { type: 'pause', intent: { key: 'a' } });
+  assert.equal(s.status, 'awaiting_approval');
+  s = transitionAutomation(s, { type: 'resume', key: 'a' });
+  s = transitionAutomation(s, { type: 'complete_step', key: 'a' });
+  assert.equal(s.cursor, 1);
+  s = transitionAutomation(s, { type: 'complete_step', key: 'b' });
+  assert.equal(s.status, 'completed');
+});
+test('CP7 idempotency prevents duplicate step effects', () => {
+  let s = createAutomation({
+    id: '1',
+    ownerId: 'o',
+    recipe: 'r',
+    steps: [{ key: 'a' }]
+  });
+  s = transitionAutomation(s, { type: 'complete_step', key: 'a' });
+  assert.equal(
+    transitionAutomation(s, { type: 'inspect' }).status,
+    'completed'
+  );
+  assert.throws(() => transitionAutomation(s, { type: 'resume', key: 'a' }));
+});

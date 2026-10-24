@@ -22,10 +22,25 @@ const github = {
     };
   },
   async listPullRequests() {
-    return [{ number: 43, title: 'Ops: strengthen long-running execution heartbeat rule', author: 'davoodmehraban89', state: 'open', merged: false }];
+    return [
+      {
+        number: 43,
+        title: 'Ops: strengthen long-running execution heartbeat rule',
+        author: 'davoodmehraban89',
+        state: 'open',
+        merged: false
+      }
+    ];
   },
   async listCommits() {
-    return [{ sha: '87b25b1', message: 'feat: mobile GitHub repository browser UX', author: 'davoodmehraban89', date: '2026-10-02' }];
+    return [
+      {
+        sha: '87b25b1',
+        message: 'feat: mobile GitHub repository browser UX',
+        author: 'davoodmehraban89',
+        date: '2026-10-02'
+      }
+    ];
   },
   async listFiles() {
     return [{ name: 'src', path: 'src', type: 'dir', size: 0 }];
@@ -33,7 +48,14 @@ const github = {
   async getRepoStatus() {
     return {
       defaultBranch: 'main',
-      lastRuns: [{ name: 'CI', status: 'completed', conclusion: 'success', commit: 'fix mobile menu' }]
+      lastRuns: [
+        {
+          name: 'CI',
+          status: 'completed',
+          conclusion: 'success',
+          commit: 'fix mobile menu'
+        }
+      ]
     };
   }
 };
@@ -46,7 +68,9 @@ describe('Nexa Dev Bot - MenuManager & Navigation', () => {
     assert.ok(view.text.includes('Nexa Dev Bot'));
     assert.doesNotMatch(view.text, /✅\s*متصل|تایید شده/);
 
-    const callbacks = view.reply_markup.inline_keyboard.flat().map(b => b.callback_data);
+    const callbacks = view.reply_markup.inline_keyboard
+      .flat()
+      .map((b) => b.callback_data);
     assert.ok(callbacks.includes('menu:repos'));
     assert.ok(callbacks.includes('menu:status'));
     assert.ok(callbacks.includes('menu:tools'));
@@ -58,9 +82,9 @@ describe('Nexa Dev Bot - MenuManager & Navigation', () => {
     const view = await menu.getReposListView();
     assert.ok(view.text.includes('فهرست مخزن‌ها'));
     const buttons = view.reply_markup.inline_keyboard.flat();
-    assert.ok(buttons.some(b => b.text.includes('Factor-easy')));
-    assert.ok(buttons.some(b => b.callback_data === 'repo:Factor-easy'));
-    assert.ok(buttons.some(b => b.callback_data === 'menu:main'));
+    assert.ok(buttons.some((b) => b.text.includes('Factor-easy')));
+    assert.ok(buttons.some((b) => b.callback_data === 'repo:Factor-easy'));
+    assert.ok(buttons.some((b) => b.callback_data === 'menu:main'));
   });
 
   it('repository detail is based on live repository metadata', async () => {
@@ -70,7 +94,9 @@ describe('Nexa Dev Bot - MenuManager & Navigation', () => {
     assert.ok(view.text.includes('خصوصی'));
     assert.doesNotMatch(view.text, /اتصال GitHub: ✅ تایید شده/);
 
-    const callbacks = view.reply_markup.inline_keyboard.flat().map(b => b.callback_data);
+    const callbacks = view.reply_markup.inline_keyboard
+      .flat()
+      .map((b) => b.callback_data);
     assert.ok(callbacks.includes('files:Factor-easy'));
     assert.ok(callbacks.includes('pr:Factor-easy'));
     assert.ok(callbacks.includes('commits:Factor-easy'));
@@ -81,7 +107,11 @@ describe('Nexa Dev Bot - MenuManager & Navigation', () => {
   it('pull requests, commits, files and workflow status render source-backed data', async () => {
     const prView = await menu.getPullRequestsView('Factor-easy');
     assert.ok(prView.text.includes('#43'));
-    assert.ok(prView.text.includes('Ops: strengthen long-running execution heartbeat rule'));
+    assert.ok(
+      prView.text.includes(
+        'Ops: strengthen long-running execution heartbeat rule'
+      )
+    );
 
     const commitsView = await menu.getCommitsView('Factor-easy');
     assert.ok(commitsView.text.includes('87b25b1'));
@@ -102,7 +132,10 @@ describe('Nexa Dev Bot - MenuManager & Navigation', () => {
     assert.doesNotMatch(pingView.text, /12ms|پایدار است/);
 
     const securityView = menu.getSecurityView();
-    assert.doesNotMatch(securityView.text, /5000 req\/hr|فعال و ایمن|Fine-grained Personal Access Token/i);
+    assert.doesNotMatch(
+      securityView.text,
+      /5000 req\/hr|فعال و ایمن|Fine-grained Personal Access Token/i
+    );
   });
 
   it('callback router preserves hierarchical back navigation', async () => {
@@ -115,7 +148,9 @@ describe('Nexa Dev Bot - MenuManager & Navigation', () => {
     const prView = await menu.renderByCallback('pr:Factor-easy');
     assert.ok(prView.text.includes('Pull Request'));
 
-    const backCallbacks = prView.reply_markup.inline_keyboard.flat().map(b => b.callback_data);
+    const backCallbacks = prView.reply_markup.inline_keyboard
+      .flat()
+      .map((b) => b.callback_data);
     assert.ok(backCallbacks.includes('repo:Factor-easy'));
   });
 });

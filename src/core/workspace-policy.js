@@ -14,8 +14,10 @@ export const WORKSPACE_EDITOR_LIMITS = Object.freeze({
 
 const encoder = new TextEncoder();
 
-const sensitivePath = value => {
-  const path = String(value || '').replaceAll('\\', '/').toLowerCase();
+const sensitivePath = (value) => {
+  const path = String(value || '')
+    .replaceAll('\\', '/')
+    .toLowerCase();
   const name = path.split('/').pop() || '';
   if (name === '.env' || name.startsWith('.env.')) return true;
   if (name === 'id_rsa' || name === 'id_ed25519') return true;
@@ -25,23 +27,30 @@ const sensitivePath = value => {
   return false;
 };
 
-const codePointLength = value => Array.from(value).length;
+const codePointLength = (value) => Array.from(value).length;
 
 export function validateEditableFile({ path, text, byteLength } = {}) {
   const source = String(text ?? '');
   const charLength = codePointLength(source);
   const computedBytes = encoder.encode(source).byteLength;
   const providerBytes = Number(byteLength);
-  const effectiveBytes = Number.isFinite(providerBytes) && providerBytes >= 0
-    ? Math.max(computedBytes, providerBytes)
-    : computedBytes;
+  const effectiveBytes =
+    Number.isFinite(providerBytes) && providerBytes >= 0
+      ? Math.max(computedBytes, providerBytes)
+      : computedBytes;
 
   let reason = '';
   if (sensitivePath(path)) reason = 'Sensitive file path is not editable.';
-  else if (source.includes('\0')) reason = 'Binary-like content is not editable.';
-  else if (/^version https:\/\/git-lfs\.github\.com\/spec\/v1(?:\r?\n|$)/.test(source)) reason = 'Git LFS pointer files are not editable.';
-  else if (charLength > MAX_CHARS) reason = 'Editable text is limited to 20,000 Unicode characters.';
-  else if (effectiveBytes > MAX_BYTES) reason = 'Editable text is limited to 65,536 UTF-8 bytes.';
+  else if (source.includes('\0'))
+    reason = 'Binary-like content is not editable.';
+  else if (
+    /^version https:\/\/git-lfs\.github\.com\/spec\/v1(?:\r?\n|$)/.test(source)
+  )
+    reason = 'Git LFS pointer files are not editable.';
+  else if (charLength > MAX_CHARS)
+    reason = 'Editable text is limited to 20,000 Unicode characters.';
+  else if (effectiveBytes > MAX_BYTES)
+    reason = 'Editable text is limited to 65,536 UTF-8 bytes.';
 
   return {
     editable: reason === '',
@@ -53,7 +62,9 @@ export function validateEditableFile({ path, text, byteLength } = {}) {
 }
 
 export function normalizeCommitMessage(value) {
-  const normalized = String(value ?? '').trim().replace(/\s+/g, ' ');
+  const normalized = String(value ?? '')
+    .trim()
+    .replace(/\s+/g, ' ');
   if (!normalized) throw new Error('Commit message is required');
   if (codePointLength(normalized) > MAX_COMMIT_MESSAGE) {
     throw new Error('Commit message must be 120 characters or fewer');
@@ -63,13 +74,19 @@ export function normalizeCommitMessage(value) {
 
 export function makeTargetBranch(workspaceId) {
   const id = String(workspaceId ?? '');
-  if (!SAFE_HANDLE.test(id)) throw new Error('Workspace ID must be a 10-character URL-safe handle');
+  if (!SAFE_HANDLE.test(id))
+    throw new Error('Workspace ID must be a 10-character URL-safe handle');
   return `nexa/edit-${id}`;
 }
 
 export async function digestText(value) {
-  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(String(value ?? '')));
-  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    encoder.encode(String(value ?? ''))
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, '0')
+  ).join('');
 }
 
 function linesOf(value) {
@@ -84,9 +101,10 @@ function diffOperations(beforeLines, afterLines) {
 
   for (let i = beforeLines.length - 1; i >= 0; i -= 1) {
     for (let j = afterLines.length - 1; j >= 0; j -= 1) {
-      table[at(i, j)] = beforeLines[i] === afterLines[j]
-        ? table[at(i + 1, j + 1)] + 1
-        : Math.max(table[at(i + 1, j)], table[at(i, j + 1)]);
+      table[at(i, j)] =
+        beforeLines[i] === afterLines[j]
+          ? table[at(i + 1, j + 1)] + 1
+          : Math.max(table[at(i + 1, j)], table[at(i, j + 1)]);
     }
   }
 
@@ -94,13 +112,20 @@ function diffOperations(beforeLines, afterLines) {
   let i = 0;
   let j = 0;
   while (i < beforeLines.length || j < afterLines.length) {
-    if (i < beforeLines.length && j < afterLines.length && beforeLines[i] === afterLines[j]) {
+    if (
+      i < beforeLines.length &&
+      j < afterLines.length &&
+      beforeLines[i] === afterLines[j]
+    ) {
       operations.push({ kind: ' ', line: beforeLines[i] });
       i += 1;
       j += 1;
       continue;
     }
-    if (j < afterLines.length && (i >= beforeLines.length || table[at(i, j + 1)] >= table[at(i + 1, j)])) {
+    if (
+      j < afterLines.length &&
+      (i >= beforeLines.length || table[at(i, j + 1)] >= table[at(i + 1, j)])
+    ) {
       operations.push({ kind: '+', line: afterLines[j] });
       j += 1;
       continue;
@@ -111,16 +136,27 @@ function diffOperations(beforeLines, afterLines) {
   return operations;
 }
 
-export function buildUnifiedDiff({ path, before, after, maxChars = 2600 } = {}) {
+export function buildUnifiedDiff({
+  path,
+  before,
+  after,
+  maxChars = 2600
+} = {}) {
   const safePath = String(path || 'file').replace(/[\r\n]/g, '');
   const operations = diffOperations(linesOf(before), linesOf(after));
-  const additions = operations.reduce((count, op) => count + (op.kind === '+' ? 1 : 0), 0);
-  const deletions = operations.reduce((count, op) => count + (op.kind === '-' ? 1 : 0), 0);
+  const additions = operations.reduce(
+    (count, op) => count + (op.kind === '+' ? 1 : 0),
+    0
+  );
+  const deletions = operations.reduce(
+    (count, op) => count + (op.kind === '-' ? 1 : 0),
+    0
+  );
   const raw = [
     `--- a/${safePath}`,
     `+++ b/${safePath}`,
     '@@',
-    ...operations.map(op => `${op.kind}${op.line}`)
+    ...operations.map((op) => `${op.kind}${op.line}`)
   ].join('\n');
 
   const limit = Math.max(32, Math.min(10000, Number(maxChars) || 2600));
@@ -136,26 +172,40 @@ export function buildUnifiedDiff({ path, before, after, maxChars = 2600 } = {}) 
   };
 }
 
-
 export function validateWorkspaceFiles(files = []) {
-  if (!Array.isArray(files) || files.length === 0) throw new Error('Workspace files are required');
-  if (files.length > MAX_WORKSPACE_FILES) throw new Error(`Workspace is limited to ${MAX_WORKSPACE_FILES} files`);
+  if (!Array.isArray(files) || files.length === 0)
+    throw new Error('Workspace files are required');
+  if (files.length > MAX_WORKSPACE_FILES)
+    throw new Error(`Workspace is limited to ${MAX_WORKSPACE_FILES} files`);
   const seen = new Set();
   let totalBytes = 0;
-  const normalized = files.map(source => {
+  const normalized = files.map((source) => {
     const path = String(source?.path || '').replaceAll('\\', '/');
     if (!path) throw new Error('Workspace file path is required');
     if (seen.has(path)) throw new Error(`Duplicate workspace path: ${path}`);
     seen.add(path);
-    const original = validateEditableFile({ path, text: source?.originalText ?? '' });
+    const original = validateEditableFile({
+      path,
+      text: source?.originalText ?? ''
+    });
     if (!original.editable) throw new Error(original.reason);
-    const draft = validateEditableFile({ path, text: source?.draftText ?? source?.originalText ?? '' });
+    const draft = validateEditableFile({
+      path,
+      text: source?.draftText ?? source?.originalText ?? ''
+    });
     if (!draft.editable) throw new Error(draft.reason);
     totalBytes += Math.max(original.byteLength, draft.byteLength);
-    return { ...source, path, originalText: original.text, draftText: draft.text };
+    return {
+      ...source,
+      path,
+      originalText: original.text,
+      draftText: draft.text
+    };
   });
   if (totalBytes > MAX_WORKSPACE_BYTES) {
-    throw new Error('Workspace aggregate text is limited to 131,072 UTF-8 bytes');
+    throw new Error(
+      'Workspace aggregate text is limited to 131,072 UTF-8 bytes'
+    );
   }
   return { valid: true, files: normalized, totalBytes };
 }
@@ -167,7 +217,12 @@ export function buildWorkspaceDiff({ files = [], maxChars = 3000 } = {}) {
   let deletions = 0;
   for (const file of validated.files) {
     if (file.originalText === file.draftText) continue;
-    const diff = buildUnifiedDiff({ path: file.path, before: file.originalText, after: file.draftText, maxChars: 10000 });
+    const diff = buildUnifiedDiff({
+      path: file.path,
+      before: file.originalText,
+      after: file.draftText,
+      maxChars: 10000
+    });
     additions += diff.additions;
     deletions += diff.deletions;
     changed.push(diff.text);
@@ -176,14 +231,22 @@ export function buildWorkspaceDiff({ files = [], maxChars = 3000 } = {}) {
   const limit = Math.max(32, Math.min(10000, Number(maxChars) || 3000));
   const marker = '\n…';
   const truncated = raw.length > limit;
-  const text = truncated ? `${raw.slice(0, Math.max(0, limit - marker.length))}${marker}` : raw;
-  return { text, additions, deletions, filesChanged: changed.length, truncated };
+  const text = truncated
+    ? `${raw.slice(0, Math.max(0, limit - marker.length))}${marker}`
+    : raw;
+  return {
+    text,
+    additions,
+    deletions,
+    filesChanged: changed.length,
+    truncated
+  };
 }
 
 export async function digestWorkspaceFiles(files = []) {
   const validated = validateWorkspaceFiles(files);
   const canonical = validated.files
-    .map(file => ({
+    .map((file) => ({
       path: file.path,
       blobSha: String(file.blobSha || ''),
       originalDigest: String(file.originalDigest || ''),

@@ -1,8 +1,17 @@
-const fullSha = value => /^[a-f0-9]{40}$/i.test(String(value || '')) ? String(value).toLowerCase() : '';
+const fullSha = (value) =>
+  /^[a-f0-9]{40}$/i.test(String(value || ''))
+    ? String(value).toLowerCase()
+    : '';
 
-export function correlateDeliveryState({ targetSha, ci, deploy, runtime } = {}) {
+export function correlateDeliveryState({
+  targetSha,
+  ci,
+  deploy,
+  runtime
+} = {}) {
   const target = fullSha(targetSha);
-  if (!target || !ci || !deploy) return { state: 'unknown', reason: 'Delivery evidence is incomplete' };
+  if (!target || !ci || !deploy)
+    return { state: 'unknown', reason: 'Delivery evidence is incomplete' };
 
   const ciSha = fullSha(ci.sha);
   const deploySha = fullSha(deploy.sha);
@@ -12,8 +21,14 @@ export function correlateDeliveryState({ targetSha, ci, deploy, runtime } = {}) 
 
   const ciState = String(ci.conclusion || ci.status || '');
   const deployState = String(deploy.conclusion || deploy.status || '');
-  if (['failure', 'cancelled', 'timed_out', 'action_required'].includes(ciState) ||
-      ['failure', 'cancelled', 'timed_out', 'action_required'].includes(deployState)) {
+  if (
+    ['failure', 'cancelled', 'timed_out', 'action_required'].includes(
+      ciState
+    ) ||
+    ['failure', 'cancelled', 'timed_out', 'action_required'].includes(
+      deployState
+    )
+  ) {
     return { state: 'failed', reason: 'CI or deploy failed' };
   }
   if (ci.status !== 'completed' || deploy.status !== 'completed') {
@@ -24,8 +39,16 @@ export function correlateDeliveryState({ targetSha, ci, deploy, runtime } = {}) 
   }
 
   const versions = runtime?.deployment?.versions;
-  if (!Array.isArray(versions) || versions.length !== 1 || Number(versions[0]?.percentage) !== 100 || !versions[0]?.versionId) {
-    return { state: 'mismatch', reason: 'Runtime traffic is not pinned to one verified version' };
+  if (
+    !Array.isArray(versions) ||
+    versions.length !== 1 ||
+    Number(versions[0]?.percentage) !== 100 ||
+    !versions[0]?.versionId
+  ) {
+    return {
+      state: 'mismatch',
+      reason: 'Runtime traffic is not pinned to one verified version'
+    };
   }
 
   return {

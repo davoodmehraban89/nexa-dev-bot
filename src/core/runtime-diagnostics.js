@@ -1,4 +1,4 @@
-const configured = value => Boolean(String(value || '').trim());
+const configured = (value) => Boolean(String(value || '').trim());
 
 function safeConfigured(checkable) {
   try {
@@ -17,7 +17,7 @@ function pluginStats(registry) {
   }
 
   let actionCount = 0;
-  const summary = plugins.map(plugin => {
+  const summary = plugins.map((plugin) => {
     const manifest = plugin?.manifest || {};
     const actions = Object.entries(manifest.actions || {});
     actionCount += actions.length;
@@ -37,7 +37,14 @@ function pluginStats(registry) {
 }
 
 export class RuntimeDiagnostics {
-  constructor({ env = {}, github = null, registry = null, replayStore = null, workspaceStore = null, approvals = null } = {}) {
+  constructor({
+    env = {},
+    github = null,
+    registry = null,
+    replayStore = null,
+    workspaceStore = null,
+    approvals = null
+  } = {}) {
     this.env = env || {};
     this.github = github;
     this.registry = registry;
@@ -53,7 +60,9 @@ export class RuntimeDiagnostics {
       this.env.TELEGRAM_WEBHOOK_SECRET,
       this.env.GITHUB_TOKEN,
       this.env.APPROVAL_SIGNING_SECRET
-    ].map(secret => String(secret || '')).filter(Boolean);
+    ]
+      .map((secret) => String(secret || ''))
+      .filter(Boolean);
     for (const secret of secrets) text = text.split(secret).join('[REDACTED]');
     return text;
   }
@@ -73,15 +82,22 @@ export class RuntimeDiagnostics {
 
     return {
       runtime: 'Cloudflare Worker',
-      githubOwner: String(this.env.GITHUB_OWNER || this.github?.owner || 'davoodmehraban89'),
+      githubOwner: String(
+        this.env.GITHUB_OWNER || this.github?.owner || 'davoodmehraban89'
+      ),
       telegramConfigured: configured(this.env.TELEGRAM_BOT_TOKEN),
       webhookSecretConfigured: configured(this.env.TELEGRAM_WEBHOOK_SECRET),
       ownerConfigured: configured(this.env.OWNER_TELEGRAM_ID),
       githubConfigured: configured(this.env.GITHUB_TOKEN),
-      replayGuardConfigured: safeConfigured(this.replayStore) || replayProtected,
+      replayGuardConfigured:
+        safeConfigured(this.replayStore) || replayProtected,
       workspaceStoreConfigured: safeConfigured(this.workspaceStore),
-      approvalSignerConfigured: configured(this.env.APPROVAL_SIGNING_SECRET) || configured(this.env.TELEGRAM_WEBHOOK_SECRET),
-      dedicatedApprovalSignerConfigured: configured(this.env.APPROVAL_SIGNING_SECRET),
+      approvalSignerConfigured:
+        configured(this.env.APPROVAL_SIGNING_SECRET) ||
+        configured(this.env.TELEGRAM_WEBHOOK_SECRET),
+      dedicatedApprovalSignerConfigured: configured(
+        this.env.APPROVAL_SIGNING_SECRET
+      ),
       pluginCount: plugins.pluginCount,
       actionCount: plugins.actionCount
     };
@@ -89,10 +105,18 @@ export class RuntimeDiagnostics {
 
   async probeGitHub() {
     if (!configured(this.env.GITHUB_TOKEN)) {
-      return { ok: false, owner: String(this.github?.owner || this.env.GITHUB_OWNER || ''), error: 'GitHub token is not configured' };
+      return {
+        ok: false,
+        owner: String(this.github?.owner || this.env.GITHUB_OWNER || ''),
+        error: 'GitHub token is not configured'
+      };
     }
     if (!this.github || typeof this.github.listRepositories !== 'function') {
-      return { ok: false, owner: String(this.github?.owner || this.env.GITHUB_OWNER || ''), error: 'GitHub provider is unavailable' };
+      return {
+        ok: false,
+        owner: String(this.github?.owner || this.env.GITHUB_OWNER || ''),
+        error: 'GitHub provider is unavailable'
+      };
     }
 
     try {
@@ -115,23 +139,49 @@ export class RuntimeDiagnostics {
     const snapshot = this.getSnapshot();
     const githubLive = await this.probeGitHub();
     const checks = [
-      { id: 'telegram', label: 'Telegram Bot token', ok: snapshot.telegramConfigured },
-      { id: 'webhook', label: 'Telegram Webhook secret', ok: snapshot.webhookSecretConfigured },
+      {
+        id: 'telegram',
+        label: 'Telegram Bot token',
+        ok: snapshot.telegramConfigured
+      },
+      {
+        id: 'webhook',
+        label: 'Telegram Webhook secret',
+        ok: snapshot.webhookSecretConfigured
+      },
       { id: 'owner', label: 'Owner lock', ok: snapshot.ownerConfigured },
-      { id: 'github-token', label: 'GitHub credential', ok: snapshot.githubConfigured },
-      { id: 'replay-guard', label: 'Approval replay guard', ok: snapshot.replayGuardConfigured },
-      { id: 'workspace-store', label: 'Workspace store', ok: snapshot.workspaceStoreConfigured },
-      { id: 'approval-signer', label: 'Approval signer', ok: snapshot.approvalSignerConfigured },
+      {
+        id: 'github-token',
+        label: 'GitHub credential',
+        ok: snapshot.githubConfigured
+      },
+      {
+        id: 'replay-guard',
+        label: 'Approval replay guard',
+        ok: snapshot.replayGuardConfigured
+      },
+      {
+        id: 'workspace-store',
+        label: 'Workspace store',
+        ok: snapshot.workspaceStoreConfigured
+      },
+      {
+        id: 'approval-signer',
+        label: 'Approval signer',
+        ok: snapshot.approvalSignerConfigured
+      },
       {
         id: 'github-live',
         label: 'GitHub live READ',
         ok: githubLive.ok,
-        detail: githubLive.ok ? `${githubLive.repositoryCount} repositories visible` : githubLive.error
+        detail: githubLive.ok
+          ? `${githubLive.repositoryCount} repositories visible`
+          : githubLive.error
       }
     ];
 
     return {
-      ok: checks.every(check => check.ok),
+      ok: checks.every((check) => check.ok),
       checks,
       snapshot,
       github: githubLive

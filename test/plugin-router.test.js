@@ -6,7 +6,7 @@ import { PluginRouter } from '../src/core/router.js';
 
 function auditCollector() {
   const events = [];
-  return { events, logger: { log: event => events.push(event) } };
+  return { events, logger: { log: (event) => events.push(event) } };
 }
 
 test('PluginRouter dispatches the first matching READ command after policy evaluation', async () => {
@@ -20,15 +20,16 @@ test('PluginRouter dispatches the first matching READ command after policy evalu
       id: 'second',
       actions: { 'second.read': { risk: 'READ' } }
     },
-    resolveCommand: command => command === '/go'
-      ? {
-          actionId: 'second.read',
-          execute: async () => {
-            executed += 1;
-            return { view: 'ok' };
+    resolveCommand: (command) =>
+      command === '/go'
+        ? {
+            actionId: 'second.read',
+            execute: async () => {
+              executed += 1;
+              return { view: 'ok' };
+            }
           }
-        }
-      : null
+        : null
   };
   const third = {
     manifest: {
@@ -66,15 +67,16 @@ test('PluginRouter dispatches callbacks through the same policy boundary', async
       id: 'sample',
       actions: { 'sample.callback.read': { risk: 'READ' } }
     },
-    resolveCallback: data => data === 'sample:1'
-      ? {
-          actionId: 'sample.callback.read',
-          execute: async () => {
-            executed += 1;
-            return { callback: 'ok' };
+    resolveCallback: (data) =>
+      data === 'sample:1'
+        ? {
+            actionId: 'sample.callback.read',
+            execute: async () => {
+              executed += 1;
+              return { callback: 'ok' };
+            }
           }
-        }
-      : null
+        : null
   };
   const router = new PluginRouter({
     registry: new PluginRegistry([plugin]),
@@ -101,8 +103,14 @@ test('PluginRouter returns null when no plugin owns the route', async () => {
     audit: { log() {} }
   });
 
-  assert.equal(await router.dispatchCommand('/unknown', { isOwner: true }), null);
-  assert.equal(await router.dispatchCallback('unknown', { isOwner: true }), null);
+  assert.equal(
+    await router.dispatchCommand('/unknown', { isOwner: true }),
+    null
+  );
+  assert.equal(
+    await router.dispatchCallback('unknown', { isOwner: true }),
+    null
+  );
 });
 
 test('PluginRouter denies undeclared actions without executing plugin code', async () => {
@@ -169,15 +177,16 @@ test('PluginRouter executes an approved owner WRITE action exactly once', async 
       id: 'sample',
       actions: { 'sample.write': { risk: 'WRITE' } }
     },
-    resolveCallback: data => data === 'write:1'
-      ? {
-          actionId: 'sample.write',
-          execute: async () => {
-            executed += 1;
-            return { ok: true, view: 'done' };
+    resolveCallback: (data) =>
+      data === 'write:1'
+        ? {
+            actionId: 'sample.write',
+            execute: async () => {
+              executed += 1;
+              return { ok: true, view: 'done' };
+            }
           }
-        }
-      : null
+        : null
   };
   const router = new PluginRouter({
     registry: new PluginRegistry([plugin]),

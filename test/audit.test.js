@@ -6,7 +6,7 @@ test('AuditLogger redacts configured secrets recursively', () => {
   const events = [];
   const logger = new AuditLogger({
     secrets: ['bot-secret', 'github-secret'],
-    sink: event => events.push(event)
+    sink: (event) => events.push(event)
   });
 
   logger.log({
@@ -18,14 +18,16 @@ test('AuditLogger redacts configured secrets recursively', () => {
     }
   });
 
-  assert.deepEqual(events, [{
-    event: 'action_error',
-    message: 'token [REDACTED] failed',
-    nested: {
-      detail: '[REDACTED] present',
-      values: ['safe', '[REDACTED]']
+  assert.deepEqual(events, [
+    {
+      event: 'action_error',
+      message: 'token [REDACTED] failed',
+      nested: {
+        detail: '[REDACTED] present',
+        values: ['safe', '[REDACTED]']
+      }
     }
-  }]);
+  ]);
 });
 
 test('AuditLogger sink failures never escape to the caller', () => {

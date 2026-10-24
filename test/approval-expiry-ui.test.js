@@ -14,14 +14,23 @@ function makeReplayNamespace() {
           const body = await request.json();
           const expiresAt = Number(body?.expiresAt);
           if (!Number.isFinite(expiresAt)) {
-            return Response.json({ accepted: false, reason: 'invalid_expiry' }, { status: 400 });
+            return Response.json(
+              { accepted: false, reason: 'invalid_expiry' },
+              { status: 400 }
+            );
           }
           if (expiresAt < Date.now()) {
-            return Response.json({ accepted: false, reason: 'expired' }, { status: 410 });
+            return Response.json(
+              { accepted: false, reason: 'expired' },
+              { status: 410 }
+            );
           }
           const key = String(id);
           if (used.has(key)) {
-            return Response.json({ accepted: false, reason: 'already_used' }, { status: 409 });
+            return Response.json(
+              { accepted: false, reason: 'already_used' },
+              { status: 409 }
+            );
           }
           used.add(key);
           return Response.json({ accepted: true });
@@ -70,13 +79,23 @@ function installMock() {
       const method = value.split('/').at(-1);
       const body = options.body ? JSON.parse(options.body) : {};
       telegramCalls.push({ method, body });
-      return json({ ok: true, result: { message_id: body.message_id || 700, ...body } });
+      return json({
+        ok: true,
+        result: { message_id: body.message_id || 700, ...body }
+      });
     }
     if (value === 'https://api.github.com/repositories/1001') {
       githubCalls.push({ url: value, method: options.method || 'GET' });
-      return json({ id: 1001, name: 'demo', full_name: 'davoodmehraban89/demo' });
+      return json({
+        id: 1001,
+        name: 'demo',
+        full_name: 'davoodmehraban89/demo'
+      });
     }
-    if (value === 'https://api.github.com/repos/davoodmehraban89/demo/actions/runs/55/rerun-failed-jobs') {
+    if (
+      value ===
+      'https://api.github.com/repos/davoodmehraban89/demo/actions/runs/55/rerun-failed-jobs'
+    ) {
       githubCalls.push({ url: value, method: options.method || 'GET' });
       return new Response('', { status: 201 });
     }
@@ -117,15 +136,18 @@ test('expired approval gives visible Telegram feedback and no GitHub write', asy
     assert.equal(issued.approvalRequired, true);
 
     const approvalEdit = mock.telegramCalls
-      .filter(call => call.method === 'editMessageText')
+      .filter((call) => call.method === 'editMessageText')
       .at(-1);
     const approveButton = approvalEdit.body.reply_markup.inline_keyboard
       .flat()
-      .find(button => String(button.callback_data || '').startsWith('approve:'));
+      .find((button) =>
+        String(button.callback_data || '').startsWith('approve:')
+      );
     assert.ok(approveButton);
 
-    const editCountBeforeExpiryClick = mock.telegramCalls
-      .filter(call => call.method === 'editMessageText').length;
+    const editCountBeforeExpiryClick = mock.telegramCalls.filter(
+      (call) => call.method === 'editMessageText'
+    ).length;
 
     now += 121_000;
     const expired = await sendUpdate({
@@ -142,16 +164,25 @@ test('expired approval gives visible Telegram feedback and no GitHub write', asy
     });
 
     assert.equal(expired.ok, false);
-    assert.equal(mock.githubCalls.filter(call => call.method === 'POST').length, 0);
+    assert.equal(
+      mock.githubCalls.filter((call) => call.method === 'POST').length,
+      0
+    );
 
-    const edits = mock.telegramCalls.filter(call => call.method === 'editMessageText');
-    assert.equal(edits.length, editCountBeforeExpiryClick + 1, 'expired approval must visibly update the Telegram message');
+    const edits = mock.telegramCalls.filter(
+      (call) => call.method === 'editMessageText'
+    );
+    assert.equal(
+      edits.length,
+      editCountBeforeExpiryClick + 1,
+      'expired approval must visibly update the Telegram message'
+    );
     const feedback = edits.at(-1);
     assert.match(feedback.body.text, /منقضی|اعتبار|اجرا نشد/);
     assert.ok(
       feedback.body.reply_markup.inline_keyboard
         .flat()
-        .some(button => button.callback_data === 'run:1001:55'),
+        .some((button) => button.callback_data === 'run:1001:55'),
       'feedback must provide a safe route back to the workflow run'
     );
   } finally {

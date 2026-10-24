@@ -22,22 +22,35 @@ function json(data, status = 200) {
 
 test('GitHubService requests a bounded workflow-runs page', async () => {
   const requested = [];
-  await withFetch(async url => {
-    const value = String(url);
-    requested.push(value);
-    if (value === 'https://api.github.com/repositories/123') {
-      return json({ id: 123, name: 'nexa-dev-bot', full_name: 'davoodmehraban89/nexa-dev-bot' });
+  await withFetch(
+    async (url) => {
+      const value = String(url);
+      requested.push(value);
+      if (value === 'https://api.github.com/repositories/123') {
+        return json({
+          id: 123,
+          name: 'nexa-dev-bot',
+          full_name: 'davoodmehraban89/nexa-dev-bot'
+        });
+      }
+      if (
+        value ===
+        'https://api.github.com/repos/davoodmehraban89/nexa-dev-bot/actions/runs?per_page=10&page=2'
+      ) {
+        return json({ workflow_runs: [] });
+      }
+      return json({ message: 'Not Found' }, 404);
+    },
+    async () => {
+      const service = new GitHubService('token');
+      await service.listWorkflowRuns(123, { perPage: 10, page: 2 });
     }
-    if (value === 'https://api.github.com/repos/davoodmehraban89/nexa-dev-bot/actions/runs?per_page=10&page=2') {
-      return json({ workflow_runs: [] });
-    }
-    return json({ message: 'Not Found' }, 404);
-  }, async () => {
-    const service = new GitHubService('token');
-    await service.listWorkflowRuns(123, { perPage: 10, page: 2 });
-  });
+  );
 
-  assert.equal(requested.at(-1), 'https://api.github.com/repos/davoodmehraban89/nexa-dev-bot/actions/runs?per_page=10&page=2');
+  assert.equal(
+    requested.at(-1),
+    'https://api.github.com/repos/davoodmehraban89/nexa-dev-bot/actions/runs?per_page=10&page=2'
+  );
 });
 
 test('GitHub plugin navigates older and newer CI pages without write side effects', async () => {
@@ -60,8 +73,12 @@ test('GitHub plugin navigates older and newer CI pages without write side effect
     }
   };
   const menu = {
-    async getReposListView() { return { text: 'repos', reply_markup: { inline_keyboard: [] } }; },
-    async renderByCallback(data) { return { text: data, reply_markup: { inline_keyboard: [] } }; }
+    async getReposListView() {
+      return { text: 'repos', reply_markup: { inline_keyboard: [] } };
+    },
+    async renderByCallback(data) {
+      return { text: data, reply_markup: { inline_keyboard: [] } };
+    }
   };
 
   const plugin = createGitHubPlugin({ github, menu });
@@ -72,7 +89,9 @@ test('GitHub plugin navigates older and newer CI pages without write side effect
 
   const view = await route.execute();
   assert.deepEqual(calls, [{ repoId: 123, options: { perPage: 10, page: 2 } }]);
-  const callbacks = view.reply_markup.inline_keyboard.flat().map(button => button.callback_data);
+  const callbacks = view.reply_markup.inline_keyboard
+    .flat()
+    .map((button) => button.callback_data);
   assert.ok(callbacks.includes('runs:123:1'));
   assert.ok(callbacks.includes('runs:123:3'));
 });

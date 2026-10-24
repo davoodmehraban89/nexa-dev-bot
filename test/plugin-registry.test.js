@@ -31,19 +31,21 @@ test('PluginRegistry rejects duplicate plugin ids', () => {
 
 test('PluginRegistry rejects duplicate action ids across plugins', () => {
   assert.throws(
-    () => new PluginRegistry([
-      plugin('github', { 'shared.read': { risk: 'READ' } }),
-      plugin('cloudflare', { 'shared.read': { risk: 'READ' } })
-    ]),
+    () =>
+      new PluginRegistry([
+        plugin('github', { 'shared.read': { risk: 'READ' } }),
+        plugin('cloudflare', { 'shared.read': { risk: 'READ' } })
+      ]),
     /duplicate action id/i
   );
 });
 
 test('PluginRegistry rejects unknown action risk levels', () => {
   assert.throws(
-    () => new PluginRegistry([
-      plugin('github', { 'github.repos.list': { risk: 'SUPERUSER' } })
-    ]),
+    () =>
+      new PluginRegistry([
+        plugin('github', { 'github.repos.list': { risk: 'SUPERUSER' } })
+      ]),
     /invalid action risk/i
   );
 });

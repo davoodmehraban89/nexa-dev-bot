@@ -2,7 +2,8 @@ export class TelegramClient {
   constructor(botToken, options = {}) {
     this.botToken = botToken;
     this.baseUrl = options.baseUrl || `https://api.telegram.org/bot${botToken}`;
-    this.fileBaseUrl = options.fileBaseUrl || `https://api.telegram.org/file/bot${botToken}`;
+    this.fileBaseUrl =
+      options.fileBaseUrl || `https://api.telegram.org/file/bot${botToken}`;
     this.fetchFn = options.fetch || ((...args) => fetch(...args));
   }
 
@@ -31,7 +32,9 @@ export class TelegramClient {
 
     if (!response.ok) {
       const detail = body?.description ? ` ${body.description}` : '';
-      throw new Error(`Telegram API ${method} failed: ${response.status}${detail}`);
+      throw new Error(
+        `Telegram API ${method} failed: ${response.status}${detail}`
+      );
     }
 
     if (!body || body.ok !== true) {
@@ -47,7 +50,8 @@ export class TelegramClient {
     const id = String(fileId || '');
     if (!id) throw new Error('Telegram file_id is required');
     const limit = Number(maxBytes);
-    if (!Number.isFinite(limit) || limit <= 0) throw new Error('Telegram file size limit is invalid');
+    if (!Number.isFinite(limit) || limit <= 0)
+      throw new Error('Telegram file size limit is invalid');
 
     const metadata = await this.callApi('getFile', { file_id: id });
     const filePath = String(metadata?.result?.file_path || '');
@@ -57,17 +61,24 @@ export class TelegramClient {
       throw new Error(`Telegram file exceeds ${limit} byte size limit`);
     }
 
-    const safePath = filePath.split('/').map(segment => encodeURIComponent(segment)).join('/');
+    const safePath = filePath
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
     let response;
     try {
-      response = await this.fetchFn(`${this.fileBaseUrl}/${safePath}`, { method: 'GET' });
+      response = await this.fetchFn(`${this.fileBaseUrl}/${safePath}`, {
+        method: 'GET'
+      });
     } catch (err) {
       throw new Error(`Telegram file download network failure: ${err.message}`);
     }
-    if (!response.ok) throw new Error(`Telegram file download failed: ${response.status}`);
+    if (!response.ok)
+      throw new Error(`Telegram file download failed: ${response.status}`);
 
     const bytes = await response.arrayBuffer();
-    if (bytes.byteLength > limit) throw new Error(`Telegram file exceeds ${limit} byte size limit`);
+    if (bytes.byteLength > limit)
+      throw new Error(`Telegram file exceeds ${limit} byte size limit`);
 
     let text;
     try {
@@ -88,7 +99,13 @@ export class TelegramClient {
     return this.callApi('sendMessage', payload);
   }
 
-  async editMessageText(chatId, messageId, text, replyMarkup = null, parseMode = 'HTML') {
+  async editMessageText(
+    chatId,
+    messageId,
+    text,
+    replyMarkup = null,
+    parseMode = 'HTML'
+  ) {
     const payload = {
       chat_id: chatId,
       message_id: messageId,

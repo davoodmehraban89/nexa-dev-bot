@@ -1,0 +1,6 @@
+{
+  "singleQuote": true,
+  "quoteProps": "preserve",
+  "trailingComma": "none",
+  "embeddedLanguageFormatting": "off"
+}

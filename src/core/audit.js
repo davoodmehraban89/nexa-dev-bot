@@ -8,10 +8,13 @@ function redactString(value, secrets) {
 
 function sanitize(value, secrets) {
   if (typeof value === 'string') return redactString(value, secrets);
-  if (Array.isArray(value)) return value.map(item => sanitize(item, secrets));
+  if (Array.isArray(value)) return value.map((item) => sanitize(item, secrets));
   if (value && typeof value === 'object') {
     return Object.fromEntries(
-      Object.entries(value).map(([key, nested]) => [key, sanitize(nested, secrets)])
+      Object.entries(value).map(([key, nested]) => [
+        key,
+        sanitize(nested, secrets)
+      ])
     );
   }
   return value;
@@ -19,8 +22,9 @@ function sanitize(value, secrets) {
 
 export class AuditLogger {
   constructor({ secrets = [], sink } = {}) {
-    this.secrets = secrets.map(value => String(value || '')).filter(Boolean);
-    this.sink = sink || (event => console.log('nexa_audit', JSON.stringify(event)));
+    this.secrets = secrets.map((value) => String(value || '')).filter(Boolean);
+    this.sink =
+      sink || ((event) => console.log('nexa_audit', JSON.stringify(event)));
   }
 
   log(event) {

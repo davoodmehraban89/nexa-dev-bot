@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import worker from '../src/index.js';
 
 test('Worker serves Workspace Mini App with no-store and a restrictive CSP', async () => {
-  const response = await worker.fetch(new Request('https://example.com/workspace/editor'), {}, {});
+  const response = await worker.fetch(
+    new Request('https://example.com/workspace/editor'),
+    {},
+    {}
+  );
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type') || '', /text\/html/i);
   assert.equal(response.headers.get('cache-control'), 'no-store');
@@ -18,7 +22,9 @@ test('Worker serves Workspace Mini App with no-store and a restrictive CSP', asy
 
 test('Worker editor API rejects requests that do not carry valid Telegram initData', async () => {
   const response = await worker.fetch(
-    new Request('https://example.com/workspace/api/editor?workspaceId=W000000001'),
+    new Request(
+      'https://example.com/workspace/api/editor?workspaceId=W000000001'
+    ),
     { TELEGRAM_BOT_TOKEN: '123456:TEST_ONLY_TOKEN', OWNER_TELEGRAM_ID: '42' },
     {}
   );

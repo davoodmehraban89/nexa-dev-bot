@@ -8,26 +8,28 @@ async function hmacSha256(keyBytes, value) {
     false,
     ['sign']
   );
-  return new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(String(value))));
+  return new Uint8Array(
+    await crypto.subtle.sign('HMAC', key, encoder.encode(String(value)))
+  );
 }
 
-const hex = bytes => Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+const hex = (bytes) =>
+  Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 
 function timingSafeHexEqual(left, right) {
   const a = String(left || '').toLowerCase();
   const b = String(right || '').toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(a) || !/^[a-f0-9]{64}$/.test(b)) return false;
   let mismatch = 0;
-  for (let i = 0; i < a.length; i += 1) mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  for (let i = 0; i < a.length; i += 1)
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return mismatch === 0;
 }
 
-export async function validateTelegramWebAppInitData(initData, {
-  botToken,
-  ownerId,
-  now = () => Date.now(),
-  maxAgeSeconds = 3600
-} = {}) {
+export async function validateTelegramWebAppInitData(
+  initData,
+  { botToken, ownerId, now = () => Date.now(), maxAgeSeconds = 3600 } = {}
+) {
   const token = String(botToken || '');
   const owner = String(ownerId || '');
   if (!token) throw new Error('Mini App bot token is not configured');
@@ -40,7 +42,9 @@ export async function validateTelegramWebAppInitData(initData, {
   const pairs = [...params.entries()]
     .filter(([key]) => key !== 'hash')
     .sort(([a], [b]) => a.localeCompare(b));
-  const dataCheckString = pairs.map(([key, value]) => `${key}=${value}`).join('\n');
+  const dataCheckString = pairs
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n');
 
   // Telegram Mini Apps validation: HMAC_SHA256(key="WebAppData", data=bot_token),
   // then HMAC_SHA256(key=secret_key, data=data_check_string).
@@ -51,7 +55,8 @@ export async function validateTelegramWebAppInitData(initData, {
   }
 
   const authDate = Number(params.get('auth_date'));
-  if (!Number.isSafeInteger(authDate) || authDate <= 0) throw new Error('Mini App auth_date is invalid');
+  if (!Number.isSafeInteger(authDate) || authDate <= 0)
+    throw new Error('Mini App auth_date is invalid');
   const currentSeconds = Math.floor(Number(now()) / 1000);
   const age = currentSeconds - authDate;
   if (!Number.isFinite(age) || age < -60 || age > Number(maxAgeSeconds)) {

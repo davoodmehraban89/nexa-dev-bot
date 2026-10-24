@@ -266,6 +266,7 @@ export class GitHubService {
       title: pr.title || '',
       author: pr.user?.login || 'unknown',
       state: pr.state || '',
+      draft: !!pr.draft,
       merged: !!(pr.merged ?? pr.merged_at),
       body: pr.body || '',
       url: pr.html_url || '',

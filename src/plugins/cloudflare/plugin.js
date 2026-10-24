@@ -183,7 +183,7 @@ export function createCloudflarePlugin({ cloudflare, github } = {}) {
                 ? 'SUCCESS / موفق'
                 : state.state.toUpperCase();
             return {
-              text: `🚦 <b>CI/CD Control Plane</b>\nState: <b>${label}</b>\nSHA: <code>${escapeHtml(targetSha.slice(0, 12) || '-')}</code>\nCI: <b>${escapeHtml(ci?.conclusion || ci?.status || 'unknown')}</b>\nDeploy: <b>${escapeHtml(deploy?.conclusion || deploy?.status || 'unknown')}</b>\nRuntime: <code>${escapeHtml(state.versionId || runtime?.deployment?.versions?.[0]?.versionId || '-')}</code>\n\n${escapeHtml(state.reason)}</b>`,
+              text: `🚦 <b>CI/CD Control Plane</b>\nState: <b>${label}</b>\nSHA: <code>${escapeHtml(targetSha.slice(0, 12) || '-')}</code>\nCI: <b>${escapeHtml(ci?.conclusion || ci?.status || 'unknown')}</b>\nDeploy: <b>${escapeHtml(deploy?.conclusion || deploy?.status || 'unknown')}</b>\nRuntime: <code>${escapeHtml(state.versionId || runtime?.deployment?.versions?.[0]?.versionId || '-')}</code>\n\n${escapeHtml(state.reason)}`,
               reply_markup: {
                 inline_keyboard: [
                   [{ text: '🔄 بروزرسانی', callback_data: 'cf:delivery' }],

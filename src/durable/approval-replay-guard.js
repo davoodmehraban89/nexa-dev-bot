@@ -7,6 +7,28 @@ export class ApprovalReplayGuard {
   async fetch(request) {
     const url = new URL(request.url);
 
+    if (request.method === 'POST' && url.pathname === '/telegram/claim') {
+      const payload = await request.json().catch(() => null);
+      const expiresAt = Number(payload?.expiresAt);
+      const now = Date.now();
+      if (!Number.isSafeInteger(expiresAt) || expiresAt <= now) {
+        return json({ accepted: false, reason: 'invalid_expiry' }, 400);
+      }
+      const accepted = await this.state.storage.transaction(async (txn) => {
+        const claimedUntil = Number(await txn.get('telegramUpdateExpiresAt'));
+        if (Number.isFinite(claimedUntil) && claimedUntil > now) {
+          await txn.setAlarm(claimedUntil);
+          return false;
+        }
+        await txn.put('telegramUpdateExpiresAt', expiresAt);
+        await txn.setAlarm(expiresAt);
+        return true;
+      });
+      return accepted
+        ? json({ accepted: true })
+        : json({ accepted: false, reason: 'duplicate' }, 409);
+    }
+
     if (request.method === 'POST' && url.pathname === '/second-factor/put') {
       const payload = await request.json().catch(() => null);
       const token = String(payload?.token || '');
@@ -106,6 +128,16 @@ export class ApprovalReplayGuard {
     return json({ accepted: true });
   }
   async alarm() {
-    await this.state.storage.deleteAll();
+    const telegramClaim = await this.state.storage.transaction(async (txn) => {
+      const expiresAt = await txn.get('telegramUpdateExpiresAt');
+      if (expiresAt === undefined) return false;
+      if (Number(expiresAt) > Date.now()) await txn.setAlarm(Number(expiresAt));
+      else {
+        await txn.delete('telegramUpdateExpiresAt');
+        await txn.deleteAlarm();
+      }
+      return true;
+    });
+    if (!telegramClaim) await this.state.storage.deleteAll();
   }
 }

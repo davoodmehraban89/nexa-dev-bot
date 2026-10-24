@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
+import {
+  makeReplayNamespace,
+  withUpdateId
+} from './helpers/replay-namespace.js';
 
 function telegramRequest(secret, update) {
   const headers = { 'content-type': 'application/json' };
@@ -9,7 +13,7 @@ function telegramRequest(secret, update) {
   return new Request('https://example.com/telegram/webhook', {
     method: 'POST',
     headers,
-    body: JSON.stringify(update)
+    body: JSON.stringify(withUpdateId(update))
   });
 }
 
@@ -48,6 +52,7 @@ test('webhook rejects a wrong Telegram secret', async () => {
   };
 
   const res = await worker.fetch(req, {
+    APPROVAL_REPLAY_GUARD: makeReplayNamespace(),
     TELEGRAM_WEBHOOK_SECRET: 'right',
     OWNER_TELEGRAM_ID: '123',
     TELEGRAM_BOT_TOKEN: 'token'
@@ -72,6 +77,7 @@ test('unauthorized Telegram users receive no bot response', async () => {
   };
 
   const res = await worker.fetch(req, {
+    APPROVAL_REPLAY_GUARD: makeReplayNamespace(),
     TELEGRAM_WEBHOOK_SECRET: 'right',
     OWNER_TELEGRAM_ID: '123',
     TELEGRAM_BOT_TOKEN: 'token'
@@ -120,6 +126,7 @@ test('temporary diagnostic command no longer exposes Telegram ID', async () => {
   };
 
   const res = await worker.fetch(req, {
+    APPROVAL_REPLAY_GUARD: makeReplayNamespace(),
     TELEGRAM_WEBHOOK_SECRET: 'right',
     OWNER_TELEGRAM_ID: '123',
     TELEGRAM_BOT_TOKEN: 'token'

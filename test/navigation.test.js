@@ -1,8 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
+import {
+  makeReplayNamespace,
+  withUpdateId
+} from './helpers/replay-namespace.js';
 
 const env = {
+  APPROVAL_REPLAY_GUARD: makeReplayNamespace(),
   TELEGRAM_WEBHOOK_SECRET: 'right',
   OWNER_TELEGRAM_ID: '123',
   TELEGRAM_BOT_TOKEN: 'telegram-test-token',
@@ -17,7 +22,7 @@ function webhook(update) {
       'content-type': 'application/json',
       'X-Telegram-Bot-Api-Secret-Token': 'right'
     },
-    body: JSON.stringify(update)
+    body: JSON.stringify(withUpdateId(update))
   });
 }
 const json = (data, status = 200) =>

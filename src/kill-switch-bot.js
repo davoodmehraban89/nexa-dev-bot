@@ -3,13 +3,10 @@ import { DurableKillSwitchStoreClient } from './core/kill-switch-store.js';
 import { KillSwitch } from './core/kill-switch.js';
 
 const lockMarkup = (mode) => ({
-  inline_keyboard: [
-    [
-      mode === 'LOCKED'
-        ? { text: '🔓 بازکردن اضطراری', callback_data: 'killswitch:unlock' }
-        : { text: '🔒 قفل اضطراری', callback_data: 'killswitch:lock' }
-    ]
-  ]
+  inline_keyboard:
+    mode === 'LOCKED'
+      ? [[{ text: '↩️ منوی اصلی', callback_data: 'menu:main' }]]
+      : [[{ text: '🔒 قفل اضطراری', callback_data: 'killswitch:lock' }]]
 });
 
 export class KillSwitchGuidedNexaDevBot extends GuidedNexaDevBot {
@@ -53,8 +50,29 @@ export class KillSwitchGuidedNexaDevBot extends GuidedNexaDevBot {
     try {
       await this.telegram.answerCallbackQuery(query.id);
     } catch {}
+    // Historical unlock callbacks never verified a signed approval or TOTP.
+    // Keep them fail-closed until the complete unlock protocol is implemented.
+    if (data === 'killswitch:unlock' || data === 'killswitch:confirm-unlock') {
+      this.audit.log({
+        event: 'kill_switch_control',
+        outcome: 'denied',
+        reason: 'unlock_protocol_required'
+      });
+      const res = await this.telegram.editMessageText(
+        chatId,
+        messageId,
+        '🔒 قفل فعال می‌ماند. بازکردن قفل به Safe Approval معتبر و TOTP نیاز دارد؛ مسیر قدیمی قابل استفاده نیست.',
+        lockMarkup('LOCKED')
+      );
+      return {
+        ok: false,
+        killSwitch: true,
+        reason: 'unlock_protocol_required',
+        res
+      };
+    }
     if (data === 'killswitch:lock' || data === 'killswitch:unlock') {
-      const target = data.endsWith('lock') ? 'lock' : 'unlock';
+      const target = 'lock';
       const label =
         target === 'lock' ? 'فعال‌کردن قفل اضطراری' : 'بازکردن قفل اضطراری';
       const res = await this.telegram.editMessageText(
@@ -75,12 +93,8 @@ export class KillSwitchGuidedNexaDevBot extends GuidedNexaDevBot {
       );
       return { ok: true, killSwitchApprovalRequired: true, res };
     }
-    const target = data.endsWith('lock') ? 'lock' : 'unlock';
     const context = { isOwner: true, approved: true };
-    const state =
-      target === 'lock'
-        ? await this.killSwitch.lock(context)
-        : await this.killSwitch.unlock(context);
+    const state = await this.killSwitch.lock(context);
     this.audit.log({
       event: 'kill_switch_control',
       outcome: 'success',

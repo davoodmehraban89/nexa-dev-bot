@@ -3,7 +3,8 @@ import {
   digestText,
   makeTargetBranch,
   normalizeCommitMessage,
-  validateEditableFile
+  validateEditableFile,
+  WORKSPACE_EDITOR_LIMITS
 } from '../../core/workspace-policy.js';
 import { DEFAULT_CONFIG } from '../../config.js';
 import { commitWorkspaceIntent } from './workspace-commit.js';
@@ -12,6 +13,7 @@ export { commitWorkspaceIntent } from './workspace-commit.js';
 
 const HANDLE_10 = '[A-Za-z0-9_-]{10}';
 const INTENT_8 = '[A-Za-z0-9_-]{8}';
+const editorLimitHint = `${WORKSPACE_EDITOR_LIMITS.maxChars.toLocaleString('en-US')} کاراکتر Unicode و ${WORKSPACE_EDITOR_LIMITS.maxBytes.toLocaleString('en-US')} بایت UTF-8`;
 const escapeHtml = (value) =>
   String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -270,8 +272,9 @@ export function createWorkspaceController({
       text: file.content,
       byteLength: file.size
     });
-    const preview =
-      file.content.length > 2600
+    const preview = !validateEditableFile({ path: file.path }).editable
+      ? 'محتوای فایل حساس در تلگرام نمایش داده نمی‌شود.'
+      : file.content.length > 2600
         ? `${file.content.slice(0, 2600)}\n…`
         : file.content;
     const reason = repo.archived
@@ -499,9 +502,9 @@ export function createWorkspaceController({
     const draftMode = mode === 'draft';
     return {
       text: fileMode
-        ? `📎 <b>فایل متنی جایگزین را ارسال کنید</b>\nمقصد در مخزن: <code>${escapeHtml(workspace.path)}</code>\n\nفایل ارسال‌شده فقط به‌عنوان محتوای جایگزین Draft استفاده می‌شود؛ نام فایل مقصد را تغییر نمی‌دهد. سقف Policy: 20,000 کاراکتر Unicode و 65,536 بایت UTF-8 معتبر. فایل‌های باینری، LFS یا محتوای غیرمجاز رد می‌شوند.`
+        ? `📎 <b>فایل متنی جایگزین را ارسال کنید</b>\nمقصد در مخزن: <code>${escapeHtml(workspace.path)}</code>\n\nفایل ارسال‌شده فقط به‌عنوان محتوای جایگزین Draft استفاده می‌شود؛ نام فایل مقصد را تغییر نمی‌دهد. سقف Policy: ${editorLimitHint} معتبر. فایل‌های باینری، LFS یا محتوای غیرمجاز رد می‌شوند.`
         : draftMode
-          ? `📝 <b>ورودی متنی قدیمی Workspace</b>\nفایل: <code>${escapeHtml(workspace.path)}</code>\n\nاین مسیر فقط برای سازگاری پیام‌های قدیمی باقی مانده است. Editor جدید مسیر اصلی است. سقف: 20,000 کاراکتر Unicode و 65,536 بایت UTF-8.`
+          ? `📝 <b>ورودی متنی قدیمی Workspace</b>\nفایل: <code>${escapeHtml(workspace.path)}</code>\n\nاین مسیر فقط برای سازگاری پیام‌های قدیمی باقی مانده است. Editor جدید مسیر اصلی است. سقف: ${editorLimitHint}.`
           : `✍️ <b>پیام Commit را ارسال کنید</b>\nفایل: <code>${escapeHtml(workspace.path)}</code>\n\nپیام باید غیرخالی و حداکثر 120 کاراکتر باشد. پیام بعدی فقط یک‌بار مصرف می‌شود.`,
       reply_markup: {
         inline_keyboard: [

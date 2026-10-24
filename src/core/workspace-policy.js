@@ -48,9 +48,9 @@ export function validateEditableFile({ path, text, byteLength } = {}) {
   )
     reason = 'Git LFS pointer files are not editable.';
   else if (charLength > MAX_CHARS)
-    reason = 'Editable text is limited to 20,000 Unicode characters.';
+    reason = `Editable text is limited to ${MAX_CHARS.toLocaleString('en-US')} Unicode characters.`;
   else if (effectiveBytes > MAX_BYTES)
-    reason = 'Editable text is limited to 65,536 UTF-8 bytes.';
+    reason = `Editable text is limited to ${MAX_BYTES.toLocaleString('en-US')} UTF-8 bytes.`;
 
   return {
     editable: reason === '',

@@ -1,30 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
-
-function makeReplayNamespace() {
-  const used = new Set();
-  return {
-    idFromName(name) {
-      return String(name);
-    },
-    get(id) {
-      return {
-        async fetch(request) {
-          const body = await request.json();
-          const key = String(id);
-          if (used.has(key))
-            return Response.json(
-              { accepted: false, reason: 'already_used' },
-              { status: 409 }
-            );
-          used.add(key);
-          return Response.json({ accepted: true, expiresAt: body.expiresAt });
-        }
-      };
-    }
-  };
-}
+import {
+  makeReplayNamespace,
+  withUpdateId
+} from './helpers/replay-namespace.js';
 
 const env = {
   TELEGRAM_WEBHOOK_SECRET: 'right',
@@ -43,7 +23,7 @@ function webhook(update) {
       'content-type': 'application/json',
       'X-Telegram-Bot-Api-Secret-Token': 'right'
     },
-    body: JSON.stringify(update)
+    body: JSON.stringify(withUpdateId(update))
   });
 }
 

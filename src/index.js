@@ -1,5 +1,10 @@
 import { KillSwitchGuidedNexaDevBot } from './kill-switch-bot.js';
 import { DurableWorkspaceStoreClient } from './core/workspace-store.js';
+import { RELEASE_VERSION } from './version.js';
+import {
+  consumeTelegramUpdate,
+  telegramBotIdentity
+} from './core/telegram-update-guard.js';
 import {
   handleWorkspaceEditorRequest,
   workspaceEditorPageResponse
@@ -17,7 +22,7 @@ const jsonResponse = (p, s = 200) =>
 const publicHealthPayload = () => ({
   status: 'online',
   bot: 'Nexa Dev Bot',
-  version: '1.1.1',
+  version: RELEASE_VERSION,
   mode: 'Cloudflare Worker Webhook'
 });
 const senderIdFromUpdate = (u) =>
@@ -26,21 +31,6 @@ const isOwnerUpdate = (u, e) =>
   !!e.OWNER_TELEGRAM_ID &&
   senderIdFromUpdate(u) !== null &&
   String(senderIdFromUpdate(u)) === String(e.OWNER_TELEGRAM_ID);
-function safeErrorMessage(error, env = {}) {
-  let m = String(error?.message || 'Unknown error');
-  for (const s of [
-    env.TELEGRAM_BOT_TOKEN,
-    env.TELEGRAM_WEBHOOK_SECRET,
-    env.GITHUB_TOKEN,
-    env.CLOUDFLARE_API_TOKEN,
-    env.APPROVAL_SIGNING_SECRET,
-    env.DESTRUCTIVE_TOTP_SECRET
-  ]) {
-    const v = String(s || '');
-    if (v) m = m.split(v).join('[REDACTED]');
-  }
-  return m;
-}
 export default {
   async fetch(request, env = {}) {
     const url = new URL(request.url);
@@ -58,7 +48,14 @@ export default {
         ownerId: env.OWNER_TELEGRAM_ID || ''
       });
     if (request.method === 'GET') {
-      if (['/health', '/', '/status'].includes(url.pathname))
+      if (url.pathname === '/health')
+        return new Response('ok', {
+          headers: {
+            'content-type': 'text/plain; charset=utf-8',
+            'cache-control': 'no-store'
+          }
+        });
+      if (['/', '/status'].includes(url.pathname))
         return jsonResponse(publicHealthPayload());
       return new Response('Not Found', { status: 404 });
     }
@@ -76,20 +73,62 @@ export default {
         return new Response('Telegram bot token not configured', {
           status: 503
         });
+      let update;
       try {
-        const u = await request.json();
-        if (!isOwnerUpdate(u, env))
-          return jsonResponse({ ok: true, ignored: true });
+        update = await request.json();
+      } catch {
         return jsonResponse(
-          await new KillSwitchGuidedNexaDevBot(env).handleUpdate(u)
-        );
-      } catch (e) {
-        console.error('telegram_webhook_error', safeErrorMessage(e, env));
-        return jsonResponse(
-          { ok: false, error: 'Telegram webhook processing failed' },
+          { ok: false, error: 'Invalid Telegram update' },
           400
         );
       }
+      if (!Number.isSafeInteger(update?.update_id) || update.update_id < 0) {
+        return jsonResponse(
+          { ok: false, error: 'Invalid Telegram update_id' },
+          400
+        );
+      }
+      if (!isOwnerUpdate(update, env))
+        return jsonResponse({ ok: true, ignored: true });
+      try {
+        const accepted = await consumeTelegramUpdate({
+          namespace: env.APPROVAL_REPLAY_GUARD,
+          botId: await telegramBotIdentity(env.TELEGRAM_BOT_TOKEN),
+          updateId: update.update_id
+        });
+        if (!accepted) return jsonResponse({ ok: true, duplicate: true });
+      } catch {
+        console.error(
+          'telegram_webhook_guard_error',
+          JSON.stringify({ updateId: update.update_id, outcome: 'unavailable' })
+        );
+        return jsonResponse(
+          { ok: false, error: 'Telegram update guard unavailable' },
+          503
+        );
+      }
+      // Claim before effects: retries are at-most-once; a process crash after the
+      // durable claim can lose this update. No raw update is retained for replay.
+      try {
+        const result = await new KillSwitchGuidedNexaDevBot(env).handleUpdate(
+          update
+        );
+        if (result?.ok !== false) return jsonResponse(result);
+      } catch {
+        // Provider messages can contain tokens or draft text; log metadata only.
+      }
+      console.error(
+        'telegram_webhook_error',
+        JSON.stringify({
+          updateId: update.update_id,
+          outcome: 'processed_error'
+        })
+      );
+      return jsonResponse({
+        ok: false,
+        processed_error: true,
+        error: 'Telegram webhook processing failed'
+      });
     }
     return new Response(
       request.method === 'POST' ? 'Not Found' : 'Method Not Allowed',

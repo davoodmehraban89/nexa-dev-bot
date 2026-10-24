@@ -1,3 +1,5 @@
+import { WORKSPACE_EDITOR_LIMITS } from './core/workspace-policy.js';
+
 export class TelegramClient {
   constructor(botToken, options = {}) {
     this.botToken = botToken;
@@ -45,7 +47,10 @@ export class TelegramClient {
     return body;
   }
 
-  async downloadTextFile(fileId, { maxBytes = 12000 } = {}) {
+  async downloadTextFile(
+    fileId,
+    { maxBytes = WORKSPACE_EDITOR_LIMITS.maxBytes } = {}
+  ) {
     if (!this.botToken) throw new Error('TELEGRAM_BOT_TOKEN is not configured');
     const id = String(fileId || '');
     if (!id) throw new Error('Telegram file_id is required');

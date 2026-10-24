@@ -208,7 +208,7 @@ export function renderWorkspaceEditorPage() {
   const workspaceId = params.get('workspaceId') || '';
   const byteLength = value => new TextEncoder().encode(value).byteLength;
   const codePoints = value => Array.from(value).length;
-  let limits = { maxChars: 20000, maxBytes: 65536 };
+  let limits = ${JSON.stringify(WORKSPACE_EDITOR_LIMITS)};
 
   function setStatus(message, kind='') { status.textContent = message; status.className = 'status' + (kind ? ' ' + kind : ''); }
   function updateCounter() {

@@ -1,8 +1,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
+import {
+  makeReplayNamespace,
+  withUpdateId
+} from './helpers/replay-namespace.js';
 
 const runtime = {
+  APPROVAL_REPLAY_GUARD: makeReplayNamespace(),
   TELEGRAM_WEBHOOK_SECRET: 'unit-test-secret',
   OWNER_TELEGRAM_ID: '123',
   TELEGRAM_BOT_TOKEN: 'unit-test-token',
@@ -10,7 +15,6 @@ const runtime = {
 };
 
 const startUpdate = {
-  update_id: 101,
   message: {
     message_id: 202,
     from: { id: 123 },
@@ -26,7 +30,7 @@ function webhookRequest(update = startUpdate) {
       'Content-Type': 'application/json',
       'X-Telegram-Bot-Api-Secret-Token': 'unit-test-secret'
     },
-    body: JSON.stringify(update)
+    body: JSON.stringify(withUpdateId(update))
   });
 }
 
@@ -155,9 +159,11 @@ describe('Nexa Dev Bot - Cloudflare Worker Entrypoint', () => {
         APPROVAL_SIGNING_SECRET: approvalSecret,
         CLOUDFLARE_API_TOKEN: cloudflareSecret
       });
-      assert.equal(res.status, 400);
+      assert.equal(res.status, 200);
+      assert.equal((await res.json()).processed_error, true);
       assert.ok(logs.some((line) => /telegram_webhook_error/i.test(line)));
-      assert.ok(logs.some((line) => /401|Unauthorized/i.test(line)));
+      assert.ok(logs.every((line) => !/401|Unauthorized/i.test(line)));
+      assert.ok(logs.some((line) => /processed_error/i.test(line)));
       assert.ok(logs.every((line) => !line.includes(secretToken)));
       assert.ok(logs.every((line) => !line.includes(approvalSecret)));
       assert.ok(logs.every((line) => !line.includes(cloudflareSecret)));

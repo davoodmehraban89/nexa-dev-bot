@@ -494,7 +494,7 @@ export class NexaDevBot {
         }
         view = routed;
       } else if (quickMenu === 'status') {
-        view = this.menu.getServiceStatusView();
+        view = await this.menu.getServiceStatusView();
       } else if (quickMenu === 'tools') {
         view = this.menu.getToolsView();
       } else {
@@ -526,7 +526,7 @@ export class NexaDevBot {
     }
 
     if (text === '/status') {
-      const view = this.menu.getServiceStatusView();
+      const view = await this.menu.getServiceStatusView();
       const res = await this.telegram.sendMessage(
         chatId,
         view.text,

@@ -556,8 +556,7 @@ async function pullRequestFilesView(github, repoId, prNumber, page = 1) {
     ? files
         .slice(0, 8)
         .map((file) => {
-          const patch = escapeHtml(short(file.patch || '', 220));
-          return `🧩 <code>${escapeHtml(short(file.filename, 100))}</code> · ${escapeHtml(file.status)} · +${file.additions}/-${file.deletions}${patch ? `\n<pre>${patch}</pre>` : ''}`;
+          return `🧩 <code>${escapeHtml(short(file.filename, 100))}</code> · ${escapeHtml(file.status)} · +${file.additions}/-${file.deletions}`;
         })
         .join('\n\n')
     : '<i>فایل تغییریافته‌ای یافت نشد.</i>';

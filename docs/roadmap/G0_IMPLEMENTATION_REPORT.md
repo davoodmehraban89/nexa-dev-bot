@@ -56,3 +56,10 @@ Environment: Node **22.23.4**, Wrangler **4.152.0**, existing Cloudflare compati
 
 ## Next execution
 Use `docs/handoff/START_HERE.md` and `docs/handoff/NEXT_CHAT_PROMPT_FA.md`. First read live CI on the delivery branch, then complete G0 evidence and acceptance; take only one small reviewed task at a time.
+
+## Live PR/CI evidence checkpoint — 2026-10-24
+- Verified immediately before this documentation-only update: delivery PR [#65](https://github.com/davoodmehraban89/nexa-dev-bot/pull/65) is **open, draft, unmerged**, head `c863ab33f43c2f426b281094fefc3f3288bcefd0`; main base remains `5d1c083d326db327cc3973a9d3adecc1d8092c91`.
+- Exact-head CI [run 40121866571](https://github.com/davoodmehraban89/nexa-dev-bot/actions/runs/40121866571) **succeeded** on `c863ab33f43c2f426b281094fefc3f3288bcefd0`. The job reports successful checkout, Node setup, dependency installation, lint/format, test discovery, test execution, and Worker bundle dry-run. The earlier behavior-head [run 40121709579](https://github.com/davoodmehraban89/nexa-dev-bot/actions/runs/40121709579) also succeeded. The 311-test total is from the recorded local verification; the GitHub job summary alone does not independently establish the count.
+- Repository API currently reports **public** visibility. Earlier private/billing observations are historical, not current blockers. No visibility setting was changed during this checkpoint.
+- **G0 is still NOT ACCEPTED.** Fresh authorized owner-device R-26 Approval/Telegram/Cloudflare/GitHub evidence, focused sensitive-change review, and written owner gate acceptance remain outstanding. No G1 work, merge, deployment, or new provider write is authorized by CI success alone.
+- This checkpoint is a documentation-only change; its new head will require its own exact-head CI result before being described as verified. Next smallest task: collect/record the owner-produced R-26 acceptance evidence without fabricating it.

@@ -106,7 +106,8 @@ export async function handleWorkspaceEditorRequest(request, {
 
     return jsonResponse({ ok: false, error: 'Method not allowed' }, 405);
   } catch (error) {
-    return jsonResponse({ ok: false, error: String(error?.message || 'Workspace editor request failed') }, statusForError(error));
+    const status = statusForError(error);
+    return jsonResponse({ ok: false, error: status === 500 ? 'Workspace editor request failed' : String(error?.message || 'Workspace editor request failed') }, status);
   }
 }
 

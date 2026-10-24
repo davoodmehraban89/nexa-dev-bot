@@ -11,6 +11,32 @@
 ## Runtime incident path
 Treat failed CI/deploy, provider errors, Worker runtime degradation, approval/replay failures, and GitHub/Cloudflare evidence mismatch as explicit failures. Preserve bounded non-secret evidence: exact SHA, workflow/run/job IDs, deployment/version IDs, action ID, outcome and timestamp. Never persist tokens, secret values, source/draft bodies or signed approval callbacks.
 
+### Actions job fails before checkout
+An empty step list and no runner assignment are not evidence of a test failure. Inspect the job's check annotations before changing code or retrying:
+
+```bash
+gh api repos/davoodmehraban89/nexa-dev-bot/actions/runs/RUN_ID/jobs \
+  --jq '.jobs[] | {id, check_run_url, runner_name, steps}'
+# Use the check-run ID from check_run_url:
+gh api repos/davoodmehraban89/nexa-dev-bot/check-runs/CHECK_RUN_ID/annotations \
+  --jq '.[] | {annotation_level, message}'
+```
+
+If the annotation says recent account payments failed or the spending limit needs increasing, the account owner must resolve the payment issue or Actions budget in GitHub **Settings → Billing & licensing** (older UI: **Billing & plans**). Retrying or editing the workflow cannot remove an account billing restriction. Do not change repository visibility, disable required checks, or merge around this gate.
+
+Development verification can continue on the exact candidate without deployment credentials:
+
+```bash
+git rev-parse HEAD
+npx --yes --package=node@22 -c 'node --version && npm test'
+# Use an explicit Wrangler version for reproducible local bundling:
+npx --yes --package=node@22 --package=wrangler@4.152.0 \
+  -c 'wrangler deploy --dry-run --outdir /tmp/nexa-worker-build'
+git diff --check
+```
+
+Record the revision, tool versions, full test totals and dry-run result. These are local checks, not GitHub CI, a Preview deployment or production acceptance. After billing is resolved, run CI on the latest reviewed PR head and follow every release gate above. A Cloudflare Preview build failure is a separate incident and requires its own build log; do not assign it the Actions billing cause without evidence.
+
 ## Emergency Kill Switch
 The global Kill Switch has two durable states: `NORMAL` and `LOCKED`. In `LOCKED`, READ remains available for diagnosis, but every WRITE and DESTRUCTIVE action is denied before provider mutation. Automation execution/resume must also pause while locked. If the durable Kill Switch state cannot be read, WRITE/DESTRUCTIVE and Automation fail closed.
 

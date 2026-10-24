@@ -177,7 +177,14 @@ export function renderWorkspaceEditorPage() {
     const selectedPath = params.get('path') || '';
     const body = await api('/workspace/api/editor?workspaceId=' + encodeURIComponent(workspaceId) + (selectedPath ? '&path=' + encodeURIComponent(selectedPath) : ''));
     limits = body.limits || limits;
-    files.innerHTML = (body.workspace.files || [{path:body.workspace.path}]).map(file => '<option value="' + file.path.replaceAll('&','&amp;').replaceAll('"','&quot;') + '">' + file.path.replaceAll('&','&amp;').replaceAll('<','&lt;') + '</option>').join('');
+    // Never interpolate repository-controlled paths into HTML.
+    files.replaceChildren();
+    for (const file of (body.workspace.files || [{path:body.workspace.path}])) {
+      const option = document.createElement('option');
+      option.value = file.path;
+      option.textContent = file.path;
+      files.appendChild(option);
+    }
     files.value = body.workspace.path; files.disabled = false;
     path.textContent = body.workspace.path;
     editor.value = body.workspace.draftText || '';

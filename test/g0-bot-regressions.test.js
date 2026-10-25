@@ -55,6 +55,7 @@ function installProviders(t, { githubFailure = false } = {}) {
           ]
         },
         versions: { items: [{ id: versionId }] },
+        [versionId]: { id: versionId },
         settings: { bindings: [], observability: {} }
       }[resource];
       if (result) return Response.json({ success: true, result });

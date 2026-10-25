@@ -4,7 +4,8 @@ import { correlateDeliveryState } from '../src/core/cicd-control-plane.js';
 
 const sha = 'a'.repeat(40);
 const active = {
-  deployment: { id: 'dep', versions: [{ versionId: 'v1', percentage: 100 }] }
+  deployment: { id: 'dep', versions: [{ versionId: 'v1', percentage: 100 }] },
+  version: { id: 'v1', annotations: { 'workers/tag': sha } }
 };
 
 test('CP5 correlates exact SHA across CI and deploy before declaring success', () => {
@@ -134,7 +135,7 @@ test('CP5 Cloudflare plugin exposes owner delivery view from live provider evide
           id: 'dep',
           versions: [{ versionId: 'v1', percentage: 100 }]
         },
-        version: { id: 'v1' },
+        version: { id: 'v1', annotations: { 'workers/tag': target } },
         bindings: [],
         observability: {}
       };
@@ -144,6 +145,6 @@ test('CP5 Cloudflare plugin exposes owner delivery view from live provider evide
   const route = plugin.resolveCallback('cf:delivery');
   assert.equal(route.actionId, 'cloudflare.delivery.status');
   const view = await route.execute();
-  assert.match(view.text, /SUCCESS|موفق/i);
+  assert.match(view.text, /State: <b>SUCCESS \/ موفق<\/b>/);
   assert.match(view.text, new RegExp(target.slice(0, 12)));
 });

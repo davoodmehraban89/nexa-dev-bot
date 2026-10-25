@@ -188,7 +188,29 @@ export class CloudflareService {
         : [];
 
     const latestDeployment = deployments[0] || null;
-    const latestVersion = versions[0] || null;
+    const traffic = Array.isArray(latestDeployment?.versions)
+      ? latestDeployment.versions
+      : [];
+    const activeVersionId =
+      traffic.length === 1 && Number(traffic[0]?.percentage) === 100
+        ? clean(traffic[0]?.version_id)
+        : '';
+    let activeVersion = activeVersionId
+      ? versions.find((version) => clean(version?.id) === activeVersionId)
+      : null;
+    // The versions list can omit annotations or the deployed version itself.
+    // Read that exact version's detail; an unrelated latest upload is no proof.
+    if (
+      activeVersionId &&
+      activeVersion?.annotations?.['workers/commit_sha'] === undefined &&
+      activeVersion?.annotations?.['workers/tag'] === undefined
+    ) {
+      const detail = await this.requestJson(
+        `/versions/${safe(activeVersionId)}`,
+        'Cloudflare active version'
+      );
+      activeVersion = clean(detail?.id) === activeVersionId ? detail : null;
+    }
     const bindings = Array.isArray(settingsResult?.bindings)
       ? settingsResult.bindings
           .map((binding) => ({
@@ -216,12 +238,21 @@ export class CloudflareService {
             }))
           }
         : null,
-      version: latestVersion
+      version: activeVersion
         ? {
-            id: clean(latestVersion.id),
-            createdOn: clean(latestVersion.created_on),
+            id: clean(activeVersion.id),
+            createdOn: clean(
+              activeVersion.metadata?.created_on || activeVersion.created_on
+            ),
             triggeredBy: clean(
-              latestVersion.annotations?.['workers/triggered_by']
+              activeVersion.annotations?.['workers/triggered_by']
+            ),
+            annotations: Object.fromEntries(
+              ['workers/commit_sha', 'workers/tag']
+                .filter(
+                  (key) => typeof activeVersion.annotations?.[key] === 'string'
+                )
+                .map((key) => [key, activeVersion.annotations[key]])
             )
           }
         : null,

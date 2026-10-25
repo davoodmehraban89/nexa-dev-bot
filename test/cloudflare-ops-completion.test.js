@@ -46,6 +46,11 @@ test('CP4 service lists versions and deploys exact known version at 100 percent 
         return cf({
           items: [{ id: uuid, created_on: '2026-10-04T00:00:00Z' }]
         });
+      if (String(url).endsWith(`/versions/${uuid}`))
+        return cf({
+          id: uuid,
+          metadata: { created_on: '2026-10-04T00:00:00Z' }
+        });
       if (String(url).endsWith('/settings'))
         return cf({
           bindings: [{ name: 'SECRET', type: 'secret_text' }],

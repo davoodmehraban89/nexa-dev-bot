@@ -174,8 +174,8 @@ export function createCloudflarePlugin({ cloudflare, github } = {}) {
               ) || null;
             const state = correlateDeliveryState({
               targetSha,
-              ci,
-              deploy,
+              ci: ci ? { ...ci, sha: ci.fullSha } : null,
+              deploy: deploy ? { ...deploy, sha: deploy.fullSha } : null,
               runtime
             });
             const label =

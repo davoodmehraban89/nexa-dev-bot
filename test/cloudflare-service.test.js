@@ -75,6 +75,15 @@ test('CloudflareService normalizes deployment, version, bindings and observabili
           }
         }
       });
+    if (value.endsWith('/versions/ver-1'))
+      return response({
+        success: true,
+        result: {
+          id: 'ver-1',
+          metadata: { created_on: '2026-10-04T19:34:01Z' },
+          annotations: { 'workers/triggered_by': 'upload' }
+        }
+      });
     return response(
       { success: false, errors: [{ message: 'Not Found' }] },
       404
@@ -105,7 +114,7 @@ test('CloudflareService normalizes deployment, version, bindings and observabili
     invocationLogs: true,
     tracesEnabled: false
   });
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 4);
   for (const call of calls) {
     assert.equal(call.options.headers.Authorization, `Bearer ${token}`);
     assert.equal(call.options.headers['Content-Type'], 'application/json');

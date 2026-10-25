@@ -93,7 +93,7 @@ function linesOf(value) {
   return String(value ?? '').split('\n');
 }
 
-function diffOperations(beforeLines, afterLines) {
+function smallDiffOperations(beforeLines, afterLines) {
   const rows = beforeLines.length + 1;
   const cols = afterLines.length + 1;
   const table = new Uint16Array(rows * cols);
@@ -132,6 +132,151 @@ function diffOperations(beforeLines, afterLines) {
     }
     operations.push({ kind: '-', line: beforeLines[i] });
     i += 1;
+  }
+  return operations;
+}
+
+function diffOperations(beforeLines, afterLines) {
+  // Ordinary edits retain the original insertion-first LCS reconstruction.
+  // Larger edits use a fixed-distance band: memory is linear in line count,
+  // with explicit storage/work limits rather than a quadratic allocation.
+  const maxTableCells = 65536;
+  const maxDistance = 64;
+  const maxBandCells = 1000000;
+  let workRemaining = 2000000;
+  const tooComplex = () => {
+    const error = new Error(
+      'This edit is too complex to preview safely. Split it into smaller changes and try again.'
+    );
+    error.code = 'DIFF_COMPLEXITY_LIMIT';
+    return error;
+  };
+  const spend = (work = 1) => {
+    workRemaining -= work;
+    if (workRemaining < 0) throw tooComplex();
+  };
+  if (beforeLines.length > MAX_CHARS + 1 || afterLines.length > MAX_CHARS + 1) {
+    throw tooComplex();
+  }
+  if ((beforeLines.length + 1) * (afterLines.length + 1) <= maxTableCells) {
+    return smallDiffOperations(beforeLines, afterLines);
+  }
+
+  const operations = [];
+  let prefix = 0;
+  while (
+    prefix < beforeLines.length &&
+    prefix < afterLines.length &&
+    beforeLines[prefix] === afterLines[prefix]
+  ) {
+    spend();
+    operations.push({ kind: ' ', line: beforeLines[prefix++] });
+  }
+  const n = beforeLines.length - prefix;
+  const m = afterLines.length - prefix;
+  if (n === 0 || m === 0) {
+    for (let i = 0; i < n; i += 1) {
+      operations.push({ kind: '-', line: beforeLines[prefix + i] });
+    }
+    for (let j = 0; j < m; j += 1) {
+      operations.push({ kind: '+', line: afterLines[prefix + j] });
+    }
+    return operations;
+  }
+
+  // Trim suffixes only while measuring distance. Reconstructing against the
+  // full suffix preserves legacy ties when the suffix contains repeated lines.
+  let suffix = 0;
+  while (
+    suffix < n &&
+    suffix < m &&
+    beforeLines[beforeLines.length - suffix - 1] ===
+      afterLines[afterLines.length - suffix - 1]
+  ) {
+    spend();
+    suffix += 1;
+  }
+  const distanceN = n - suffix;
+  const distanceM = m - suffix;
+  if (Math.abs(distanceN - distanceM) > maxDistance) throw tooComplex();
+  const offset = maxDistance + 1;
+  const frontier = new Int32Array(2 * maxDistance + 3);
+  frontier.fill(-1);
+  frontier[offset + 1] = 0;
+  let distance = -1;
+  search: for (let d = 0; d <= maxDistance; d += 1) {
+    for (let k = -d; k <= d; k += 2) {
+      spend();
+      const slot = offset + k;
+      let x =
+        k === -d || (k !== d && frontier[slot - 1] < frontier[slot + 1])
+          ? frontier[slot + 1]
+          : frontier[slot - 1] + 1;
+      let y = x - k;
+      while (
+        x < distanceN &&
+        y < distanceM &&
+        beforeLines[prefix + x] === afterLines[prefix + y]
+      ) {
+        spend();
+        x += 1;
+        y += 1;
+      }
+      frontier[slot] = x;
+      if (x >= distanceN && y >= distanceM) {
+        distance = d;
+        break search;
+      }
+    }
+  }
+  if (distance < 0) throw tooComplex();
+
+  // Every optimal path of edit distance D stays inside |i - j| <= D.
+  // Capped suffix distances in this band reconstruct the exact legacy path,
+  // including its preference for insertion when both choices are optimal.
+  const width = 2 * distance + 1;
+  const cells = (n + 1) * width;
+  if (cells > maxBandCells) throw tooComplex();
+  spend(cells);
+  const unreachable = maxDistance + 1;
+  const table = new Uint8Array(cells);
+  table.fill(unreachable);
+  const at = (i, j) => i * width + j - i + distance;
+  const score = (i, j) =>
+    i > n || j > m || Math.abs(i - j) > distance
+      ? unreachable
+      : table[at(i, j)];
+  for (let i = n; i >= 0; i -= 1) {
+    for (
+      let j = Math.min(m, i + distance);
+      j >= Math.max(0, i - distance);
+      j -= 1
+    ) {
+      spend();
+      const value =
+        i === n
+          ? m - j
+          : j === m
+            ? n - i
+            : beforeLines[prefix + i] === afterLines[prefix + j]
+              ? score(i + 1, j + 1)
+              : Math.min(score(i + 1, j), score(i, j + 1)) + 1;
+      table[at(i, j)] = Math.min(unreachable, value);
+    }
+  }
+  if (score(0, 0) !== distance) throw tooComplex();
+  let i = 0;
+  let j = 0;
+  while (i < n || j < m) {
+    spend();
+    if (i < n && j < m && beforeLines[prefix + i] === afterLines[prefix + j]) {
+      operations.push({ kind: ' ', line: beforeLines[prefix + i++] });
+      j += 1;
+    } else if (j < m && (i === n || score(i, j + 1) <= score(i + 1, j))) {
+      operations.push({ kind: '+', line: afterLines[prefix + j++] });
+    } else {
+      operations.push({ kind: '-', line: beforeLines[prefix + i++] });
+    }
   }
   return operations;
 }

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NexaDevBot } from '../src/bot.js';
+import { makeReplayNamespace } from './helpers/replay-namespace.js';
 
 const TOTP_SECRET = 'JBSWY3DPEHPK3PXP';
 
@@ -42,7 +43,10 @@ async function currentTotp(secret, now = Date.now()) {
 }
 
 function makeBot(secret = TOTP_SECRET) {
-  const bot = new NexaDevBot({ DESTRUCTIVE_TOTP_SECRET: secret });
+  const bot = new NexaDevBot({
+    DESTRUCTIVE_TOTP_SECRET: secret,
+    APPROVAL_REPLAY_GUARD: makeReplayNamespace()
+  });
   const payload = {
     v: 1,
     pluginId: 'github',

@@ -380,8 +380,8 @@ export class NexaDevBot extends LegacyNexaDevBot {
       };
     }
 
-    const validCode = await this.destructiveTotp.verify(match[1]);
-    if (!validCode) {
+    const verifiedStep = await this.destructiveTotp.verifyStep(match[1]);
+    if (!verifiedStep) {
       const attempts = Number(pending.attempts || 0) + 1;
       if (attempts >= 5) {
         await this.replayStore.clearSecondFactorPending({
@@ -421,6 +421,13 @@ export class NexaDevBot extends LegacyNexaDevBot {
         ownerId: String(ownerId),
         risk: 'DESTRUCTIVE'
       });
+      // Claim the owner/step independently of the action Approval. Store no OTP.
+      const claimedStep = await this.replayStore.consume({
+        ownerId: String(ownerId),
+        nonce: `second-factor-step:${verifiedStep.counter}`,
+        expiresAt: verifiedStep.expiresAt
+      });
+      if (!claimedStep) throw new Error('TOTP step already used');
       payload = await this.approvals.consume(pending.token, {
         ownerId: String(ownerId),
         pluginId: preview.pluginId,

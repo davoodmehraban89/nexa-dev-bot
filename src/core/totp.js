@@ -59,21 +59,24 @@ export class TotpVerifier {
   }
 
   async verify(code) {
+    return (await this.verifyStep(code)) !== null;
+  }
+
+  async verifyStep(code) {
     if (!this.isConfigured())
       throw new Error('Destructive second factor is not configured');
     const supplied = String(code || '').trim();
-    if (!new RegExp(`^\\d{${this.digits}}$`).test(supplied)) return false;
+    if (!new RegExp(`^\\d{${this.digits}}$`).test(supplied)) return null;
     const currentCounter = Math.floor(this.now() / this.periodMs);
     for (let delta = -this.window; delta <= this.window; delta += 1) {
-      if (
-        constantTimeCodeEqual(
-          supplied,
-          await this.#generate(currentCounter + delta)
-        )
-      )
-        return true;
+      const counter = currentCounter + delta;
+      if (constantTimeCodeEqual(supplied, await this.#generate(counter)))
+        return {
+          counter,
+          expiresAt: (counter + this.window + 1) * this.periodMs
+        };
     }
-    return false;
+    return null;
   }
 
   async #generate(counter) {

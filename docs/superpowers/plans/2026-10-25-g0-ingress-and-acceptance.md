@@ -1,0 +1,10 @@
+# G0 ingress and acceptance readiness
+
+Owner request: complete the next steps here; use the existing v3 contract and implementation without another approval/planning loop. This continuation addresses existing security and acceptance-path defects; it does not accept G0 or start G1.
+
+1. Telegram secrets: reproduce token processing before pending input, then intercept new/edited token-prefixed text/captions before bot dispatch. Delete the original and send a fixed Persian revocation warning. Retain owner checks, durable metadata-only update claims, and truthful deletion-failure handling.
+2. Telegram source ingress: reproduce Paste/upload source persistence and remove those controls/handlers. Stale callbacks and pending modes redirect to the authenticated Mini App without downloading or storing submitted source. Keep commit-message input and the existing editor API.
+3. TOTP replay: reproduce reuse across distinct destructive approvals. Match the TOTP time step, validate the signed approval, durably claim an owner/step marker until the entire acceptance window expires, then consume approval and dispatch. Reject reuse/storage outages before provider effects. Leave unsafe unlock disabled.
+4. Acceptance environment links: reproduce hard-coded production editor links. Wire a validated HTTPS editor URL through bot/plugin construction; webhook defaults derive from its own origin. Invalid explicit configuration disables editor links. Test default/custom origins and hostile URL fields without credentials.
+5. Verify focused RED/GREEN for each change, review sensitive boundaries, then run Node22 lint/format/full tests/dry-run once on the integrated tree. Run an actual local workerd/SQLite Phase1 + signed Approval smoke against local provider stubs, explicitly separate from real owner-device/provider evidence.
+6. Commit and push to existing draft PR65, preserve concurrent incoming changes, and verify GitHub plus Cloudflare checks on the exact final SHA. Record remaining R26/device/gate blockers; no main merge, real provider test commit, secret change or deployment in this continuation.

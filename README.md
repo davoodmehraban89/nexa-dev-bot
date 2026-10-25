@@ -25,7 +25,9 @@ V2.1 شامل Workspace Editor، Ops Console، Security Center، Configuration C
 
 ## Workspace Editor
 
-مرجع سقف‌های فعلی `WORKSPACE_EDITOR_LIMITS` در `src/core/workspace-policy.js` است: هر فایل حداکثر **۲۰٬۰۰۰ نویسهٔ Unicode و ۶۵٬۵۳۶ بایت UTF-8**، هر Change Set حداکثر **۸ فایل و ۱۳۱٬۰۷۲ بایت**. صفحهٔ Editor، API، پیام راهنما و ورودی فایل تلگرام از همین مرجع استفاده می‌کنند. محدودیت ۳٬۰۰۰/۱۲٬۰۰۰ در طرح‌های تاریخی Phase 1 دیگر مقدار جاری نیست.
+مرجع سقف‌های فعلی `WORKSPACE_EDITOR_LIMITS` در `src/core/workspace-policy.js` است: هر فایل حداکثر **۲۰٬۰۰۰ نویسهٔ Unicode و ۶۵٬۵۳۶ بایت UTF-8**، هر Change Set حداکثر **۸ فایل و ۱۳۱٬۰۷۲ بایت**. صفحهٔ Editor، API و پیام راهنما از همین مرجع استفاده می‌کنند. ورودی کد از Paste یا فایل تلگرام غیرفعال است؛ متن منبع فقط در Mini App احراز هویت‌شده ویرایش می‌شود. محدودیت ۳٬۰۰۰/۱۲٬۰۰۰ در طرح‌های تاریخی Phase 1 دیگر مقدار جاری نیست.
+
+لینک Editor در webhook به همان دامنهٔ Worker اشاره می‌کند. برای دامنهٔ سفارشی، `WORKSPACE_EDITOR_URL` را روی آدرس HTTPS با مسیر دقیق `/workspace/editor` قرار دهید؛ وجود نام کاربری، رمز، query یا fragment پیکربندی را نامعتبر و لینک‌ها را غیرفعال می‌کند. مقدار این متغیر عمومی است و نباید توکن داشته باشد.
 
 قرارداد توسعهٔ Nexa Studio نسخهٔ ۳ در [docs/contract/NEXA_STUDIO_V3.md](docs/contract/NEXA_STUDIO_V3.md) و فایل Word اصلی کنار آن نگهداری می‌شود. برچسب محصول V2.1 مربوط به بات موجود است؛ نسخهٔ انتشار کد از `package.json` خوانده می‌شود و با شمارهٔ قرارداد یکی نیست.
 

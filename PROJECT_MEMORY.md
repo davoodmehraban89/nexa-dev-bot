@@ -1,6 +1,7 @@
 # PROJECT_MEMORY.md
 
 ## Latest implementation checkpoint — 2026-10-25
+- Follow-up code head `515333d224a5cd9133023a479512fa0a458f9f25`: C-30 token deletion/revocation warning (new/edited text/captions), no Telegram Paste/upload source input, durable one-use TOTP steps across distinct Approvals, validated own-environment Editor links. Full Node22 suite **390 passed**, zero failures/skips; lint zero errors/13 existing warnings, formatting/dry-run pass. Actual local workerd/SQLite full Phase1 + signed Approval against outbound stubs passed across restart; not real owner/provider evidence. See latest section of the hardening report. Wrong-TOTP attempt increments remain an explicitly recorded P2 follow-up.
 - Owner requested continued implementation in this environment. Delivery branch remains `feat/studio-g0-foundation`, PR #65; main baseline remains `5d1c083d326db327cc3973a9d3adecc1d8092c91`.
 - Code head `e02e9fb976f11167aa04a842f881dedb3e11a3ef`: bounded exact Diff, durable Automation claims/CAS, transactional Incident updates, active-runtime/SHA correlation and workflow tagging, metadata-only Telegram source views plus authenticated read-only Mini App file/Diff reading.
 - Full local Node 22 suite: 353 pass, zero fail/skip/cancel; lint zero errors (13 existing warnings), formatting and Worker dry-run pass. Actual local workerd/SQLite concurrency/restart smoke and jsdom read-only rendering smoke pass.
@@ -11,7 +12,7 @@
 - Name: Nexa Dev Bot
 - Repository: `davoodmehraban89/nexa-dev-bot`
 - Canonical branch: `main`
-- Visibility: private
+- Visibility: public (live API confirmed 2026-10-25; historical private/billing notes below are stale)
 - Purpose: owner-only Telegram developer console for GitHub visibility and controlled developer operations.
 - This file is the continuity source of truth; live repository/runtime evidence overrides stale text.
 

@@ -1,5 +1,7 @@
 # Nexa Studio working instructions
 
+- Latest owner direction (2026-10-25): continue real implementation here. Handoff files are continuity records, not a substitute for execution. Read `docs/roadmap/G0_HARDENING_2026_10_25.md` for the latest completed fixes and explicit remaining limits.
+
 - Start with `docs/handoff/START_HERE.md` and the authoritative `docs/contract/NEXA_STUDIO_V3.md`. The original DOCX next to it wins over transcription differences. The proposed roadmap in PR #62 does not replace or weaken that contract.
 - Respect G0 → G4 and owner acceptance at each gate. Do not claim completion from mock tests, a draft PR, or a local build. Never invent device recordings, human review, CI or runtime evidence.
 - Continue this Worker/DO codebase. No rewrite or unapproved infrastructure. Keep owner checks, Safe Approval, durable replay, TOTP and Kill Switch. No direct default-branch writes or force pushes.

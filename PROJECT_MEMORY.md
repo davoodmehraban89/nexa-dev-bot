@@ -1,5 +1,12 @@
 # PROJECT_MEMORY.md
 
+## Latest implementation checkpoint — 2026-10-25
+- Owner requested continued implementation in this environment. Delivery branch remains `feat/studio-g0-foundation`, PR #65; main baseline remains `5d1c083d326db327cc3973a9d3adecc1d8092c91`.
+- Code head `e02e9fb976f11167aa04a842f881dedb3e11a3ef`: bounded exact Diff, durable Automation claims/CAS, transactional Incident updates, active-runtime/SHA correlation and workflow tagging, metadata-only Telegram source views plus authenticated read-only Mini App file/Diff reading.
+- Full local Node 22 suite: 353 pass, zero fail/skip/cancel; lint zero errors (13 existing warnings), formatting and Worker dry-run pass. Actual local workerd/SQLite concurrency/restart smoke and jsdom read-only rendering smoke pass.
+- Cloudflare Preview failure was confirmed as error10067 /100DO namespace Free limit. Only the G0 branch trigger was changed reversibly to `npm run build:check`; no namespace deletion, paid upgrade or production deploy.
+- Full details and remaining R-07/G0/device/approval/ambiguous-effect limits: `docs/roadmap/G0_HARDENING_2026_10_25.md`. Historical checkpoints below are not current blockers or gate acceptance.
+
 ## Project Identity
 - Name: Nexa Dev Bot
 - Repository: `davoodmehraban89/nexa-dev-bot`

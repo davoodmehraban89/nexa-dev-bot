@@ -87,10 +87,13 @@ test('sensitive file previews withhold source from the Telegram payload and offe
   assert.match(view.text, /حساس|Sensitive/);
 });
 
-test('ordinary legacy file previews retain escaped source and the Edit action', async () => {
+test('ordinary file views retain the Edit action without forwarding source', async () => {
   const view = await filePreview('app.js', 'console.log("<ordinary>");\n');
 
-  assert.match(view.text, /&lt;ordinary&gt;/);
+  assert.doesNotMatch(view.text, /ordinary|console\.log/);
+  assert.ok(
+    view.reply_markup.inline_keyboard.flat().some((button) => button.web_app)
+  );
   assert.ok(
     view.reply_markup.inline_keyboard
       .flat()

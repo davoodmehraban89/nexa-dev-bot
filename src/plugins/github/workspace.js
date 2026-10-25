@@ -272,15 +272,19 @@ export function createWorkspaceController({
       text: file.content,
       byteLength: file.size
     });
-    const preview = !validateEditableFile({ path: file.path }).editable
-      ? 'محتوای فایل حساس در تلگرام نمایش داده نمی‌شود.'
-      : file.content.length > 2600
-        ? `${file.content.slice(0, 2600)}\n…`
-        : file.content;
     const reason = repo.archived
       ? 'این مخزن آرشیوشده است و ویرایش فایل در آن غیرفعال است.'
       : policy.reason;
     const rows = [];
+    const previewLink = editorUrlFor({ id: refId }, editorUrl);
+    if (previewLink && policy.editable) {
+      const url = new URL(previewLink);
+      url.searchParams.delete('workspaceId');
+      url.searchParams.set('refId', refId);
+      rows.push([
+        { text: '📄 مشاهده در Mini App', web_app: { url: url.toString() } }
+      ]);
+    }
     if (!repo.archived && policy.editable)
       rows.push([{ text: '✏️ Edit', callback_data: `wedit:${refId}` }]);
     rows.push([
@@ -288,7 +292,7 @@ export function createWorkspaceController({
       { text: '📦 پروژه', callback_data: `repo:${ref.repoId}` }
     ]);
     return {
-      text: `📄 <b>پیش‌نمایش فایل — ${escapeHtml(repo.name)}</b>\nمسیر: <code>${escapeHtml(file.path)}</code>\nRef: <code>${escapeHtml(snapshot.headSha.slice(0, 10))}</code>\n${reason ? `⚠️ ${escapeHtml(reason)}\n` : ''}➖➖➖➖➖➖➖➖➖➖\n<pre>${escapeHtml(preview)}</pre>`,
+      text: `📄 <b>فایل — ${escapeHtml(repo.name)}</b>\nمسیر: <code>${escapeHtml(file.path)}</code>\nRef: <code>${escapeHtml(snapshot.headSha.slice(0, 10))}</code>\n${reason ? `⚠️ ${escapeHtml(reason)}\n` : ''}محتوای فایل در پیام تلگرام ارسال نمی‌شود؛ برای مشاهده، Mini App را باز کنید.`,
       reply_markup: { inline_keyboard: rows }
     };
   };
@@ -643,14 +647,26 @@ export function createWorkspaceController({
       ? diffs
           .map(
             ({ file, diff }) =>
-              `<b>${escapeHtml(file.path)}</b> · +${diff.additions}/-${diff.deletions}${diff.truncated ? ' ⚠️' : ''}\n<pre>${escapeHtml(diff.text)}</pre>`
+              `<b>${escapeHtml(file.path)}</b> · +${diff.additions}/-${diff.deletions}${diff.truncated ? ' ⚠️' : ''}`
           )
           .join('\n')
       : '<i>هیچ تغییر محلی وجود ندارد.</i>';
     return {
-      text: `🔍 <b>Diff تجمیعی Change Set</b>\n${changed.length} فایل تغییرکرده · +${additions} / -${deletions}\n➖➖➖➖➖➖➖➖➖➖\n${body}`,
+      text: `🔍 <b>Diff تجمیعی Change Set</b>\n${changed.length} فایل تغییرکرده · +${additions} / -${deletions}\n➖➖➖➖➖➖➖➖➖➖\n${body}\n\nمتن Diff فقط در Mini App نمایش داده می‌شود.`,
       reply_markup: {
         inline_keyboard: [
+          ...(editorUrlFor(workspace, editorUrl)
+            ? [
+                [
+                  {
+                    text: '🔍 مشاهده Diff در Mini App',
+                    web_app: {
+                      url: editorUrlFor(workspace, editorUrl) + '&view=diff'
+                    }
+                  }
+                ]
+              ]
+            : []),
           [
             { text: '📝 Draft', callback_data: `ws:${workspace.id}` },
             { text: '✅ آماده Commit', callback_data: `wready:${workspace.id}` }

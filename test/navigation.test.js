@@ -347,7 +347,8 @@ test('deep file browser opens directory and file previews in the same Telegram m
     edits = mock.telegramCalls.filter(
       (call) => call.method === 'editMessageText'
     );
-    assert.match(edits.at(-1).body.text, /console\.log/);
+    assert.doesNotMatch(edits.at(-1).body.text, /console\.log/);
+    assert.match(edits.at(-1).body.text, /Mini App/);
     assert.equal(edits.at(-1).body.message_id, 702);
     assert.equal(
       mock.telegramCalls.filter((call) => call.method === 'sendMessage').length,

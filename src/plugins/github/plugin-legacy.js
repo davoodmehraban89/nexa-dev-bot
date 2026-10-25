@@ -377,18 +377,28 @@ async function workflowJobView(github, repoId, jobId) {
 }
 
 async function workflowJobLogView(github, repoId, jobId) {
-  const [job, log] = await Promise.all([
+  const [job, repo] = await Promise.all([
     github.getWorkflowJob(repoId, jobId),
-    github.getWorkflowJobLog(repoId, jobId, { maxChars: 1800 })
+    github.getRepository(repoId)
   ]);
-  const escaped = escapeHtml(log.text).slice(-3200);
-  const note = log.truncated
-    ? '⚠️ فقط بخش پایانی log نمایش داده شده است.\n\n'
-    : '';
+  const fullName = String(repo.fullName || '')
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/');
   return {
-    text: `📜 <b>Log — ${escapeHtml(job.name)}</b>\n${note}<pre>${escaped || '(empty log)'}</pre>`,
+    text: `📜 <b>Log — ${escapeHtml(job.name)}</b>\nبرای جلوگیری از ارسال کد یا راز، متن خام Log وارد پیام تلگرام نمی‌شود. لاگ را در GitHub مشاهده کنید.`,
     reply_markup: {
       inline_keyboard: [
+        ...(fullName.includes('/')
+          ? [
+              [
+                {
+                  text: '📜 مشاهده در GitHub',
+                  url: 'https://github.com/' + fullName + '/actions'
+                }
+              ]
+            ]
+          : []),
         [{ text: '🔙 Job', callback_data: `job:${repoId}:${jobId}` }]
       ]
     }
@@ -556,8 +566,7 @@ async function pullRequestFilesView(github, repoId, prNumber, page = 1) {
     ? files
         .slice(0, 8)
         .map((file) => {
-          const patch = escapeHtml(short(file.patch || '', 220));
-          return `🧩 <code>${escapeHtml(short(file.filename, 100))}</code> · ${escapeHtml(file.status)} · +${file.additions}/-${file.deletions}${patch ? `\n<pre>${patch}</pre>` : ''}`;
+          return `🧩 <code>${escapeHtml(short(file.filename, 100))}</code> · ${escapeHtml(file.status)} · +${file.additions}/-${file.deletions}`;
         })
         .join('\n\n')
     : '<i>فایل تغییریافته‌ای یافت نشد.</i>';

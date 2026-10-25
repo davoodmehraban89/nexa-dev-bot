@@ -230,7 +230,7 @@ test('oversized multibyte legacy draft input is visibly rejected without mutatin
   assert.equal(await workspaces.getPendingInput({ ownerId: OWNER }), null);
 });
 
-test('commit message input normalizes text and diff renders escaped bounded exact counts without GitHub mutation', async () => {
+test('commit message normalizes and Telegram diff shows counts without source or GitHub mutation', async () => {
   const { github, workspaces, plugin } = makePlugin();
   await plugin
     .resolveCallback(`wmsg:${WORKSPACE_ID}`, { ownerId: OWNER })
@@ -256,7 +256,12 @@ test('commit message input normalizes text and diff renders escaped bounded exac
   assert.match(diffView.text, /\+1/);
   assert.match(diffView.text, /-1/);
   assert.doesNotMatch(diffView.text, /<script>/);
-  assert.match(diffView.text, /&lt;script&gt;/);
+  assert.doesNotMatch(diffView.text, /&lt;script&gt;|after|before/);
+  assert.ok(
+    diffView.reply_markup.inline_keyboard
+      .flat()
+      .some((button) => button.web_app)
+  );
   assert.deepEqual(github.calls, []);
 });
 

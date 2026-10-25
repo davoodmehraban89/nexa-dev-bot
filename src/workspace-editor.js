@@ -1,5 +1,6 @@
 import {
   WORKSPACE_EDITOR_LIMITS,
+  buildWorkspaceDiff,
   digestText,
   validateEditableFile
 } from './core/workspace-policy.js';
@@ -35,7 +36,7 @@ function statusForError(error) {
 
 export async function handleWorkspaceEditorRequest(
   request,
-  { workspaces, botToken, ownerId, now = () => Date.now() } = {}
+  { workspaces, github, botToken, ownerId, now = () => Date.now() } = {}
 ) {
   try {
     if (!workspaces)
@@ -51,6 +52,55 @@ export async function handleWorkspaceEditorRequest(
     const url = new URL(request.url);
 
     if (request.method === 'GET') {
+      const refId = url.searchParams.get('refId');
+      if (refId !== null) {
+        const ref = await workspaces.resolveNavigationRef({
+          ownerId: owner,
+          refId: safeWorkspaceId(refId)
+        });
+        if (!ref || ref.type !== 'file')
+          throw new Error('File reference not found or expired');
+        if (!github) throw new Error('File preview service is not configured');
+        let snapshot, file;
+        try {
+          const repo = await github.getRepository(ref.repoId);
+          snapshot = await github.getBranchSnapshot(
+            ref.repoId,
+            repo.defaultBranch
+          );
+          file = await github.getFileAtRef(
+            ref.repoId,
+            ref.path,
+            snapshot.headSha
+          );
+        } catch {
+          throw new Error('File preview provider request failed');
+        }
+        const policy = validateEditableFile({
+          path: file.path,
+          text: file.content,
+          byteLength: file.size
+        });
+        if (!policy.editable)
+          return jsonResponse(
+            {
+              ok: false,
+              error: 'این فایل برای نمایش امن در Mini App مجاز نیست.'
+            },
+            422
+          );
+        return jsonResponse({
+          workspace: {
+            path: file.path,
+            files: [{ path: file.path }],
+            draftText: policy.text,
+            state: 'READ_ONLY',
+            readOnly: true,
+            baseHeadSha: snapshot.headSha.slice(0, 10)
+          },
+          limits: WORKSPACE_EDITOR_LIMITS
+        });
+      }
       const workspaceId = safeWorkspaceId(url.searchParams.get('workspaceId'));
       const workspace = await workspaces.getWorkspace({
         ownerId: owner,
@@ -60,7 +110,26 @@ export async function handleWorkspaceEditorRequest(
       const files =
         Array.isArray(workspace.files) && workspace.files.length
           ? workspace.files
-          : [{ path: workspace.path, draftText: workspace.draftText }];
+          : [
+              {
+                path: workspace.path,
+                originalText: workspace.originalText,
+                draftText: workspace.draftText
+              }
+            ];
+      if (url.searchParams.get('view') === 'diff') {
+        return jsonResponse({
+          workspace: {
+            id: workspace.id,
+            path: workspace.path || files[0].path,
+            state: workspace.state || 'DRAFT',
+            readOnly: true,
+            files: files.map((file) => ({ path: file.path }))
+          },
+          diff: buildWorkspaceDiff({ files, maxChars: 10000 }),
+          limits: WORKSPACE_EDITOR_LIMITS
+        });
+      }
       const requestedPath = String(
         url.searchParams.get('path') || workspace.path || files[0].path
       );
@@ -152,6 +221,16 @@ export async function handleWorkspaceEditorRequest(
 
     return jsonResponse({ ok: false, error: 'Method not allowed' }, 405);
   } catch (error) {
+    if (error?.code === 'DIFF_COMPLEXITY_LIMIT')
+      return jsonResponse(
+        {
+          ok: false,
+          code: error.code,
+          error:
+            'تغییرات برای محاسبهٔ امن Diff پیچیده‌اند؛ فایل‌ها را در تغییرهای کوچک‌تر ویرایش کنید.'
+        },
+        422
+      );
     const status = statusForError(error);
     return jsonResponse(
       {
@@ -206,6 +285,9 @@ export function renderWorkspaceEditorPage() {
   const close = document.getElementById('close');
   const params = new URLSearchParams(location.search);
   const workspaceId = params.get('workspaceId') || '';
+  const refId = params.get('refId') || '';
+  const diffMode = params.get('view') === 'diff';
+  let readOnly = false;
   const byteLength = value => new TextEncoder().encode(value).byteLength;
   const codePoints = value => Array.from(value).length;
   let limits = ${JSON.stringify(WORKSPACE_EDITOR_LIMITS)};
@@ -215,7 +297,7 @@ export function renderWorkspaceEditorPage() {
     const chars = codePoints(editor.value); const bytes = byteLength(editor.value);
     counter.textContent = chars.toLocaleString() + ' / ' + limits.maxChars.toLocaleString() + ' · ' + bytes.toLocaleString() + ' B / ' + limits.maxBytes.toLocaleString() + ' B';
     const valid = chars <= limits.maxChars && bytes <= limits.maxBytes;
-    save.disabled = !valid || editor.disabled;
+    save.disabled = readOnly || !valid || editor.disabled;
     if (!valid) setStatus('محتوا از سقف امن Editor بیشتر است.', 'error');
   }
   async function api(url, options={}) {
@@ -228,9 +310,10 @@ export function renderWorkspaceEditorPage() {
   async function load() {
     if (!tg || !tg.initData) throw new Error('این Editor باید از داخل Telegram باز شود.');
     tg.ready(); tg.expand();
-    if (!/^[A-Za-z0-9_-]{10}$/.test(workspaceId)) throw new Error('Workspace نامعتبر است.');
+    if (!/^[A-Za-z0-9_-]{10}$/.test(refId || workspaceId)) throw new Error('Workspace نامعتبر است.');
     const selectedPath = params.get('path') || '';
-    const body = await api('/workspace/api/editor?workspaceId=' + encodeURIComponent(workspaceId) + (selectedPath ? '&path=' + encodeURIComponent(selectedPath) : ''));
+    const query = refId ? 'refId=' + encodeURIComponent(refId) : 'workspaceId=' + encodeURIComponent(workspaceId) + (selectedPath ? '&path=' + encodeURIComponent(selectedPath) : '') + (diffMode ? '&view=diff' : '');
+    const body = await api('/workspace/api/editor?' + query);
     limits = body.limits || limits;
     // Never interpolate repository-controlled paths into HTML.
     files.replaceChildren();
@@ -242,14 +325,18 @@ export function renderWorkspaceEditorPage() {
     }
     files.value = body.workspace.path; files.disabled = false;
     path.textContent = body.workspace.path;
-    editor.value = body.workspace.draftText || '';
+    readOnly = body.workspace.readOnly === true;
+    editor.readOnly = readOnly;
+    save.hidden = readOnly;
+    editor.value = body.diff ? body.diff.text : body.workspace.draftText || '';
     editor.disabled = false;
-    setStatus('Draft محلی آماده ویرایش است؛ تا قبل از Safe Approval هیچ تغییری در GitHub انجام نمی‌شود.');
+    setStatus(body.diff ? ('Diff · +' + body.diff.additions + ' / -' + body.diff.deletions + (body.diff.truncated ? ' · نمایش کوتاه شده است.' : '')) : readOnly ? 'نمایش فقط‌خواندنی؛ هیچ Draft یا Commit ساخته نشده است.' : 'Draft محلی آماده ویرایش است؛ تا قبل از Safe Approval هیچ تغییری در GitHub انجام نمی‌شود.');
     updateCounter();
   }
   editor.addEventListener('input', updateCounter);
   files.addEventListener('change', () => { params.set('path', files.value); location.search = params.toString(); });
   save.addEventListener('click', async () => {
+    if (readOnly) return;
     save.disabled = true; setStatus('در حال ذخیره Draft…');
     try {
       await api('/workspace/api/editor', { method:'PUT', headers:{'content-type':'application/json'}, body:JSON.stringify({workspaceId, path:files.value, text:editor.value}) });

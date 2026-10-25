@@ -1,6 +1,7 @@
 import { KillSwitchGuidedNexaDevBot } from './kill-switch-bot.js';
 import { DurableWorkspaceStoreClient } from './core/workspace-store.js';
 import { RELEASE_VERSION } from './version.js';
+import { GitHubService } from './github.js';
 import {
   consumeTelegramUpdate,
   telegramBotIdentity
@@ -44,6 +45,7 @@ export default {
         workspaces: new DurableWorkspaceStoreClient({
           namespace: env.WORKSPACE_STORE
         }),
+        github: new GitHubService(env.GITHUB_TOKEN || '', env.GITHUB_OWNER),
         botToken: env.TELEGRAM_BOT_TOKEN || '',
         ownerId: env.OWNER_TELEGRAM_ID || ''
       });

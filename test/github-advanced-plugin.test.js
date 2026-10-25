@@ -326,12 +326,16 @@ test('legacy repository PR button resolves to the actionable advanced PR report'
   );
 });
 
-test('failed job log is escaped and bounded-tail state is visible', async () => {
-  const plugin = createGitHubPlugin({ github: makeGitHub(), menu: makeMenu() });
+test('job-log callback keeps raw log and source out of Telegram', async () => {
+  const github = makeGitHub();
+  const plugin = createGitHubPlugin({ github, menu: makeMenu() });
   const view = await plugin.resolveCallback('joblog:123:88').execute();
-  assert.match(view.text, /&lt;token&gt;/);
-  assert.doesNotMatch(view.text, /<token>/);
-  assert.match(view.text, /انتهای log|بخش پایانی|truncated/i);
+  assert.doesNotMatch(view.text, /token|FAIL expected/);
+  assert.match(view.text, /GitHub/);
+  assert.equal(
+    github.calls.some(([name]) => name === 'getWorkflowJobLog'),
+    false
+  );
 });
 
 test('branches, PRs, issues and releases provide useful drill-down and pagination', async () => {

@@ -38,7 +38,7 @@ function element(tagName) {
   };
 }
 
-async function bootEditor(workspace, search = '?workspaceId=W000000001') {
+async function bootEditor(workspace, search = '?workspaceId=W000000001', diff) {
   const elements = Object.fromEntries(
     ['editor', 'status', 'path', 'files', 'counter', 'save', 'close'].map(
       (id) => [id, element(id === 'files' ? 'select' : id)]
@@ -88,14 +88,18 @@ async function bootEditor(workspace, search = '?workspaceId=W000000001') {
                   state: 'DRAFT'
                 }
               }
-            : { workspace, limits: { maxChars: 20000, maxBytes: 65536 } };
+            : { workspace, diff, limits: { maxChars: 20000, maxBytes: 65536 } };
         }
       };
     }
   });
   await loaded;
   assert.equal(elements.editor.disabled, false, elements.status.textContent);
-  assert.equal(elements.save.disabled, false, elements.status.textContent);
+  assert.equal(
+    elements.save.disabled,
+    workspace.readOnly === true,
+    elements.status.textContent
+  );
   return { elements, requests, location };
 }
 
@@ -208,4 +212,35 @@ test('editor option construction avoids parser-dependent HTML interpolation', ()
   const page = renderWorkspaceEditorPage();
   assert.doesNotMatch(page, /files\.innerHTML\s*=/);
   assert.doesNotMatch(page, /<option value=['\"][^\n]*file\.path/);
+});
+
+test('read-only file preview uses the owner-bound reference and cannot save a draft', async () => {
+  const { elements, requests } = await bootEditor(
+    { ...workspace, readOnly: true },
+    '?refId=R000000001'
+  );
+  assert.equal(requests[0].url, '/workspace/api/editor?refId=R000000001');
+  assert.equal(elements.editor.readOnly, true);
+  assert.equal(elements.editor.value, '# existing draft\n');
+  assert.equal(elements.save.hidden, true);
+  await elements.save.dispatch('click');
+  assert.equal(requests.length, 1);
+});
+
+test('read-only diff displays API text and counts without exposing a save action', async () => {
+  const { elements, requests } = await bootEditor(
+    { ...workspace, readOnly: true },
+    '?workspaceId=W000000001&view=diff',
+    { text: '+literal diff', additions: 1, deletions: 0, truncated: false }
+  );
+  assert.equal(
+    requests[0].url,
+    '/workspace/api/editor?workspaceId=W000000001&view=diff'
+  );
+  assert.equal(elements.editor.value, '+literal diff');
+  assert.match(elements.status.textContent, /Diff.*\+1.*-0/);
+  assert.equal(elements.editor.readOnly, true);
+  assert.equal(elements.save.hidden, true);
+  await elements.save.dispatch('click');
+  assert.equal(requests.length, 1);
 });

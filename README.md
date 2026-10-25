@@ -11,9 +11,9 @@ V2.1 شامل Workspace Editor، Ops Console، Security Center، Configuration C
 - منوی اصلی: پروژه‌ها، وضعیت، ابزارهای توسعه، پیکربندی، امنیت و راهنما.
 - دریافت فهرست Repositoryهای قابل‌دسترسی به‌صورت زنده از GitHub API.
 - مشاهده جزئیات Repository، Pull Requestها، Commitها، Branchها، Issues، Releases و GitHub Actions؛ Issue و Release دارای drill-down منبع‌محور برای توضیح، وضعیت، برچسب/مسئول و Release notes هستند.
-- مشاهده Workflow Run، Job، Step، bounded log و Artifact metadata.
+- مشاهده Workflow Run، Job، Step و Artifact metadata؛ لاگ خام در GitHub باز می‌شود و وارد پیام تلگرام نمی‌شود.
 - اجرای کنترل‌شدهٔ `Re-run failed jobs` و `Cancel workflow run` فقط بعد از Safe Approval.
-- مرور پوشه‌ها و فایل‌ها و پیش‌نمایش فایل‌های متنی مناسب.
+- مرور پوشه‌ها و اطلاعات فایل در تلگرام؛ مشاهدهٔ محتوای فایل متنی مجاز و Diff در Mini App احراز هویت‌شده، با نمایش فقط‌خواندنی.
 - Workspace Editor برای اصلاح یک **multi-file Change Set** محدود و پایدار، بدون WRITE مستقیم به GitHub؛ حالت تک‌فایل با **single-file compatibility** به‌صورت Change Set یک‌عضوی حفظ شده است.
 - Telegram Mini App چندخطی برای ویرایش Draft؛ مسیر Paste عادی Telegram فقط fallback است.
 - ساخت Commit روی Branch جداگانه به شکل `nexa/edit-*`؛ مسیر Workspace به‌صورت مستقیم `main` را تغییر نمی‌دهد.

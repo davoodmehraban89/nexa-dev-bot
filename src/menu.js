@@ -8,12 +8,6 @@ function escapeHtml(value = '') {
     .replaceAll('"', '&quot;');
 }
 
-function decodeBase64Utf8(value = '') {
-  const binary = atob(String(value).replace(/\s/g, ''));
-  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
-
 function callbackFits(value) {
   return new TextEncoder().encode(String(value)).length <= 64;
 }
@@ -277,25 +271,15 @@ ${itemsText}${omitted}`;
   }
 
   async getBlobView(repoId, sha) {
-    const [repo, blob] = await Promise.all([
-      this.github.getRepository(repoId),
-      this.github.getBlob(repoId, sha)
-    ]);
-
-    let body;
-    if (blob.encoding !== 'base64' || blob.size > 100000) {
-      body = '<i>این فایل برای نمایش مستقیم در تلگرام مناسب نیست.</i>';
-    } else {
-      const decoded = decodeBase64Utf8(blob.content);
-      const preview =
-        decoded.length > 2800 ? `${decoded.slice(0, 2800)}\n…` : decoded;
-      body = `<pre>${escapeHtml(preview)}</pre>`;
-    }
+    const repo = await this.github.getRepository(repoId);
+    const body =
+      'محتوای فایل در پیام تلگرام ارسال نمی‌شود. از مسیر فایل‌ها، فایل را در Mini App باز کنید.';
 
     const text = `📄 <b>پیش‌نمایش فایل در ${escapeHtml(repo.name)}</b>
 <code>🏠 Nexa Dev &gt; 📁 مخزن‌ها &gt; ${escapeHtml(repo.name)} &gt; 📂 فایل‌ها &gt; فایل</code>
 ➖➖➖➖➖➖➖➖➖➖
-${body}`;
+${body}
+Ref: <code>${escapeHtml(String(sha || '').slice(0, 10))}</code>`;
 
     return {
       text,

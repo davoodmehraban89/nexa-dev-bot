@@ -92,8 +92,6 @@ describe('Nexa Dev Bot - in-app V2.1 guide', () => {
       'Editor',
       'Mini App',
       'WORKSPACE_STORE',
-      'بارگذاری فایل',
-      'Paste متن',
       'پیام Commit',
       'Diff',
       'آماده Commit',
@@ -104,6 +102,8 @@ describe('Nexa Dev Bot - in-app V2.1 guide', () => {
         `workspace guide missing ${label}`
       );
     }
+    assert.doesNotMatch(workspaceHelp.text, /Paste متن|بارگذاری فایل/);
+    assert.match(workspaceHelp.text, /متن منبع.*چت.*ارسال نکنید/);
 
     const ciHelp = await menu.renderByCallback('help:5');
     for (const label of [

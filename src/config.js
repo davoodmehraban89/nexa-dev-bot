@@ -10,3 +10,24 @@ export const DEFAULT_CONFIG = {
     }
   ]
 };
+
+export function workspaceEditorUrl(
+  configured = DEFAULT_CONFIG.workspaceEditorUrl
+) {
+  if (typeof configured !== 'string' || !configured.trim()) return '';
+  try {
+    const url = new URL(configured);
+    if (
+      url.protocol !== 'https:' ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      url.pathname !== '/workspace/editor'
+    )
+      return '';
+    return url.href;
+  } catch {
+    return '';
+  }
+}

@@ -3,8 +3,7 @@ import {
   digestText,
   makeTargetBranch,
   normalizeCommitMessage,
-  validateEditableFile,
-  WORKSPACE_EDITOR_LIMITS
+  validateEditableFile
 } from '../../core/workspace-policy.js';
 import { DEFAULT_CONFIG } from '../../config.js';
 import { commitWorkspaceIntent } from './workspace-commit.js';
@@ -13,7 +12,6 @@ export { commitWorkspaceIntent } from './workspace-commit.js';
 
 const HANDLE_10 = '[A-Za-z0-9_-]{10}';
 const INTENT_8 = '[A-Za-z0-9_-]{8}';
-const editorLimitHint = `${WORKSPACE_EDITOR_LIMITS.maxChars.toLocaleString('en-US')} کاراکتر Unicode و ${WORKSPACE_EDITOR_LIMITS.maxBytes.toLocaleString('en-US')} بایت UTF-8`;
 const escapeHtml = (value) =>
   String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -155,19 +153,8 @@ function editorUrlFor(workspace, editorUrl, path = '') {
 
 function workspaceButtons(workspace, editorUrl) {
   const editor = editorUrlFor(workspace, editorUrl);
-  const firstRow = [];
-  if (editor) firstRow.push({ text: '🧑‍💻 Editor', web_app: { url: editor } });
-  firstRow.push({
-    text: '📎 بارگذاری فایل',
-    callback_data: `wfile:${workspace.id}`
-  });
-  if (!editor)
-    firstRow.push({
-      text: '📝 Paste متن',
-      callback_data: `wtext:${workspace.id}`
-    });
   return [
-    firstRow,
+    ...(editor ? [[{ text: '🧑‍💻 Editor', web_app: { url: editor } }]] : []),
     [{ text: '✍️ پیام Commit', callback_data: `wmsg:${workspace.id}` }],
     [
       { text: '🔍 Diff', callback_data: `wdiff:${workspace.id}` },
@@ -178,6 +165,12 @@ function workspaceButtons(workspace, editorUrl) {
       { text: '🔙 فایل‌ها', callback_data: `files:${workspace.repoId}` }
     ]
   ];
+}
+
+function draftInputNotice(workspace, editorUrl) {
+  return editorUrlFor(workspace, editorUrl)
+    ? 'متن منبع و فایل را در چت ارسال نکنید؛ ویرایش Draft فقط در Mini App احراز هویت‌شده انجام می‌شود.'
+    : 'Editor در دسترس نیست؛ پیکربندی Mini App باید اصلاح شود. متن منبع و فایل را در چت ارسال نکنید.';
 }
 
 function workspaceCommitResultView(repoId, intent, result) {
@@ -368,7 +361,7 @@ export function createWorkspaceController({
       )
       .join('\n');
     const buttons = workspaceButtons(workspace, editorUrl);
-    if (editorUrl && files.length > 1) {
+    if (editorUrlFor(workspace, editorUrl) && files.length > 1) {
       const fileEditors = files.map((file) => [
         {
           text: 'Edit ' + short(file.path, 34),
@@ -380,10 +373,7 @@ export function createWorkspaceController({
       const genericEditorIndex = buttons.findIndex((row) =>
         row.some((button) => button.web_app?.url === genericEditorUrl)
       );
-      if (genericEditorIndex >= 0)
-        buttons[genericEditorIndex] = buttons[genericEditorIndex].filter(
-          (button) => !button.web_app
-        );
+      if (genericEditorIndex >= 0) buttons.splice(genericEditorIndex, 1);
     }
     buttons.unshift([
       {
@@ -399,7 +389,7 @@ export function createWorkspaceController({
         }
       ]);
     return {
-      text: `📝 <b>Repository Workspace</b>\nChange Set: <b>${files.length} فایل</b> · تغییرکرده: <b>${changedCount}</b>\n${list}\nوضعیت: <b>${escapeHtml(workspace.state || 'DRAFT')}</b>\nBase: <code>${escapeHtml(String(workspace.baseHeadSha || '').slice(0, 10))}</code>\nپیام Commit: ${commitMessage}\n\nذخیره فقط Draft محلی را تغییر می‌دهد؛ GitHub فقط بعد از Diff، Ready و Safe Approval تغییر می‌کند.`,
+      text: `📝 <b>Repository Workspace</b>\nChange Set: <b>${files.length} فایل</b> · تغییرکرده: <b>${changedCount}</b>\n${list}\nوضعیت: <b>${escapeHtml(workspace.state || 'DRAFT')}</b>\nBase: <code>${escapeHtml(String(workspace.baseHeadSha || '').slice(0, 10))}</code>\nپیام Commit: ${commitMessage}\n\n${draftInputNotice(workspace, editorUrl)}\nذخیره فقط Draft محلی را تغییر می‌دهد؛ GitHub فقط بعد از Diff، Ready و Safe Approval تغییر می‌کند.`,
       reply_markup: { inline_keyboard: buttons }
     };
   };
@@ -501,15 +491,18 @@ export function createWorkspaceController({
 
   const prepareInput = async (workspaceId, mode, ownerId) => {
     const workspace = await requireWorkspace(workspaceId, ownerId);
+    if (mode !== 'commit_message') {
+      await workspaces.consumePendingInput({ ownerId, workspaceId, mode });
+      return {
+        text: `📝 <b>ویرایش Draft در Mini App</b>\n${draftInputNotice(workspace, editorUrl)}`,
+        reply_markup: {
+          inline_keyboard: workspaceButtons(workspace, editorUrl)
+        }
+      };
+    }
     await workspaces.setPendingInput({ ownerId, workspaceId, mode });
-    const fileMode = mode === 'draft_file';
-    const draftMode = mode === 'draft';
     return {
-      text: fileMode
-        ? `📎 <b>فایل متنی جایگزین را ارسال کنید</b>\nمقصد در مخزن: <code>${escapeHtml(workspace.path)}</code>\n\nفایل ارسال‌شده فقط به‌عنوان محتوای جایگزین Draft استفاده می‌شود؛ نام فایل مقصد را تغییر نمی‌دهد. سقف Policy: ${editorLimitHint} معتبر. فایل‌های باینری، LFS یا محتوای غیرمجاز رد می‌شوند.`
-        : draftMode
-          ? `📝 <b>ورودی متنی قدیمی Workspace</b>\nفایل: <code>${escapeHtml(workspace.path)}</code>\n\nاین مسیر فقط برای سازگاری پیام‌های قدیمی باقی مانده است. Editor جدید مسیر اصلی است. سقف: ${editorLimitHint}.`
-          : `✍️ <b>پیام Commit را ارسال کنید</b>\nفایل: <code>${escapeHtml(workspace.path)}</code>\n\nپیام باید غیرخالی و حداکثر 120 کاراکتر باشد. پیام بعدی فقط یک‌بار مصرف می‌شود.`,
+      text: `✍️ <b>پیام Commit را ارسال کنید</b>\nفایل: <code>${escapeHtml(workspace.path)}</code>\n\nپیام باید غیرخالی و حداکثر 120 کاراکتر باشد. پیام بعدی فقط یک‌بار مصرف می‌شود.`,
       reply_markup: {
         inline_keyboard: [
           [{ text: '↩️ بازگشت به Draft', callback_data: `ws:${workspace.id}` }]
@@ -518,7 +511,7 @@ export function createWorkspaceController({
     };
   };
 
-  const applyPendingInput = async ({ pending, text, file }, ownerId) => {
+  const applyPendingInput = async ({ pending, text }, ownerId) => {
     const workspaceId = String(pending?.workspaceId || '');
     const mode = String(pending?.mode || '');
     if (
@@ -526,12 +519,6 @@ export function createWorkspaceController({
       !['draft', 'draft_file', 'commit_message'].includes(mode)
     ) {
       throw new Error('Pending workspace input is invalid');
-    }
-
-    if (mode === 'draft_file' && (!file || typeof file.text !== 'string')) {
-      throw new Error(
-        'A UTF-8 Telegram document is required for this workspace input'
-      );
     }
 
     const consumed = await workspaces.consumePendingInput({
@@ -545,44 +532,12 @@ export function createWorkspaceController({
       );
     const workspace = await requireWorkspace(workspaceId, ownerId);
 
-    if (mode === 'draft' || mode === 'draft_file') {
-      const inputText = mode === 'draft_file' ? file.text : text;
-      const inputBytes =
-        mode === 'draft_file' ? Number(file.byteLength) : undefined;
-      const policy = validateEditableFile({
-        path: workspace.path,
-        text: inputText,
-        byteLength: inputBytes
-      });
-      if (!policy.editable) {
-        return {
-          text: `⚠️ <b>Draft تغییر نکرد</b>\n${escapeHtml(policy.reason || 'محتوای ارسال‌شده مجاز نیست.')}\n\nاین ورودی مصرف شد؛ برای تلاش دوباره ${mode === 'draft_file' ? '«بارگذاری فایل»' : 'Editor'} را باز کنید.`,
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '📝 بازگشت به Draft',
-                  callback_data: `ws:${workspace.id}`
-                }
-              ]
-            ]
-          }
-        };
-      }
-      const digest = await digestText(policy.text);
-      const updated = await workspaces.updateDraft({
-        ownerId,
-        workspaceId,
-        text: policy.text,
-        digest
-      });
-      const source =
-        mode === 'draft_file'
-          ? `\nفایل ورودی: <code>${escapeHtml(short(file.name || 'uploaded file', 100))}</code>`
-          : '';
+    if (mode !== 'commit_message') {
       return {
-        text: `✅ <b>Draft محلی ذخیره شد</b>\nفایل مقصد: <code>${escapeHtml(updated.path)}</code>${source}\nکاراکتر: <b>${policy.charLength}</b> · بایت UTF-8: <b>${policy.byteLength}</b>\n\nهنوز هیچ تغییری در GitHub انجام نشده است.`,
-        reply_markup: { inline_keyboard: workspaceButtons(updated, editorUrl) }
+        text: `⚠️ <b>Draft تغییر نکرد</b>\nورودی قدیمی چت لغو شد. ${draftInputNotice(workspace, editorUrl)}`,
+        reply_markup: {
+          inline_keyboard: workspaceButtons(workspace, editorUrl)
+        }
       };
     }
 
@@ -884,11 +839,10 @@ export function createWorkspaceController({
           applyPendingInput(
             {
               pending,
-              text: String(payload?.text ?? ''),
-              file:
-                payload?.file && typeof payload.file === 'object'
-                  ? payload.file
-                  : null
+              text:
+                pending.mode === 'commit_message'
+                  ? String(payload?.text ?? '')
+                  : undefined
             },
             ownerFrom(context)
           )

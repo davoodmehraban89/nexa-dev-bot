@@ -1,26 +1,49 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { NexaDevBot } from '../src/bot.js';
-import { createGitHubPlugin } from '../src/plugins/github/plugin.js';
+import { DurableWorkspaceStoreClient } from '../src/core/workspace-store.js';
+import { WorkspaceStore } from '../src/durable/workspace-store.js';
+import { createWorkspaceController } from '../src/plugins/github/workspace.js';
 
 const OWNER = '42';
-const WORKSPACE_ID = 'W000000001';
+const EDITOR_URL = 'https://example.com/workspace/editor';
+const ORIGINAL = 'node_modules/\n';
+const SENTINEL = 'SOURCE_MUST_STAY_OUT_OF_TELEGRAM_WORKFLOW';
 
-function makeMenu() {
-  return {
-    async getReposListView() {
-      return { text: 'repos', reply_markup: { inline_keyboard: [] } };
-    },
-    async renderByCallback(data) {
-      return { text: `legacy:${data}`, reply_markup: { inline_keyboard: [] } };
+async function fixture(editorUrl = EDITOR_URL) {
+  const states = new Map();
+  const workspaces = new DurableWorkspaceStoreClient({
+    now: () => 1000,
+    namespace: {
+      idFromName: (name) => String(name),
+      get(id) {
+        if (!states.has(id)) {
+          const data = new Map();
+          const storage = {
+            async get(key) {
+              return data.get(key);
+            },
+            async put(key, value) {
+              data.set(key, structuredClone(value));
+            },
+            async delete(key) {
+              return data.delete(key);
+            },
+            async list() {
+              return new Map(data);
+            },
+            async transaction(fn) {
+              return fn(storage);
+            },
+            async setAlarm() {}
+          };
+          states.set(id, new WorkspaceStore({ storage }));
+        }
+        return { fetch: (request) => states.get(id).fetch(request) };
+      }
     }
-  };
-}
-
-function makeWorkspaces() {
-  let pending = null;
-  const workspace = {
-    id: WORKSPACE_ID,
+  });
+  const workspace = await workspaces.createWorkspace({
+    ownerId: OWNER,
     repoId: 123,
     repoFullName: 'davood/demo',
     baseBranch: 'main',
@@ -28,244 +51,171 @@ function makeWorkspaces() {
     baseTreeSha: 'b'.repeat(40),
     path: '.gitignore',
     blobSha: 'c'.repeat(40),
-    originalText: 'node_modules/\n',
-    draftText: 'node_modules/\n',
-    commitMessage: '',
-    state: 'DRAFT'
-  };
+    originalText: ORIGINAL,
+    originalDigest: 'd'.repeat(64)
+  });
   return {
     workspace,
-    async getWorkspace({ ownerId, workspaceId }) {
-      return ownerId === OWNER && workspaceId === WORKSPACE_ID
-        ? structuredClone(workspace)
-        : null;
-    },
-    async setPendingInput({ ownerId, workspaceId, mode }) {
-      assert.equal(ownerId, OWNER);
-      pending = { workspaceId, mode };
-      return structuredClone(pending);
-    },
-    async getPendingInput({ ownerId }) {
-      return ownerId === OWNER && pending ? structuredClone(pending) : null;
-    },
-    async consumePendingInput({ ownerId, workspaceId, mode }) {
-      if (
-        ownerId !== OWNER ||
-        !pending ||
-        pending.workspaceId !== workspaceId ||
-        pending.mode !== mode
-      )
-        return false;
-      pending = null;
-      return true;
-    },
-    async updateDraft({ ownerId, workspaceId, text, digest }) {
-      assert.equal(ownerId, OWNER);
-      assert.equal(workspaceId, WORKSPACE_ID);
-      workspace.draftText = text;
-      workspace.draftDigest = digest;
-      workspace.state = 'DRAFT';
-      return structuredClone(workspace);
-    }
-  };
-}
-
-function makePlugin() {
-  const workspaces = makeWorkspaces();
-  const github = {
-    async getRepository(repoId) {
-      return {
-        id: String(repoId),
-        name: 'demo',
-        fullName: 'davood/demo',
-        defaultBranch: 'main',
-        archived: false
-      };
-    }
-  };
-  return {
     workspaces,
-    plugin: createGitHubPlugin({ github, menu: makeMenu(), workspaces })
+    controller: createWorkspaceController({ github: {}, workspaces, editorUrl })
   };
 }
 
-test('workspace keeps file upload as a secondary bounded draft input route', async () => {
-  const { workspaces, plugin } = makePlugin();
-  const workspaceView = await plugin
-    .resolveCallback(`ws:${WORKSPACE_ID}`, { ownerId: OWNER })
-    .execute();
-  const buttons = workspaceView.reply_markup.inline_keyboard.flat();
-  const upload = buttons.find(
-    (button) => button.callback_data === `wfile:${WORKSPACE_ID}`
-  );
-  assert.ok(upload);
-  assert.match(upload.text, /file|فایل|upload|بارگذاری/i);
-  assert.ok(new TextEncoder().encode(upload.callback_data).byteLength <= 64);
+function buttons(view) {
+  return view.reply_markup.inline_keyboard.flat();
+}
 
-  const route = plugin.resolveCallback(upload.callback_data, {
-    ownerId: OWNER
-  });
-  assert.equal(route.actionId, 'github.workspace.input.prepare');
-  const prompt = await route.execute();
-  assert.match(prompt.text, /65,?536|65536/);
-  assert.match(prompt.text, /20,?000|20000/);
-  assert.match(prompt.text, /UTF-?8|فایل/i);
-  assert.deepEqual(await workspaces.getPendingInput({ ownerId: OWNER }), {
-    workspaceId: WORKSPACE_ID,
-    mode: 'draft_file'
-  });
-});
+function assertEditor(view, workspaceId) {
+  const editor = buttons(view).find((button) => button.web_app);
+  assert.ok(editor, 'the rejected source-input route must offer the Mini App');
+  assert.equal(editor.web_app.url, `${EDITOR_URL}?workspaceId=${workspaceId}`);
+  assert.doesNotMatch(JSON.stringify(view), new RegExp(SENTINEL));
+}
 
-test('uploaded text file replaces only the local draft and preserves the repository target path', async () => {
-  const { workspaces, plugin } = makePlugin();
-  await plugin
-    .resolveCallback(`wfile:${WORKSPACE_ID}`, { ownerId: OWNER })
-    .execute();
-  const pending = await workspaces.getPendingInput({ ownerId: OWNER });
-  const route = plugin.resolveMessage(
-    {
-      pending,
+test('workspace offers only Mini App editing even when the editor is unavailable', async () => {
+  for (const editorUrl of [EDITOR_URL, '', 'http://example.com/editor']) {
+    const { controller, workspace, workspaces } = await fixture(editorUrl);
+    await workspaces.upsertWorkspaceFile({
+      ownerId: OWNER,
+      workspaceId: workspace.id,
       file: {
-        name: 'replacement.txt',
-        text: 'node_modules/\n# smoke\n',
-        byteLength: 22
+        path: 'README.md',
+        blobSha: 'e'.repeat(40),
+        originalText: '# Demo\n',
+        draftText: '# Demo\n',
+        originalDigest: 'f'.repeat(64),
+        draftDigest: 'f'.repeat(64)
       }
-    },
-    { ownerId: OWNER }
-  );
-  assert.equal(route.actionId, 'github.workspace.input.apply');
-  const view = await route.execute();
-  assert.match(view.text, /Draft|ذخیره|فایل/i);
-  assert.equal(workspaces.workspace.path, '.gitignore');
-  assert.equal(workspaces.workspace.draftText, 'node_modules/\n# smoke\n');
-  assert.equal(await workspaces.getPendingInput({ ownerId: OWNER }), null);
+    });
+    const view = await controller
+      .resolveCallback(`ws:${workspace.id}`, { ownerId: OWNER })
+      .execute();
+    assert.ok(
+      view.reply_markup.inline_keyboard.every((row) => row.length > 0),
+      'the multi-file workspace must send usable keyboard rows'
+    );
+    assert.equal(
+      buttons(view).some((button) =>
+        /^w(?:text|file):/.test(button.callback_data || '')
+      ),
+      false,
+      `Telegram source input must remain disabled for ${editorUrl || 'missing editor'}`
+    );
+    if (editorUrl === EDITOR_URL)
+      assert.deepEqual(
+        buttons(view)
+          .filter((button) => button.web_app)
+          .map((button) => button.web_app.url),
+        [
+          `${EDITOR_URL}?workspaceId=${workspace.id}&path=.gitignore`,
+          `${EDITOR_URL}?workspaceId=${workspace.id}&path=README.md`
+        ]
+      );
+    else {
+      assert.equal(
+        buttons(view).some((button) => button.web_app),
+        false
+      );
+      assert.match(view.text, /Editor.*دسترس|Mini App.*دسترس/);
+    }
+  }
 });
 
-test('bot downloads a pending workspace document using the expanded workspace byte ceiling', async () => {
-  const bot = new NexaDevBot({});
-  const calls = [];
-  bot.workspaceStore = {
-    isConfigured: () => true,
-    async getPendingInput({ ownerId }) {
-      calls.push(['getPendingInput', ownerId]);
-      return { workspaceId: WORKSPACE_ID, mode: 'draft_file' };
-    }
-  };
-  bot.telegram = {
-    async downloadTextFile(fileId, options) {
-      calls.push(['downloadTextFile', fileId, options]);
-      return {
-        text: 'node_modules/\n# smoke\n',
-        byteLength: 22,
-        filePath: 'documents/replacement.txt'
-      };
-    },
-    async sendMessage(chatId, text, replyMarkup) {
-      calls.push(['sendMessage', chatId, text, replyMarkup]);
-      return { ok: true };
-    }
-  };
-  bot.router = {
-    async dispatchMessage(payload, context) {
-      calls.push([
-        'dispatchMessage',
-        structuredClone(payload),
-        structuredClone(context)
-      ]);
-      return { text: 'file accepted', reply_markup: { inline_keyboard: [] } };
-    }
-  };
-
-  const result = await bot.handleMessage({
-    chat: { id: 7 },
-    from: { id: 42 },
-    document: {
-      file_id: 'FILE123',
-      file_name: 'replacement.txt',
-      file_size: 22
-    }
+for (const [prefix, mode] of [
+  ['wtext', 'draft'],
+  ['wfile', 'draft_file']
+]) {
+  test(`stale ${prefix} callback clears its old pending source input and redirects to Mini App`, async () => {
+    const { controller, workspace, workspaces } = await fixture();
+    await workspaces.setPendingInput({
+      ownerId: OWNER,
+      workspaceId: workspace.id,
+      mode
+    });
+    const view = await controller
+      .resolveCallback(`${prefix}:${workspace.id}`, { ownerId: OWNER })
+      .execute();
+    assert.equal(await workspaces.getPendingInput({ ownerId: OWNER }), null);
+    assertEditor(view, workspace.id);
+    const saved = await workspaces.getWorkspace({
+      ownerId: OWNER,
+      workspaceId: workspace.id
+    });
+    assert.equal(saved.draftText, ORIGINAL);
   });
 
-  assert.equal(result.workspaceInput, true);
-  assert.deepEqual(
-    calls.find((call) => call[0] === 'downloadTextFile'),
-    ['downloadTextFile', 'FILE123', { maxBytes: 65536 }]
-  );
-  const dispatch = calls.find((call) => call[0] === 'dispatchMessage');
-  assert.deepEqual(dispatch[1].file, {
-    name: 'replacement.txt',
-    text: 'node_modules/\n# smoke\n',
-    byteLength: 22
+  test(`stale ${prefix} callback preserves an active commit-message input`, async () => {
+    const { controller, workspace, workspaces } = await fixture();
+    await workspaces.setPendingInput({
+      ownerId: OWNER,
+      workspaceId: workspace.id,
+      mode: 'commit_message'
+    });
+    const view = await controller
+      .resolveCallback(`${prefix}:${workspace.id}`, { ownerId: OWNER })
+      .execute();
+    assert.deepEqual(await workspaces.getPendingInput({ ownerId: OWNER }), {
+      workspaceId: workspace.id,
+      mode: 'commit_message'
+    });
+    assertEditor(view, workspace.id);
   });
-  assert.deepEqual(dispatch[2], { isOwner: true, ownerId: OWNER });
-});
 
-test('wrong message type while file upload is pending does not dispatch or consume the workspace input', async () => {
-  const bot = new NexaDevBot({});
-  let dispatches = 0;
-  bot.workspaceStore = {
-    isConfigured: () => true,
-    async getPendingInput() {
-      return { workspaceId: WORKSPACE_ID, mode: 'draft_file' };
-    }
-  };
-  bot.telegram = {
-    async sendMessage() {
-      return { ok: true };
-    },
-    async downloadTextFile() {
-      throw new Error('must not download');
-    }
-  };
-  bot.router = {
-    async dispatchMessage() {
-      dispatches += 1;
-      return null;
-    }
-  };
-
-  const result = await bot.handleMessage({
-    chat: { id: 7 },
-    from: { id: 42 },
-    text: 'not a file'
+  test(`pending ${mode} is consumed without accessing or saving Telegram source fields`, async () => {
+    const { controller, workspace, workspaces } = await fixture();
+    await workspaces.setPendingInput({
+      ownerId: OWNER,
+      workspaceId: workspace.id,
+      mode
+    });
+    const pending = await workspaces.getPendingInput({ ownerId: OWNER });
+    let sourceReads = 0;
+    const payload = {
+      pending,
+      get text() {
+        sourceReads += 1;
+        return SENTINEL;
+      },
+      get file() {
+        sourceReads += 1;
+        return { name: 'replacement.txt', text: SENTINEL, byteLength: 100 };
+      }
+    };
+    const view = await controller
+      .resolveMessage(payload, { ownerId: OWNER })
+      .execute();
+    assert.equal(
+      sourceReads,
+      0,
+      'disabled source input must not inspect Telegram body fields'
+    );
+    assert.equal(await workspaces.getPendingInput({ ownerId: OWNER }), null);
+    const saved = await workspaces.getWorkspace({
+      ownerId: OWNER,
+      workspaceId: workspace.id
+    });
+    assert.equal(saved.draftText, ORIGINAL);
+    assert.equal(saved.files[0].draftText, ORIGINAL);
+    assertEditor(view, workspace.id);
   });
-  assert.equal(result.workspaceInput, true);
-  assert.equal(result.inputRequired, 'document');
-  assert.equal(dispatches, 0);
-});
 
-test('oversized Telegram document is rejected before download or workspace dispatch so owner can retry', async () => {
-  const bot = new NexaDevBot({});
-  let downloads = 0;
-  let dispatches = 0;
-  bot.workspaceStore = {
-    isConfigured: () => true,
-    async getPendingInput() {
-      return { workspaceId: WORKSPACE_ID, mode: 'draft_file' };
-    }
-  };
-  bot.telegram = {
-    async sendMessage() {
-      return { ok: true };
-    },
-    async downloadTextFile() {
-      downloads += 1;
-      return { text: 'unexpected', byteLength: 10 };
-    }
-  };
-  bot.router = {
-    async dispatchMessage() {
-      dispatches += 1;
-      return null;
-    }
-  };
-
-  const result = await bot.handleMessage({
-    chat: { id: 7 },
-    from: { id: 42 },
-    document: { file_id: 'HUGE', file_name: 'huge.txt', file_size: 65537 }
+  test(`pending ${mode} redirects with metadata alone and cannot be replayed`, async () => {
+    const { controller, workspace, workspaces } = await fixture();
+    await workspaces.setPendingInput({
+      ownerId: OWNER,
+      workspaceId: workspace.id,
+      mode
+    });
+    const pending = await workspaces.getPendingInput({ ownerId: OWNER });
+    const route = controller.resolveMessage({ pending }, { ownerId: OWNER });
+    const view = await route.execute();
+    assertEditor(view, workspace.id);
+    assert.equal(await workspaces.getPendingInput({ ownerId: OWNER }), null);
+    await assert.rejects(() => route.execute(), /consumed|expired/i);
+    const saved = await workspaces.getWorkspace({
+      ownerId: OWNER,
+      workspaceId: workspace.id
+    });
+    assert.equal(saved.draftText, ORIGINAL);
   });
-  assert.equal(result.inputRejected, true);
-  assert.equal(downloads, 0);
-  assert.equal(dispatches, 0);
-});
+}

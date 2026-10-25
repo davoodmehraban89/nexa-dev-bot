@@ -27,7 +27,10 @@ const publicHealthPayload = () => ({
   mode: 'Cloudflare Worker Webhook'
 });
 const senderIdFromUpdate = (u) =>
-  u?.message?.from?.id ?? u?.callback_query?.from?.id ?? null;
+  u?.message?.from?.id ??
+  u?.edited_message?.from?.id ??
+  u?.callback_query?.from?.id ??
+  null;
 const isOwnerUpdate = (u, e) =>
   !!e.OWNER_TELEGRAM_ID &&
   senderIdFromUpdate(u) !== null &&
@@ -112,9 +115,11 @@ export default {
       // Claim before effects: retries are at-most-once; a process crash after the
       // durable claim can lose this update. No raw update is retained for replay.
       try {
-        const result = await new KillSwitchGuidedNexaDevBot(env).handleUpdate(
-          update
-        );
+        const result = await new KillSwitchGuidedNexaDevBot({
+          ...env,
+          WORKSPACE_EDITOR_URL:
+            env.WORKSPACE_EDITOR_URL ?? new URL('/workspace/editor', url).href
+        }).handleUpdate(update);
         if (result?.ok !== false) return jsonResponse(result);
       } catch {
         // Provider messages can contain tokens or draft text; log metadata only.

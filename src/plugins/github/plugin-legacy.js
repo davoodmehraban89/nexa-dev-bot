@@ -913,11 +913,16 @@ function resolveWriteCallback(data) {
   return null;
 }
 
-export function createGitHubPlugin({ github, menu, workspaces } = {}) {
+export function createGitHubPlugin({
+  github,
+  menu,
+  workspaces,
+  editorUrl
+} = {}) {
   if (!github) throw new Error('GitHub plugin requires github service');
   if (!menu) throw new Error('GitHub plugin requires menu manager');
   const workspaceController = workspaces
-    ? createWorkspaceController({ github, workspaces })
+    ? createWorkspaceController({ github, workspaces, editorUrl })
     : null;
 
   return {

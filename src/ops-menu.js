@@ -1,5 +1,5 @@
 import { GuideMenuManager } from './guide-menu.js';
-import { DEFAULT_CONFIG } from './config.js';
+import { workspaceEditorUrl } from './config.js';
 
 const escapeHtml = (value) =>
   String(value ?? '')
@@ -317,11 +317,14 @@ WRITE فقط بعد از تأیید معتبر اجرا می‌شود و Approva
   }
 
   getEditorConfigView() {
+    const editorUrl = workspaceEditorUrl(
+      this.diagnostics?.env?.WORKSPACE_EDITOR_URL
+    );
     return {
       text: `🧑‍💻 <b>پیکربندی Workspace Editor</b>
 ➖➖➖➖➖➖➖➖➖➖
 • نوع: <b>Telegram Mini App</b>
-• URL: <code>${escapeHtml(DEFAULT_CONFIG.workspaceEditorUrl)}</code>
+• URL: <code>${editorUrl ? escapeHtml(editorUrl) : 'پیکربندی نشده'}</code>
 • ذخیره: <b>Durable Draft در WORKSPACE_STORE</b>
 • GitHub WRITE مستقیم از Editor: <b>ندارد</b>
 • Commit نهایی: <b>Branch-only + Safe Approval</b>`,

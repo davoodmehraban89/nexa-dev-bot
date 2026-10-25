@@ -69,7 +69,7 @@ test('persistent menu text has precedence over pending draft input', async () =>
   assert.match(sent.at(-1).text, /Nexa Dev Bot/);
 });
 
-test('Paste text opens a focused ForceReply prompt without replacing the workspace message', async () => {
+test('legacy Paste callbacks replace the workspace message with the Mini App redirect', async () => {
   const bot = new NexaDevBot({});
   const sent = [];
   const edited = [];
@@ -86,10 +86,10 @@ test('Paste text opens a focused ForceReply prompt without replacing the workspa
   bot.router.dispatchCallback = async (data) => {
     assert.equal(data, `wtext:${WORKSPACE_ID}`);
     return {
-      text: '📝 متن جدید Draft را ارسال کنید',
+      text: 'متن را فقط در Mini App ویرایش کنید',
       reply_markup: {
         inline_keyboard: [
-          [{ text: '↩️ بازگشت', callback_data: `ws:${WORKSPACE_ID}` }]
+          [{ text: 'Editor', web_app: { url: 'https://example.test/editor' } }]
         ]
       }
     };
@@ -103,11 +103,88 @@ test('Paste text opens a focused ForceReply prompt without replacing the workspa
   });
 
   assert.equal(result.ok, true);
-  assert.equal(result.inputPrompt, true);
-  assert.equal(edited.length, 0);
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].replyMarkup.force_reply, true);
-  assert.equal(sent[0].replyMarkup.selective, true);
-  assert.match(sent[0].replyMarkup.input_field_placeholder, /Paste|کد|متن/i);
-  assert.equal(sent[0].replyMarkup.inline_keyboard, undefined);
+  assert.equal(result.edited, true);
+  assert.equal(result.inputPrompt, undefined);
+  assert.equal(sent.length, 0);
+  assert.equal(edited.length, 1);
+  assert.equal(edited[0][1], 55);
+  assert.equal(edited[0][3].force_reply, undefined);
+  assert.equal(
+    edited[0][3].inline_keyboard[0][0].web_app.url,
+    'https://example.test/editor'
+  );
+});
+
+test('stale draft input sends only pending metadata to the Mini App redirect route', async () => {
+  const bot = new NexaDevBot({});
+  const pending = { workspaceId: WORKSPACE_ID, mode: 'draft' };
+  const payloadKeys = [];
+  const sent = [];
+  bot.workspaceStore = {
+    isConfigured: () => true,
+    async getPendingInput() {
+      return pending;
+    }
+  };
+  bot.router.dispatchMessage = async (payload, context) => {
+    payloadKeys.push(Object.keys(payload));
+    assert.deepEqual(payload.pending, pending);
+    assert.equal(context.ownerId, '42');
+    return { text: 'ویرایش فقط در Mini App' };
+  };
+  bot.telegram.sendMessage = async (chatId, text) => {
+    sent.push({ chatId, text });
+    return { ok: true };
+  };
+
+  const result = await bot.handleMessage({
+    message_id: 55,
+    chat: { id: 7 },
+    from: { id: 42 },
+    text: 'SOURCE_BODY_MUST_NOT_REACH_CONTROLLER'
+  });
+
+  assert.deepEqual(payloadKeys, [['pending']]);
+  assert.equal(result.workspaceInput, true);
+  assert.equal(
+    JSON.stringify({ sent, result }).includes('SOURCE_BODY_'),
+    false
+  );
+});
+
+test('stale upload input redirects before downloading or requesting another file', async () => {
+  for (const document of [
+    undefined,
+    { file_id: 'synthetic-file', file_size: 10 }
+  ]) {
+    const bot = new NexaDevBot({});
+    let downloads = 0;
+    const payloadKeys = [];
+    bot.workspaceStore = {
+      isConfigured: () => true,
+      async getPendingInput() {
+        return { workspaceId: WORKSPACE_ID, mode: 'draft_file' };
+      }
+    };
+    bot.telegram.downloadTextFile = async () => {
+      downloads++;
+      return { text: 'SOURCE_BODY', byteLength: 11 };
+    };
+    bot.router.dispatchMessage = async (payload) => {
+      payloadKeys.push(Object.keys(payload));
+      return { text: 'ویرایش فقط در Mini App' };
+    };
+    bot.telegram.sendMessage = async () => ({ ok: true });
+
+    const result = await bot.handleMessage({
+      chat: { id: 7 },
+      from: { id: 42 },
+      document
+    });
+
+    assert.equal(downloads, 0);
+    assert.deepEqual(payloadKeys, [['pending']]);
+    assert.equal(result.workspaceInput, true);
+    assert.equal(result.inputRequired, undefined);
+  }
 });

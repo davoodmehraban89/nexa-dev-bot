@@ -104,6 +104,13 @@ export class TelegramClient {
     return this.callApi('sendMessage', payload);
   }
 
+  async deleteMessage(chatId, messageId) {
+    return this.callApi('deleteMessage', {
+      chat_id: chatId,
+      message_id: messageId
+    });
+  }
+
   async editMessageText(
     chatId,
     messageId,

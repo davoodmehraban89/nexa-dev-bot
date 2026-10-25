@@ -1,4 +1,5 @@
 import { TelegramClient } from './telegram.js';
+import { workspaceEditorUrl } from './config.js';
 import { GitHubService } from './github.js';
 import { MenuManager } from './menu.js';
 import { PluginRegistry } from './core/plugin-registry.js';
@@ -6,7 +7,7 @@ import { ActionPolicy } from './core/action-policy.js';
 import { ApprovalService } from './core/approval.js';
 import { DurableApprovalReplayStore } from './core/durable-replay-store.js';
 import { DurableWorkspaceStoreClient } from './core/workspace-store.js';
-import { WORKSPACE_EDITOR_LIMITS } from './core/workspace-policy.js';
+import { interceptTelegramSecretMessage } from './core/telegram-secret-guard.js';
 import { AuditLogger } from './core/audit.js';
 import { PluginRouter } from './core/router.js';
 import {
@@ -25,13 +26,6 @@ const QUICK_MENU = Object.freeze({
   '🔧 ابزارها': 'tools',
   '🔐 امنیت': 'security'
 });
-const escapeHtml = (value) =>
-  String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-
 function persistentQuickMenuMarkup() {
   return {
     keyboard: [
@@ -42,14 +36,6 @@ function persistentQuickMenuMarkup() {
     resize_keyboard: true,
     is_persistent: true,
     input_field_placeholder: 'Nexa Dev — یک گزینه را انتخاب کنید'
-  };
-}
-
-function focusedCodeInputMarkup() {
-  return {
-    force_reply: true,
-    selective: true,
-    input_field_placeholder: 'کد یا متن را اینجا Paste کنید…'
   };
 }
 
@@ -148,6 +134,7 @@ export class NexaDevBot {
     this.githubPlugin = createGitHubPlugin({
       github: this.github,
       menu: this.menu,
+      editorUrl: workspaceEditorUrl(env.WORKSPACE_EDITOR_URL),
       workspaces: this.workspaceStore.isConfigured()
         ? this.workspaceStore
         : null
@@ -185,6 +172,12 @@ export class NexaDevBot {
 
   async handleUpdate(update) {
     if (!update) return { ok: false, error: 'Empty update' };
+    const intercepted = await interceptTelegramSecretMessage({
+      message: update.message || update.edited_message,
+      telegram: this.telegram,
+      ownerId: this.env.OWNER_TELEGRAM_ID
+    });
+    if (intercepted) return intercepted;
     if (update.callback_query)
       return this.handleCallbackQuery(update.callback_query);
     if (update.message) return this.handleMessage(update.message);
@@ -394,20 +387,6 @@ export class NexaDevBot {
         };
 
       const view = routed || (await this.menu.renderByCallback(data));
-      if (data.startsWith('wtext:') && routed) {
-        const res = await this.telegram.sendMessage(
-          chatId,
-          view.text,
-          focusedCodeInputMarkup()
-        );
-        return {
-          ok: true,
-          inputPrompt: true,
-          callbackAnswered,
-          sent: true,
-          res
-        };
-      }
       const res = await this.telegram.editMessageText(
         chatId,
         messageId,
@@ -450,6 +429,12 @@ export class NexaDevBot {
   }
 
   async handleMessage(message) {
+    const intercepted = await interceptTelegramSecretMessage({
+      message,
+      telegram: this.telegram,
+      ownerId: this.env.OWNER_TELEGRAM_ID
+    });
+    if (intercepted) return intercepted;
     const chatId = message.chat?.id;
     const rawText = typeof message.text === 'string' ? message.text : '';
     const text = rawText.trim();
@@ -545,108 +530,10 @@ export class NexaDevBot {
         ownerId: String(ownerId)
       });
       if (pending) {
-        let payload = { pending, text: rawText };
-        if (pending.mode === 'draft_file') {
-          const document = message.document;
-          const maxUploadBytes = WORKSPACE_EDITOR_LIMITS.maxBytes;
-          if (!document?.file_id) {
-            const view = {
-              text: `📎 <b>یک فایل متنی ارسال کنید</b>\nاین Workspace در حالت بارگذاری فایل است. فایل باید UTF-8 معتبر و حداکثر ${maxUploadBytes.toLocaleString('en-US')} بایت باشد.`,
-              reply_markup: {
-                inline_keyboard: [
-                  [
-                    {
-                      text: '↩️ بازگشت به Draft',
-                      callback_data: `ws:${pending.workspaceId}`
-                    }
-                  ]
-                ]
-              }
-            };
-            const res = await this.telegram.sendMessage(
-              chatId,
-              view.text,
-              view.reply_markup
-            );
-            return {
-              ok: true,
-              workspaceInput: true,
-              inputRequired: 'document',
-              res
-            };
-          }
-          if (
-            Number.isFinite(Number(document.file_size)) &&
-            Number(document.file_size) > maxUploadBytes
-          ) {
-            const view = {
-              text: `⚠️ <b>فایل پذیرفته نشد</b>\nحجم فایل بیشتر از سقف ${maxUploadBytes.toLocaleString('en-US')} بایت است. Draft تغییر نکرد؛ یک فایل کوچک‌تر ارسال کنید.`,
-              reply_markup: {
-                inline_keyboard: [
-                  [
-                    {
-                      text: '↩️ بازگشت به Draft',
-                      callback_data: `ws:${pending.workspaceId}`
-                    }
-                  ]
-                ]
-              }
-            };
-            const res = await this.telegram.sendMessage(
-              chatId,
-              view.text,
-              view.reply_markup
-            );
-            return {
-              ok: false,
-              workspaceInput: true,
-              inputRejected: true,
-              error: `Telegram file exceeds ${maxUploadBytes} byte size limit`,
-              res
-            };
-          }
-          let downloaded;
-          try {
-            downloaded = await this.telegram.downloadTextFile(
-              document.file_id,
-              { maxBytes: maxUploadBytes }
-            );
-          } catch (error) {
-            const view = {
-              text: `⚠️ <b>فایل پذیرفته نشد</b>\n${escapeHtml(error?.message || 'Telegram file download failed')}\n\nDraft تغییر نکرد و می‌توانید فایل دیگری ارسال کنید.`,
-              reply_markup: {
-                inline_keyboard: [
-                  [
-                    {
-                      text: '↩️ بازگشت به Draft',
-                      callback_data: `ws:${pending.workspaceId}`
-                    }
-                  ]
-                ]
-              }
-            };
-            const res = await this.telegram.sendMessage(
-              chatId,
-              view.text,
-              view.reply_markup
-            );
-            return {
-              ok: false,
-              workspaceInput: true,
-              inputRejected: true,
-              error: error?.message || 'Telegram file download failed',
-              res
-            };
-          }
-          payload = {
-            pending,
-            file: {
-              name: String(document.file_name || 'uploaded.txt'),
-              text: downloaded.text,
-              byteLength: downloaded.byteLength
-            }
-          };
-        }
+        // Historical source-input modes can only expire/redirect to Mini App.
+        // Their message bodies and documents never reach controller dispatch.
+        const sourceInput = ['draft', 'draft_file'].includes(pending.mode);
+        const payload = sourceInput ? { pending } : { pending, text: rawText };
 
         const routed = await this.router.dispatchMessage(payload, {
           isOwner: true,

@@ -178,55 +178,66 @@ test('PluginRouter dispatchMessage applies the same policy boundary without audi
   );
 });
 
-test('legacy draft input is prepared without GitHub calls and the next owner text is consumed exactly once', async () => {
+test('commit-message input is prepared without GitHub calls and the next owner message is consumed exactly once', async () => {
   const { github, workspaces, plugin } = makePlugin();
-  const prepare = plugin.resolveCallback(`wtext:${WORKSPACE_ID}`, {
+  const prepare = plugin.resolveCallback(`wmsg:${WORKSPACE_ID}`, {
     ownerId: OWNER
   });
   assert.equal(prepare.actionId, 'github.workspace.input.prepare');
   assert.deepEqual(github.calls, []);
   const prompt = await prepare.execute();
-  assert.match(prompt.text, /20,000|20000/);
+  assert.match(prompt.text, /120/);
   assert.deepEqual(github.calls, []);
 
   const pending = await workspaces.getPendingInput({ ownerId: OWNER });
-  assert.deepEqual(pending, { workspaceId: WORKSPACE_ID, mode: 'draft' });
+  assert.deepEqual(pending, {
+    workspaceId: WORKSPACE_ID,
+    mode: 'commit_message'
+  });
   const route = plugin.resolveMessage(
-    { pending, text: 'after <tag>\n' },
+    { pending, text: 'chore: update ignore rules' },
     { ownerId: OWNER }
   );
   assert.equal(route.actionId, 'github.workspace.input.apply');
   const view = await route.execute();
   assert.match(view.text, /ذخیره|Draft|پیش.?نویس/i);
-  assert.equal(workspaces.workspace.draftText, 'after <tag>\n');
+  assert.equal(
+    workspaces.workspace.commitMessage,
+    'chore: update ignore rules'
+  );
+  assert.equal(workspaces.workspace.draftText, 'before\n');
   assert.equal(await workspaces.getPendingInput({ ownerId: OWNER }), null);
 
   const late = plugin.resolveMessage(
     {
       pending: await workspaces.getPendingInput({ ownerId: OWNER }),
-      text: 'late mutation'
+      text: 'late commit message'
     },
     { ownerId: OWNER }
   );
   assert.equal(late, null);
-  assert.equal(workspaces.workspace.draftText, 'after <tag>\n');
+  assert.equal(
+    workspaces.workspace.commitMessage,
+    'chore: update ignore rules'
+  );
   assert.deepEqual(github.calls, []);
 });
 
-test('oversized multibyte legacy draft input is visibly rejected without mutating the old draft', async () => {
+test('oversized commit-message input is consumed without mutating the old commit message or draft', async () => {
   const { workspaces, plugin } = makePlugin();
   await plugin
-    .resolveCallback(`wtext:${WORKSPACE_ID}`, { ownerId: OWNER })
+    .resolveCallback(`wmsg:${WORKSPACE_ID}`, { ownerId: OWNER })
     .execute();
   const before = workspaces.workspace.draftText;
   const pending = await workspaces.getPendingInput({ ownerId: OWNER });
   const route = plugin.resolveMessage(
-    { pending, text: '😀'.repeat(16385) },
+    { pending, text: 'x'.repeat(121) },
     { ownerId: OWNER }
   );
   const view = await route.execute();
-  assert.match(view.text, /65,536|65536|20,000|20000|مجاز|حد/i);
+  assert.match(view.text, /120|Commit.*ذخیره نشد/);
   assert.equal(workspaces.workspace.draftText, before);
+  assert.equal(workspaces.workspace.commitMessage, '');
   assert.equal(await workspaces.getPendingInput({ ownerId: OWNER }), null);
 });
 
@@ -308,7 +319,7 @@ test('READY rejects no-change, reuses identical material and mints a new intent 
   assert.deepEqual(github.calls, []);
 });
 
-test('bot preserves command precedence and routes raw pending workspace text exactly once', async () => {
+test('bot preserves command precedence and routes permitted commit-message text exactly once', async () => {
   const bot = new NexaDevBot({});
   const calls = [];
   bot.telegram = {
@@ -321,7 +332,7 @@ test('bot preserves command precedence and routes raw pending workspace text exa
     isConfigured: () => true,
     async getPendingInput({ ownerId }) {
       calls.push(['getPendingInput', ownerId]);
-      return { workspaceId: WORKSPACE_ID, mode: 'draft' };
+      return { workspaceId: WORKSPACE_ID, mode: 'commit_message' };
     }
   };
   bot.router = {
@@ -356,9 +367,9 @@ test('bot preserves command precedence and routes raw pending workspace text exa
   await bot.handleMessage({
     chat: { id: 7 },
     from: { id: 42 },
-    text: '  exact draft text  \n'
+    text: '  chore: update ignore rules  \n'
   });
   const dispatch = calls.find((call) => call[0] === 'dispatchMessage');
-  assert.equal(dispatch[1].text, '  exact draft text  \n');
+  assert.equal(dispatch[1].text, '  chore: update ignore rules  \n');
   assert.deepEqual(dispatch[2], { isOwner: true, ownerId: OWNER });
 });

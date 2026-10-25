@@ -407,13 +407,15 @@ test('PR diff pages request only the number of files they can render and expose 
 
 test('PR file list never renders provider patch contents in Telegram', async () => {
   const github = makeGitHub();
-  github.listPullRequestFiles = async () => [{
-    filename: 'src/example.js',
-    status: 'modified',
-    additions: 1,
-    deletions: 0,
-    patch: '+PRIVATE_SOURCE_SENTINEL_9281'
-  }];
+  github.listPullRequestFiles = async () => [
+    {
+      filename: 'src/example.js',
+      status: 'modified',
+      additions: 1,
+      deletions: 0,
+      patch: '+PRIVATE_SOURCE_SENTINEL_9281'
+    }
+  ];
   const plugin = createGitHubPlugin({ github, menu: makeMenu() });
   const view = await plugin.resolveCallback('prfiles:123:19:1').execute();
   assert.match(view.text, /src\/example\.js/);

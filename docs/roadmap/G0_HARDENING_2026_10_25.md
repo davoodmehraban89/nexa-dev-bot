@@ -21,6 +21,8 @@ Owner instruction: continue implementation in this execution environment; do not
 - Independent focused AI reviews checked source/owner boundaries, durable concurrency, bounded Diff and runtime evidence. No implementation blocker remained. These are not human security or device acceptance.
 - One full-run integration fixture lacked the newly required active-version detail response; it was updated to return real-shaped untagged version metadata. No production check was weakened.
 
+The concurrent incoming PR-patch privacy regression was preserved by merge `9cca87e`. The merged candidate was checked again on Node 22: **354 tests passed**, with the same zero lint errors / 13 existing warnings; formatting and the pinned Wrangler dry-run also passed. Final remote checks are recorded on PR #65.
+
 ## Cloudflare build blocker: confirmed and addressed for this branch
 
 The earlier failing Workers build `cea884d0-9e1c-477d-b390-264a64722268` on commit `4ddab54f8faf27ad1be571e7ae50e2da4f3b15db` ran `npx wrangler preview` and returned Cloudflare error **10067**: the account reached the Free plan's **100 Durable Object namespaces** limit. This was a preview provisioning quota, not a compilation/test error.

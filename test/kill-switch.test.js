@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import { KillSwitch } from '../src/core/kill-switch.js';
 import { PluginRouter } from '../src/core/router.js';
 import { AutomationRunner } from '../src/core/automation-runner.js';
+import { DurableAutomationStoreClient } from '../src/core/automation-store.js';
+import { AutomationStore } from '../src/durable/automation-store.js';
+import { createAutomation } from '../src/core/automation.js';
+import { makeReplayState } from './helpers/replay-namespace.js';
 function registryFor(risk, execute) {
   const actionId = `test.${risk.toLowerCase()}`;
   const plugin = {
@@ -89,6 +93,17 @@ test('kill switch fails closed for WRITE when durable state cannot be read', asy
 });
 test('LOCKED kill switch blocks automation advance before routing any step', async () => {
   let routed = 0;
+  const durable = makeReplayState();
+  const store = new DurableAutomationStoreClient({
+    ownerId: '123',
+    namespace: {
+      idFromName: (name) => name,
+      get: () => ({
+        fetch: (url, options) =>
+          new AutomationStore(durable).fetch(new Request(url, options))
+      })
+    }
+  });
   const runner = new AutomationRunner({
     router: {
       dispatchCallback: async () => {
@@ -96,17 +111,18 @@ test('LOCKED kill switch blocks automation advance before routing any step', asy
         return { ok: true };
       }
     },
-    store: { put: async (state) => state },
+    store,
     killSwitch: new KillSwitch({
       store: { get: async () => ({ mode: 'LOCKED' }) }
     })
   });
-  const state = {
-    status: 'ready',
-    cursor: 0,
-    ownerId: '123',
-    steps: [{ callback: 'write:x', key: 'k1' }]
-  };
+  const state = await store.put(
+    createAutomation({
+      id: 'blocked',
+      ownerId: '123',
+      steps: [{ callback: 'write:x', key: 'k1' }]
+    })
+  );
   const blocked = await runner.advance(state);
   assert.equal(blocked.status, 'paused_kill_switch');
   assert.equal(routed, 0);

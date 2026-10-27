@@ -8,9 +8,12 @@
     "test": "node --test test/*.test.js",
     "start": "npx wrangler dev",
     "lint": "eslint src test eslint.config.js",
-    "format": "prettier --write \"src/**/*.js\" \"test/**/*.js\" \"*.config.js\" \"package*.json\" \"wrangler.jsonc\" \".github/workflows/*.yml\" \".prettierrc.json\"",
-    "format:check": "prettier --check \"src/**/*.js\" \"test/**/*.js\" \"*.config.js\" \"package*.json\" \"wrangler.jsonc\" \".github/workflows/*.yml\" \".prettierrc.json\"",
-    "build:check": "wrangler deploy --dry-run --outdir .wrangler/build-check"
+    "format": "prettier --write \"src/**/*.js\" \"test/**/*.js\" \"web/**/*.{ts,tsx,css,html,json}\" \"*.config.js\" \"package*.json\" \"wrangler.jsonc\" \".github/workflows/*.yml\" \".prettierrc.json\"",
+    "format:check": "prettier --check \"src/**/*.js\" \"test/**/*.js\" \"web/**/*.{ts,tsx,css,html,json}\" \"*.config.js\" \"package*.json\" \"wrangler.jsonc\" \".github/workflows/*.yml\" \".prettierrc.json\"",
+    "web:check": "tsc -p web/tsconfig.json --noEmit",
+    "build:web": "npm run web:check && vite build --config web/vite.config.ts",
+    "dev:web": "vite --config web/vite.config.ts",
+    "build:check": "npm run build:web && wrangler deploy --dry-run --outdir .wrangler/build-check"
   },
   "keywords": [
     "telegram-bot",
@@ -22,9 +25,28 @@
   "license": "MIT",
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "esbuild": "0.28.2",
     "eslint": "10.13.0",
     "globals": "16.5.0",
+    "jsdom": "26.1.0",
     "prettier": "3.6.2",
+    "typescript": "5.9.3",
+    "vite": "7.2.2",
     "wrangler": "4.152.0"
+  },
+  "dependencies": {
+    "@codemirror/commands": "6.8.1",
+    "@codemirror/lang-css": "6.3.1",
+    "@codemirror/lang-html": "6.4.10",
+    "@codemirror/lang-javascript": "6.2.4",
+    "@codemirror/lang-json": "6.0.2",
+    "@codemirror/language": "6.11.3",
+    "@codemirror/search": "6.5.11",
+    "@codemirror/state": "6.5.2",
+    "@codemirror/view": "6.38.6",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
   }
 }

@@ -215,23 +215,33 @@ describe('Nexa Dev Bot - in-app V2.1 guide', () => {
     }
   });
 
-  it('keeps Guide in the persistent bottom keyboard and routes its text without consuming workspace input', async () => {
-    const bot = new GuidedNexaDevBot({});
+  it('opens Studio from start while preserving old Guide text navigation', async () => {
+    const bot = new GuidedNexaDevBot({ OWNER_TELEGRAM_ID: '1' });
     const sent = [];
     bot.telegram.sendMessage = async (chatId, text, replyMarkup) => {
       sent.push({ chatId, text, replyMarkup });
       return { ok: true };
     };
+    bot.telegram.setChatMenuButton = async () => ({ ok: true });
 
     await bot.handleMessage({
-      chat: { id: 1 },
+      chat: { id: 1, type: 'private' },
       from: { id: 1 },
       text: '/start'
     });
-    const quickKeyboard = sent[0].replyMarkup.keyboard
-      .flat()
-      .map((button) => button.text);
-    assert.ok(quickKeyboard.includes('📘 راهنما'));
+    assert.deepEqual(sent[0].replyMarkup, { remove_keyboard: true });
+    assert.deepEqual(sent[1].replyMarkup, {
+      inline_keyboard: [
+        [
+          {
+            text: 'باز کردن Nexa Studio',
+            web_app: {
+              url: 'https://nexa-dev-bot.davoodmehraban89.workers.dev/studio/'
+            }
+          }
+        ]
+      ]
+    });
 
     sent.length = 0;
     await bot.handleMessage({

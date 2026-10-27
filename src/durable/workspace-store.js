@@ -1,3 +1,5 @@
+import { WORKSPACE_EDITOR_LIMITS } from '../core/workspace-policy.js';
+
 const json = (payload, status = 200) => Response.json(payload, { status });
 const HANDLE_ALPHABET =
   'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';
@@ -37,6 +39,78 @@ function normalizePath(value) {
     throw new Error('Workspace file path is invalid');
   return path;
 }
+function fileRevision(file) {
+  return Number.isSafeInteger(file?.revision) && file.revision >= 0
+    ? file.revision
+    : 0;
+}
+function nextRevision(revision) {
+  if (!Number.isSafeInteger(revision) || revision >= Number.MAX_SAFE_INTEGER)
+    throw new Error('Workspace file revision limit reached');
+  return revision + 1;
+}
+function revisionConflict() {
+  const error = new Error('Workspace file revision conflict');
+  error.code = 'REVISION_CONFLICT';
+  return error;
+}
+function assertExpectedRevision(payload, revision) {
+  if (payload.expectedRevision === undefined) return;
+  if (
+    !Number.isSafeInteger(payload.expectedRevision) ||
+    payload.expectedRevision < 0
+  )
+    throw new Error('Workspace file revision is invalid');
+  if (payload.expectedRevision !== revision) throw revisionConflict();
+}
+function assertExpectedReview(expectedReview, workspace, proposed) {
+  if (expectedReview === undefined) return;
+  if (
+    !expectedReview ||
+    typeof expectedReview.baseHeadSha !== 'string' ||
+    !Array.isArray(expectedReview.files)
+  )
+    throw new Error('Workspace review is invalid');
+  const revisions = new Map();
+  for (const file of expectedReview.files) {
+    if (
+      typeof file?.path !== 'string' ||
+      !Number.isSafeInteger(file.revision) ||
+      file.revision < 0 ||
+      revisions.has(file.path)
+    )
+      throw new Error('Workspace review is invalid');
+    revisions.set(file.path, file.revision);
+  }
+  if (
+    expectedReview.baseHeadSha !== workspace.baseHeadSha ||
+    (expectedReview.commitMessageDigest !== undefined &&
+      expectedReview.commitMessageDigest !== workspace.commitMessageDigest) ||
+    revisions.size !== workspace.files.length ||
+    workspace.files.some(
+      (file) => revisions.get(file.path) !== fileRevision(file)
+    )
+  )
+    throw revisionConflict();
+  if (
+    expectedReview.commitMessageDigest !== undefined &&
+    (proposed.workspaceId !== workspace.id ||
+      Number(proposed.repoId) !== Number(workspace.repoId) ||
+      proposed.baseBranch !== workspace.baseBranch ||
+      proposed.baseHeadSha !== workspace.baseHeadSha ||
+      proposed.baseTreeSha !== workspace.baseTreeSha ||
+      proposed.commitMessageDigest !== workspace.commitMessageDigest ||
+      !Array.isArray(proposed.files) ||
+      proposed.files.length !== workspace.files.length ||
+      workspace.files.some(
+        (file, index) =>
+          proposed.files[index]?.path !== file.path ||
+          proposed.files[index]?.sourceBlobSha !== file.blobSha ||
+          proposed.files[index]?.contentDigest !== file.draftDigest
+      ))
+  )
+    throw revisionConflict();
+}
 function legacyFile(payload) {
   return {
     path: normalizePath(payload.path),
@@ -44,12 +118,20 @@ function legacyFile(payload) {
     originalText: String(payload.originalText ?? ''),
     originalDigest: String(payload.originalDigest || ''),
     draftText: String(payload.originalText ?? ''),
-    draftDigest: String(payload.originalDigest || '')
+    draftDigest: String(payload.originalDigest || ''),
+    revision: 0
   };
 }
 function migrate(ws) {
   if (!ws) return ws;
-  if (Array.isArray(ws.files)) return ws;
+  if (Array.isArray(ws.files))
+    return {
+      ...ws,
+      files: ws.files.map((file) => ({
+        ...file,
+        revision: fileRevision(file)
+      }))
+    };
   return {
     ...ws,
     schemaVersion: 2,
@@ -60,7 +142,8 @@ function migrate(ws) {
         originalText: String(ws.originalText ?? ''),
         originalDigest: String(ws.originalDigest || ''),
         draftText: String(ws.draftText ?? ws.originalText ?? ''),
-        draftDigest: String(ws.draftDigest || ws.originalDigest || '')
+        draftDigest: String(ws.draftDigest || ws.originalDigest || ''),
+        revision: 0
       }
     ]
   };
@@ -85,6 +168,24 @@ function validateFiles(files) {
   }
   if (bytes(files) > MAX_WORKSPACE_BYTES)
     throw new Error('Workspace aggregate size is too large');
+  const encoder = new TextEncoder(),
+    aggregateBytes = files.reduce(
+      (total, file) =>
+        total +
+        Math.max(
+          encoder.encode(String(file.originalText ?? '')).byteLength,
+          encoder.encode(String(file.draftText ?? '')).byteLength
+        ),
+      0
+    );
+  if (
+    files.length > WORKSPACE_EDITOR_LIMITS.maxFiles ||
+    aggregateBytes > WORKSPACE_EDITOR_LIMITS.maxAggregateBytes
+  ) {
+    const error = new Error('Workspace aggregate text or file limit exceeded');
+    error.code = 'WORKSPACE_LIMIT_EXCEEDED';
+    throw error;
+  }
 }
 
 export class WorkspaceStore {
@@ -163,9 +264,17 @@ export class WorkspaceStore {
           return new Response('Not Found', { status: 404 });
       }
     } catch (error) {
+      const status = {
+        REVISION_CONFLICT: 409,
+        WORKSPACE_NOT_EDITABLE: 409,
+        WORKSPACE_LIMIT_EXCEEDED: 422
+      }[error?.code];
       return json(
-        { error: String(error?.message || 'Workspace store operation failed') },
-        400
+        {
+          error: String(error?.message || 'Workspace store operation failed'),
+          ...(status ? { code: error.code } : {})
+        },
+        status || 400
       );
     }
   }
@@ -178,12 +287,12 @@ export class WorkspaceStore {
       await this.state.storage.setAlarm(expiry);
     }
   }
-  async #getExpiring(key, now) {
+  async #getExpiring(key, now, storage = this.state.storage) {
     if (!key || key.endsWith(':')) return null;
-    const record = await this.state.storage.get(key);
+    const record = await storage.get(key);
     if (!record) return null;
     if (expired(record, now)) {
-      await this.state.storage.delete(key);
+      await storage.delete(key);
       return null;
     }
     return record;
@@ -256,12 +365,30 @@ export class WorkspaceStore {
     await this.#schedule(expiresAt);
     return workspace;
   }
-  async #requireWorkspace(id, now) {
-    const ws = migrate(await this.#getExpiring(`ws:${String(id || '')}`, now));
+  async #requireWorkspace(id, now, storage = this.state.storage) {
+    const ws = migrate(
+      await this.#getExpiring(`ws:${String(id || '')}`, now, storage)
+    );
     if (!ws) throw new Error('Workspace not found or expired');
     return ws;
   }
-  async #saveMaterial(ws, files, now) {
+  async #requireEditableWorkspace(id, now, storage) {
+    const workspace = await this.#requireWorkspace(id, now, storage);
+    const intent = workspace.currentIntentId
+      ? await storage.get(`intent:${workspace.currentIntentId}`)
+      : null;
+    if (
+      [workspace.state, intent?.state].some((state) =>
+        ['COMMITTING', 'COMMITTED'].includes(state)
+      )
+    ) {
+      const error = new Error('Workspace is not editable');
+      error.code = 'WORKSPACE_NOT_EDITABLE';
+      throw error;
+    }
+    return workspace;
+  }
+  async #saveMaterial(ws, files, now, storage, materialChanged = true) {
     validateFiles(files);
     const primary = files[0];
     const updated = {
@@ -274,83 +401,134 @@ export class WorkspaceStore {
       originalDigest: primary.originalDigest,
       draftText: primary.draftText,
       draftDigest: primary.draftDigest,
-      currentIntentId: null,
-      state: 'DRAFT',
+      ...(materialChanged ? { currentIntentId: null, state: 'DRAFT' } : {}),
       updatedAt: now
     };
-    await this.state.storage.put(`ws:${ws.id}`, updated);
+    await storage.put(`ws:${ws.id}`, updated);
     return updated;
   }
   async #upsertFile(payload, now) {
-    const ws = await this.#requireWorkspace(payload.workspaceId, now),
-      source = payload.file || {},
-      path = normalizePath(source.path);
-    if (ws.files.some((f) => normalizePath(f.path) === path))
-      throw new Error('Workspace file path already exists');
-    const file = {
-      path,
-      blobSha: String(source.blobSha || ''),
-      originalText: String(source.originalText ?? ''),
-      originalDigest: String(source.originalDigest || ''),
-      draftText: String(source.draftText ?? source.originalText ?? ''),
-      draftDigest: String(source.draftDigest || source.originalDigest || '')
-    };
-    return this.#saveMaterial(ws, [...ws.files, file], now);
+    return this.state.storage.transaction(async (txn) => {
+      const ws = await this.#requireEditableWorkspace(
+          payload.workspaceId,
+          now,
+          txn
+        ),
+        source = payload.file || {},
+        path = normalizePath(source.path);
+      if (ws.files.some((f) => normalizePath(f.path) === path))
+        throw new Error('Workspace file path already exists');
+      const file = {
+        path,
+        blobSha: String(source.blobSha || ''),
+        originalText: String(source.originalText ?? ''),
+        originalDigest: String(source.originalDigest || ''),
+        draftText: String(source.draftText ?? source.originalText ?? ''),
+        draftDigest: String(source.draftDigest || source.originalDigest || ''),
+        revision: fileRevision({ revision: ws.fileRevisionFloor })
+      };
+      return this.#saveMaterial(ws, [...ws.files, file], now, txn);
+    });
   }
   async #updateFileDraft(payload, now) {
-    const ws = await this.#requireWorkspace(payload.workspaceId, now),
-      path = normalizePath(payload.path),
-      digest = String(payload.digest || '');
-    if (!digest) throw new Error('Draft digest is required');
-    let found = false;
-    const files = ws.files.map((f) =>
-      normalizePath(f.path) === path
-        ? ((found = true),
-          { ...f, draftText: String(payload.text ?? ''), draftDigest: digest })
-        : f
-    );
-    if (!found) throw new Error('Workspace file not found');
-    if (
-      ws.files.find((f) => normalizePath(f.path) === path)?.draftDigest ===
-      digest
-    )
-      return ws;
-    return this.#saveMaterial(ws, files, now);
+    return this.state.storage.transaction(async (txn) => {
+      const ws = await this.#requireEditableWorkspace(
+          payload.workspaceId,
+          now,
+          txn
+        ),
+        path = normalizePath(payload.path),
+        digest = String(payload.digest || '');
+      if (!digest) throw new Error('Draft digest is required');
+      const file = ws.files.find((f) => normalizePath(f.path) === path);
+      if (!file) throw new Error('Workspace file not found');
+      assertExpectedRevision(payload, fileRevision(file));
+      const changed = file.draftDigest !== digest,
+        files = ws.files.map((f) =>
+          f === file
+            ? {
+                ...f,
+                ...(changed
+                  ? {
+                      draftText: String(payload.text ?? ''),
+                      draftDigest: digest
+                    }
+                  : {}),
+                revision: nextRevision(fileRevision(f))
+              }
+            : f
+        );
+      return this.#saveMaterial(ws, files, now, txn, changed);
+    });
   }
   async #removeFile(payload, now) {
-    const ws = await this.#requireWorkspace(payload.workspaceId, now),
-      path = normalizePath(payload.path),
-      files = ws.files.filter((f) => normalizePath(f.path) !== path);
-    if (files.length === ws.files.length)
-      throw new Error('Workspace file not found');
-    return this.#saveMaterial(ws, files, now);
+    return this.state.storage.transaction(async (txn) => {
+      const ws = await this.#requireEditableWorkspace(
+          payload.workspaceId,
+          now,
+          txn
+        ),
+        path = normalizePath(payload.path),
+        files = ws.files.filter((f) => normalizePath(f.path) !== path);
+      if (files.length === ws.files.length)
+        throw new Error('Workspace file not found');
+      // A scalar floor prevents stale revisions matching a removed/readded path.
+      const fileRevisionFloor = nextRevision(
+        Math.max(
+          fileRevision({ revision: ws.fileRevisionFloor }),
+          ...ws.files.map(fileRevision)
+        )
+      );
+      return this.#saveMaterial({ ...ws, fileRevisionFloor }, files, now, txn);
+    });
   }
   async #updateDraft(payload, now) {
-    const ws = await this.#requireWorkspace(payload.workspaceId, now),
-      digest = String(payload.digest || '');
-    if (!digest) throw new Error('Draft digest is required');
-    if (digest === ws.draftDigest) return ws;
-    const files = ws.files.map((f, i) =>
-      i
-        ? f
-        : { ...f, draftText: String(payload.text ?? ''), draftDigest: digest }
-    );
-    return this.#saveMaterial(ws, files, now);
+    return this.state.storage.transaction(async (txn) => {
+      const ws = await this.#requireEditableWorkspace(
+          payload.workspaceId,
+          now,
+          txn
+        ),
+        digest = String(payload.digest || '');
+      if (!digest) throw new Error('Draft digest is required');
+      const changed = digest !== ws.draftDigest,
+        files = ws.files.map((f, i) =>
+          i
+            ? f
+            : {
+                ...f,
+                ...(changed
+                  ? {
+                      draftText: String(payload.text ?? ''),
+                      draftDigest: digest
+                    }
+                  : {}),
+                revision: nextRevision(fileRevision(f))
+              }
+        );
+      return this.#saveMaterial(ws, files, now, txn, changed);
+    });
   }
   async #setCommitMessage(payload, now) {
-    const ws = await this.#requireWorkspace(payload.workspaceId, now),
-      digest = String(payload.digest || '');
-    if (!digest) throw new Error('Commit message digest is required');
-    const changed = digest !== ws.commitMessageDigest,
-      updated = {
-        ...ws,
-        commitMessage: String(payload.message || ''),
-        commitMessageDigest: digest,
-        updatedAt: now,
-        ...(changed ? { currentIntentId: null, state: 'DRAFT' } : {})
-      };
-    await this.state.storage.put(`ws:${ws.id}`, updated);
-    return updated;
+    return this.state.storage.transaction(async (txn) => {
+      const ws = await this.#requireEditableWorkspace(
+          payload.workspaceId,
+          now,
+          txn
+        ),
+        digest = String(payload.digest || '');
+      if (!digest) throw new Error('Commit message digest is required');
+      const changed = digest !== ws.commitMessageDigest,
+        updated = {
+          ...ws,
+          commitMessage: String(payload.message || ''),
+          commitMessageDigest: digest,
+          updatedAt: now,
+          ...(changed ? { currentIntentId: null, state: 'DRAFT' } : {})
+        };
+      await txn.put(`ws:${ws.id}`, updated);
+      return updated;
+    });
   }
   async #setPending(payload, now) {
     const ws = await this.#requireWorkspace(payload.workspaceId, now),
@@ -393,39 +571,48 @@ export class WorkspaceStore {
     });
   }
   async #sealIntent(payload, now) {
-    const ws = await this.#requireWorkspace(payload.workspaceId, now),
-      proposed =
-        payload.intent && typeof payload.intent === 'object'
-          ? payload.intent
-          : null;
-    if (!proposed?.intentDigest)
-      throw new Error('Commit intent digest is required');
-    if (ws.currentIntentId) {
-      const existing = await this.#getExpiring(
-        `intent:${ws.currentIntentId}`,
-        now
-      );
-      if (existing?.intentDigest === proposed.intentDigest) return existing;
-    }
-    const id = randomHandle(8),
-      intent = {
-        ...proposed,
-        id,
-        workspaceId: ws.id,
+    const intent = await this.state.storage.transaction(async (txn) => {
+      const ws = await this.#requireEditableWorkspace(
+          payload.workspaceId,
+          now,
+          txn
+        ),
+        proposed =
+          payload.intent && typeof payload.intent === 'object'
+            ? payload.intent
+            : null;
+      if (!proposed?.intentDigest)
+        throw new Error('Commit intent digest is required');
+      assertExpectedReview(payload.expectedReview, ws, proposed);
+      if (ws.currentIntentId) {
+        const existing = await this.#getExpiring(
+          `intent:${ws.currentIntentId}`,
+          now,
+          txn
+        );
+        if (existing?.intentDigest === proposed.intentDigest) return existing;
+      }
+      const id = randomHandle(8),
+        created = {
+          ...proposed,
+          id,
+          workspaceId: ws.id,
+          state: 'READY',
+          candidateCommitSha: null,
+          commitSha: null,
+          branch: null,
+          createdAt: now,
+          updatedAt: now,
+          expiresAt: ws.expiresAt
+        };
+      await txn.put(`intent:${id}`, created);
+      await txn.put(`ws:${ws.id}`, {
+        ...ws,
+        currentIntentId: id,
         state: 'READY',
-        candidateCommitSha: null,
-        commitSha: null,
-        branch: null,
-        createdAt: now,
-        updatedAt: now,
-        expiresAt: ws.expiresAt
-      };
-    await this.state.storage.put(`intent:${id}`, intent);
-    await this.state.storage.put(`ws:${ws.id}`, {
-      ...ws,
-      currentIntentId: id,
-      state: 'READY',
-      updatedAt: now
+        updatedAt: now
+      });
+      return created;
     });
     await this.#schedule(intent.expiresAt);
     return intent;

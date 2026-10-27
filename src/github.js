@@ -70,7 +70,13 @@ export class GitHubService {
   async requestJson(
     url,
     label,
-    { method = 'GET', body, allowEmpty = false, allowNotFound = false } = {}
+    {
+      method = 'GET',
+      body,
+      allowEmpty = false,
+      allowNotFound = false,
+      includeHeaders = false
+    } = {}
   ) {
     const headers = this.getHeaders();
     const options = { method, headers };
@@ -100,7 +106,7 @@ export class GitHubService {
     if (!raw) return null;
     if (parsed === null)
       throw new Error(`${label} failed: invalid JSON response`);
-    return parsed;
+    return includeHeaders ? { data: parsed, headers: res.headers } : parsed;
   }
   async requestText(url, label, { maxChars = 12000 } = {}) {
     const res = await fetch(url, { method: 'GET', headers: this.getHeaders() });
@@ -222,14 +228,74 @@ export class GitHubService {
     };
   }
   async listRepositories() {
-    const data = await this.requestJson(
-      `${this.baseUrl}/user/repos?sort=updated&per_page=20&affiliation=owner,collaborator,organization_member`,
-      'GitHub repositories'
-    );
-    return data.map((r) => {
-      const repo = this.mapRepository(r);
-      return { ...repo, title: `${repo.name} ${repo.private ? '🔒' : '🌐'}` };
-    });
+    const endpoint = new URL(`${this.baseUrl}/user/repos`);
+    let next = `${endpoint.href}?sort=updated&per_page=100&affiliation=owner,collaborator,organization_member`;
+    let page = 1;
+    const repositories = [];
+    const visited = new Set();
+    while (next) {
+      if (visited.has(next))
+        throw new Error('GitHub repository pagination repeated a page');
+      visited.add(next);
+      const { data, headers } = await this.requestJson(
+        next,
+        'GitHub repositories',
+        { includeHeaders: true }
+      );
+      if (!Array.isArray(data))
+        throw new Error('GitHub repository page is not a repository listing');
+      repositories.push(
+        ...data.map((r) => {
+          const repo = this.mapRepository(r);
+          return {
+            ...repo,
+            title: `${repo.name} ${repo.private ? '🔒' : '🌐'}`
+          };
+        })
+      );
+      const link = headers.get('link');
+      next = '';
+      if (!link) continue;
+      for (const part of link.split(/,(?=\s*<)/)) {
+        const match = part.trim().match(/^<([^>]+)>\s*((?:;[^<>]*)*)$/);
+        if (!match)
+          throw new Error('GitHub repository pagination Link is invalid');
+        const relation = match[2].match(
+          /(?:^|;)\s*rel\s*=\s*(?:"([^"]*)"|([^;\s]+))/i
+        );
+        if (
+          !relation ||
+          !(relation[1] || relation[2]).split(/\s+/).includes('next')
+        )
+          continue;
+        if (next)
+          throw new Error(
+            'GitHub repository pagination has multiple next pages'
+          );
+        let target;
+        try {
+          target = new URL(match[1], endpoint);
+        } catch {
+          throw new Error('GitHub repository pagination URL is invalid');
+        }
+        const nextPage = target.searchParams.get('page') || '';
+        if (
+          target.origin !== endpoint.origin ||
+          target.pathname !== endpoint.pathname ||
+          target.username ||
+          target.password ||
+          target.hash ||
+          target.searchParams.get('per_page') !== '100' ||
+          !/^[1-9][0-9]*$/.test(nextPage) ||
+          !Number.isSafeInteger(Number(nextPage)) ||
+          Number(nextPage) <= page
+        )
+          throw new Error('GitHub repository pagination target is invalid');
+        page = Number(nextPage);
+        next = target.href;
+      }
+    }
+    return repositories;
   }
   async getRepository(repoRef) {
     const { raw } = await this.getRepositoryContext(repoRef);

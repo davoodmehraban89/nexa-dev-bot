@@ -196,14 +196,14 @@ async function sendUpdate(update) {
   return response.json();
 }
 
-test('persistent quick menu bootstrap keeps later inline navigation on one Telegram message', async () => {
+test('Studio-first bootstrap keeps legacy inline navigation on one Telegram message', async () => {
   const mock = installApiMock();
   try {
     await sendUpdate({
       message: {
         message_id: 1,
         from: { id: 123 },
-        chat: { id: 123 },
+        chat: { id: 123, type: 'private' },
         text: '/start'
       }
     });
@@ -211,11 +211,19 @@ test('persistent quick menu bootstrap keeps later inline navigation on one Teleg
       (call) => call.method === 'sendMessage'
     );
     assert.equal(startSends.length, 2);
-    assert.equal(startSends[0].body.reply_markup.is_persistent, true);
-    assert.ok(startSends[0].body.reply_markup.keyboard);
-    assert.match(startSends[1].body.text, /Nexa Dev Bot/);
+    assert.equal(startSends[0].body.reply_markup.remove_keyboard, true);
+    assert.match(startSends[1].body.text, /Nexa Studio/);
+    assert.equal(
+      startSends[1].body.reply_markup.inline_keyboard[0][0].web_app.url,
+      'https://example.test/studio/'
+    );
+    assert.equal(
+      mock.telegramCalls.filter((call) => call.method === 'setChatMenuButton')
+        .length,
+      1
+    );
 
-    const message = { message_id: 700, chat: { id: 123 } };
+    const message = { message_id: 700, chat: { id: 123, type: 'private' } };
     for (const data of ['menu:repos', 'repo:1001', 'menu:repos', 'menu:main']) {
       await sendUpdate({
         callback_query: { id: data, from: { id: 123 }, data, message }
@@ -228,7 +236,7 @@ test('persistent quick menu bootstrap keeps later inline navigation on one Teleg
     assert.ok(edits.every((call) => call.body.message_id === 700));
     assert.match(edits[0].body.text, /فهرست مخزن‌ها/);
     assert.match(edits[1].body.text, /پروژه: demo/);
-    assert.match(edits[3].body.text, /Nexa Dev Bot/);
+    assert.match(edits[3].body.text, /Nexa Studio/);
     assert.equal(
       mock.telegramCalls.filter((call) => call.method === 'sendMessage').length,
       2,

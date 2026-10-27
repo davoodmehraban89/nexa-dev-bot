@@ -18,7 +18,7 @@ const startUpdate = {
   message: {
     message_id: 202,
     from: { id: 123 },
-    chat: { id: 123 },
+    chat: { id: 123, type: 'private' },
     text: '/start'
   }
 };
@@ -100,6 +100,8 @@ describe('Nexa Dev Bot - Cloudflare Worker Entrypoint', () => {
       const body = await res.json();
       assert.equal(body.ok, true);
       assert.equal(body.command, 'start');
+      assert.equal(body.studioEntry, true);
+      assert.equal(body.menuButtonConfigured, true);
     } finally {
       globalThis.fetch = originalFetch;
     }

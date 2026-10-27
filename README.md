@@ -31,18 +31,20 @@ V2.1 شامل Workspace Editor، Ops Console، Security Center، Configuration C
 
 قرارداد توسعهٔ Nexa Studio نسخهٔ ۳ در [docs/contract/NEXA_STUDIO_V3.md](docs/contract/NEXA_STUDIO_V3.md) و فایل Word اصلی کنار آن نگهداری می‌شود. برچسب محصول V2.1 مربوط به بات موجود است؛ نسخهٔ انتشار کد از `package.json` خوانده می‌شود و با شمارهٔ قرارداد یکی نیست.
 
-جریان ویرایش فایل:
+ورودی اصلی و جریان ویرایش:
 
-1. `پروژه‌ها` → انتخاب Repository.
-2. `فایل‌ها` → انتخاب فایل متنی مجاز.
-3. `Edit` → Pin شدن **exact base SHA** و ساخت Workspace/Change Set.
-4. `Editor` → باز شدن Telegram Mini App.
-5. `ذخیره Draft` → فقط Draft داخل `WORKSPACE_STORE` به‌روزرسانی می‌شود.
-6. `Diff` → مقایسه Original و Draft.
-7. `پیام Commit` → ثبت پیام Commit.
-8. `آماده Commit` → اعتبارسنجی و ساخت Intent امن.
-9. `Safe Approval` → فقط بعد از «تأیید و اجرا» Provider WRITE مجاز می‌شود.
-10. Bot یک Commit و Branch مستقل `nexa/edit-*` می‌سازد؛ `main` مستقیم تغییر نمی‌کند.
+1. `/start` در بات → دکمهٔ **باز کردن Nexa Studio**. دکمهٔ منوی چت مالک نیز Mini App را باز می‌کند.
+2. داخل Mini App در `/studio/`: انتخاب مخزن واقعی و مرور فایل‌ها.
+3. انتخاب فایل متنی مجاز → Pin شدن **exact base SHA** و ساخت Workspace/Change Set.
+4. ویرایش چندفایلی در CodeMirror 6، جست‌وجو و Undo/Redo؛ کد LTR و برنامه فارسی RTL است.
+5. `ذخیره تغییرات` → فقط Draft در `WORKSPACE_STORE` با revision و `If-Match` ذخیره می‌شود؛ تضاد نسخه 409 و انتخاب صریح دارد.
+6. `بازبینی تغییرات` → نمایش Diff و ثبت پیام Commit در همان Mini App.
+7. `درخواست تأیید امن` → اتصال اتمیک تأیید به همان نسخهٔ فایل‌ها و همان پیام بررسی‌شده؛ تغییر هم‌زمان نیازمند بازبینی تازه است.
+8. تأیید نهایی از پیام امضاشدهٔ بات → Commit و Branch مستقل `nexa/edit-*`؛ `main` مستقیم تغییر نمی‌کند.
+
+برنامه پس از بازشدن دوباره می‌تواند فضای کار قبلی را از سرور ادامه دهد؛ فقط شناسهٔ تصادفی فضای کار روی دستگاه نگهداری می‌شود، نه کد یا توکن. این نسخه از دسترسی فعلی مالک استفاده می‌کند و ویزارد اتصال PAT، سشن و Grant چندکاربره یا پذیرش کامل G1 را پیاده‌سازی‌شده نمی‌داند.
+
+کد رابط در `web/` است و با `npm run build:web` در `web/dist` ساخته می‌شود؛ Static Assets از همان Worker و با CSP بدون `unsafe-inline` ارائه می‌شود. برای دامنهٔ سفارشی ورودی، `STUDIO_URL` باید HTTPS با مسیر `/studio/` و بدون query، fragment یا اطلاعات ورود باشد.
 
 فایل‌های حساس، محتوای binary-like، Git LFS و موارد خارج از Policy قابل Edit نیستند.
 

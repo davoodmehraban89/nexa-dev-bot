@@ -1,4 +1,5 @@
 import {
+  WORKSPACE_EDITOR_LIMITS,
   buildUnifiedDiff,
   digestText,
   makeTargetBranch,
@@ -290,7 +291,7 @@ export function createWorkspaceController({
     };
   };
 
-  const createDraft = async (refId, ownerId) => {
+  const createWorkspaceFromRef = async (refId, ownerId) => {
     const ref = await workspaces.resolveNavigationRef({ ownerId, refId });
     if (!ref || ref.type !== 'file')
       throw new Error('Workspace file reference is missing or expired');
@@ -304,7 +305,7 @@ export function createWorkspaceController({
     if (!policy.editable)
       throw new Error(policy.reason || 'File is not editable');
     const originalDigest = await digestText(file.content);
-    const workspace = await workspaces.createWorkspace({
+    return workspaces.createWorkspace({
       ownerId,
       repoId: Number(ref.repoId),
       repoFullName: repo.fullName,
@@ -316,12 +317,16 @@ export function createWorkspaceController({
       originalText: file.content,
       originalDigest
     });
+  };
+
+  const createDraft = async (refId, ownerId) => {
+    const workspace = await createWorkspaceFromRef(refId, ownerId);
     return {
-      text: `📝 <b>Draft ساخته شد</b>\nمخزن: <code>${escapeHtml(repo.fullName)}</code>\nفایل: <code>${escapeHtml(file.path)}</code>\nBase: <code>${escapeHtml(snapshot.headSha.slice(0, 10))}</code>\n\nهنوز هیچ تغییری در GitHub انجام نشده است.`,
+      text: `📝 <b>Draft ساخته شد</b>\nمخزن: <code>${escapeHtml(workspace.repoFullName)}</code>\nفایل: <code>${escapeHtml(workspace.path)}</code>\nBase: <code>${escapeHtml(workspace.baseHeadSha.slice(0, 10))}</code>\n\nهنوز هیچ تغییری در GitHub انجام نشده است.`,
       reply_markup: {
         inline_keyboard: [
           [{ text: '📝 باز کردن Draft', callback_data: `ws:${workspace.id}` }],
-          [{ text: '🔙 فایل‌ها', callback_data: `files:${ref.repoId}` }]
+          [{ text: '🔙 فایل‌ها', callback_data: `files:${workspace.repoId}` }]
         ]
       }
     };
@@ -442,11 +447,21 @@ export function createWorkspaceController({
     };
   };
 
-  const addWorkspaceFile = async (refId, ownerId) => {
+  const addWorkspaceFileFromRef = async (
+    refId,
+    ownerId,
+    expectedWorkspaceId = null
+  ) => {
     const ref = await workspaces.resolveNavigationRef({ ownerId, refId });
     if (!ref || ref.type !== 'workspace-add')
       throw new Error('Workspace add-file reference is missing or expired');
+    if (expectedWorkspaceId && ref.workspaceId !== expectedWorkspaceId)
+      throw new Error('Workspace reference mismatch');
     const workspace = await requireWorkspace(ref.workspaceId, ownerId);
+    if (Number(workspace.repoId) !== Number(ref.repoId))
+      throw new Error('Workspace repository mismatch');
+    if (workspace.files.length >= WORKSPACE_EDITOR_LIMITS.maxFiles)
+      throw new Error('Workspace file count is limited');
     const file = await github.getFileAtRef(
       ref.repoId,
       ref.path,
@@ -459,8 +474,19 @@ export function createWorkspaceController({
     });
     if (!policy.editable)
       throw new Error(policy.reason || 'File is not editable');
+    const aggregateBytes = workspace.files.reduce(
+      (total, entry) =>
+        total +
+        Math.max(
+          new TextEncoder().encode(entry.originalText ?? '').byteLength,
+          new TextEncoder().encode(entry.draftText ?? '').byteLength
+        ),
+      policy.byteLength
+    );
+    if (aggregateBytes > WORKSPACE_EDITOR_LIMITS.maxAggregateBytes)
+      throw new Error('Workspace aggregate size is limited');
     const digest = await digestText(file.content);
-    const updated = await workspaces.upsertWorkspaceFile({
+    return workspaces.upsertWorkspaceFile({
       ownerId,
       workspaceId: workspace.id,
       file: {
@@ -472,8 +498,12 @@ export function createWorkspaceController({
         draftDigest: digest
       }
     });
+  };
+
+  const addWorkspaceFile = async (refId, ownerId) => {
+    const updated = await addWorkspaceFileFromRef(refId, ownerId);
     const view = await renderWorkspaceObject(updated, ownerId);
-    view.text = `✅ فایل <code>${escapeHtml(file.path)}</code> اضافه شد.\n\n${view.text}`;
+    view.text = `✅ فایل به Change Set اضافه شد.\n\n${view.text}`;
     return view;
   };
 
@@ -631,7 +661,7 @@ export function createWorkspaceController({
     };
   };
 
-  const sealReadyIntent = async (workspaceId, ownerId) => {
+  const sealWorkspaceIntent = async (workspaceId, ownerId, review) => {
     const workspace = await requireWorkspace(workspaceId, ownerId);
     const workspaceFiles =
       Array.isArray(workspace.files) && workspace.files.length
@@ -692,10 +722,17 @@ export function createWorkspaceController({
     const intent = await workspaces.sealIntent({
       ownerId,
       workspaceId,
-      intent: { ...material, intentDigest }
+      intent: { ...material, intentDigest },
+      ...(review ? { expectedReview: review } : {})
     });
     if (!intent?.id || !/^[A-Za-z0-9_-]{8}$/.test(intent.id))
       throw new Error('Commit intent ID is invalid');
+    return { workspace, workspaceFiles, changedFiles, targetBranch, intent };
+  };
+
+  const sealReadyIntent = async (workspaceId, ownerId) => {
+    const { workspace, workspaceFiles, changedFiles, targetBranch, intent } =
+      await sealWorkspaceIntent(workspaceId, ownerId);
     return {
       text: `✅ <b>آمادهٔ تأیید Commit</b>\n${workspaceFiles ? `Change Set: <b>${changedFiles.length} فایل تغییرکرده</b>\n${changedFiles.map((file) => `• <code>${escapeHtml(file.path)}</code>`).join('\n')}` : `فایل: <code>${escapeHtml(workspace.path)}</code>`}\nBranch: <code>${escapeHtml(targetBranch)}</code>\nBase: <code>${escapeHtml(String(workspace.baseHeadSha).slice(0, 10))}</code>\n\nمرحلهٔ بعد فقط درخواست تأیید امن را می‌سازد؛ تا تأیید معتبر مصرف نشود GitHub WRITE اجرا نمی‌شود.`,
       reply_markup: {
@@ -729,6 +766,22 @@ export function createWorkspaceController({
   };
 
   return {
+    createWorkspaceFromRef({ ownerId, refId }) {
+      return createWorkspaceFromRef(refId, ownerFrom({ ownerId }));
+    },
+
+    addWorkspaceFileFromRef({ ownerId, workspaceId, refId }) {
+      return addWorkspaceFileFromRef(
+        refId,
+        ownerFrom({ ownerId }),
+        workspaceId
+      );
+    },
+
+    sealWorkspaceIntent({ ownerId, workspaceId, review }) {
+      return sealWorkspaceIntent(workspaceId, ownerFrom({ ownerId }), review);
+    },
+
     resolveCallback(data, context = {}) {
       const parsed = parseCallback(data);
       if (!parsed) return null;

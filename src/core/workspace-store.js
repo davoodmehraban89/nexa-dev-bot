@@ -38,10 +38,14 @@ export class DurableWorkspaceStoreClient {
     } catch {
       body = null;
     }
-    if (!response.ok)
-      throw new Error(
+    if (!response.ok) {
+      const error = new Error(
         body?.error || `Durable workspace store failed (${response.status})`
       );
+      error.status = response.status;
+      if (typeof body?.code === 'string') error.code = body.code;
+      throw error;
+    }
     return body?.result ?? null;
   }
 
@@ -67,12 +71,20 @@ export class DurableWorkspaceStoreClient {
   upsertWorkspaceFile({ ownerId, workspaceId, file } = {}) {
     return this.#call(ownerId, 'workspace/file/upsert', { workspaceId, file });
   }
-  updateWorkspaceFileDraft({ ownerId, workspaceId, path, text, digest } = {}) {
+  updateWorkspaceFileDraft({
+    ownerId,
+    workspaceId,
+    path,
+    text,
+    digest,
+    expectedRevision
+  } = {}) {
     return this.#call(ownerId, 'workspace/file/draft', {
       workspaceId,
       path,
       text,
-      digest
+      digest,
+      expectedRevision
     });
   }
   removeWorkspaceFile({ ownerId, workspaceId, path } = {}) {
@@ -94,8 +106,12 @@ export class DurableWorkspaceStoreClient {
       digest
     });
   }
-  sealIntent({ ownerId, workspaceId, intent } = {}) {
-    return this.#call(ownerId, 'intent/seal', { workspaceId, intent });
+  sealIntent({ ownerId, workspaceId, intent, expectedReview } = {}) {
+    return this.#call(ownerId, 'intent/seal', {
+      workspaceId,
+      intent,
+      expectedReview
+    });
   }
   getIntent({ ownerId, intentId } = {}) {
     return this.#call(ownerId, 'intent/get', { intentId });

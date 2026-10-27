@@ -2,6 +2,8 @@ import { KillSwitchGuidedNexaDevBot } from './kill-switch-bot.js';
 import { DurableWorkspaceStoreClient } from './core/workspace-store.js';
 import { RELEASE_VERSION } from './version.js';
 import { GitHubService } from './github.js';
+import { handleStudioAssetsRequest } from './studio-assets.js';
+import { handleStudioApiRequest } from './studio-api.js';
 import {
   consumeTelegramUpdate,
   telegramBotIdentity
@@ -35,9 +37,29 @@ const isOwnerUpdate = (u, e) =>
   !!e.OWNER_TELEGRAM_ID &&
   senderIdFromUpdate(u) !== null &&
   String(senderIdFromUpdate(u)) === String(e.OWNER_TELEGRAM_ID);
+const botEnvironment = (env, url) => ({
+  ...env,
+  STUDIO_URL: env.STUDIO_URL ?? new URL('/studio/', url).href,
+  WORKSPACE_EDITOR_URL:
+    env.WORKSPACE_EDITOR_URL ?? new URL('/workspace/editor', url).href
+});
 export default {
   async fetch(request, env = {}) {
     const url = new URL(request.url);
+    const studioAssets = await handleStudioAssetsRequest(request, env);
+    if (studioAssets) return studioAssets;
+    if (
+      url.pathname === '/api/v1/studio' ||
+      url.pathname.startsWith('/api/v1/studio/')
+    ) {
+      const bot = new KillSwitchGuidedNexaDevBot(botEnvironment(env, url));
+      return handleStudioApiRequest(request, {
+        env,
+        github: bot.github,
+        workspaces: bot.workspaceStore,
+        bot
+      });
+    }
     if (request.method === 'GET' && url.pathname === '/workspace/editor')
       return workspaceEditorPageResponse();
     if (
@@ -115,11 +137,9 @@ export default {
       // Claim before effects: retries are at-most-once; a process crash after the
       // durable claim can lose this update. No raw update is retained for replay.
       try {
-        const result = await new KillSwitchGuidedNexaDevBot({
-          ...env,
-          WORKSPACE_EDITOR_URL:
-            env.WORKSPACE_EDITOR_URL ?? new URL('/workspace/editor', url).href
-        }).handleUpdate(update);
+        const result = await new KillSwitchGuidedNexaDevBot(
+          botEnvironment(env, url)
+        ).handleUpdate(update);
         if (result?.ok !== false) return jsonResponse(result);
       } catch {
         // Provider messages can contain tokens or draft text; log metadata only.

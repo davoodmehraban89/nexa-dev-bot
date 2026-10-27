@@ -1,32 +1,40 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NexaDevBot } from '../src/bot.js';
+import { GuidedNexaDevBot } from '../src/guide-bot.js';
 
 const WORKSPACE_ID = 'W000000001';
 
-test('/start installs a persistent bottom quick menu and still sends the inline main menu', async () => {
-  const bot = new NexaDevBot({});
+test('/start replaces the legacy persistent keyboard with the Studio launch button', async () => {
+  const bot = new GuidedNexaDevBot({ OWNER_TELEGRAM_ID: '7' });
   const sent = [];
   bot.telegram.sendMessage = async (chatId, text, replyMarkup) => {
     sent.push({ chatId, text, replyMarkup });
     return { ok: true, result: { message_id: 100 + sent.length } };
   };
+  bot.telegram.setChatMenuButton = async () => ({ ok: true });
 
   const result = await bot.handleMessage({
-    chat: { id: 7 },
-    from: { id: 42 },
+    chat: { id: 7, type: 'private' },
+    from: { id: 7 },
     text: '/start'
   });
 
   assert.equal(result.ok, true);
   assert.equal(sent.length, 2);
-  assert.equal(sent[0].replyMarkup.is_persistent, true);
-  assert.equal(sent[0].replyMarkup.resize_keyboard, true);
-  assert.deepEqual(
-    sent[0].replyMarkup.keyboard.flat().map((button) => button.text),
-    ['🏠 منوی اصلی', '📁 پروژه‌ها', '📊 وضعیت', '🔧 ابزارها', '🔐 امنیت']
-  );
-  assert.ok(sent[1].replyMarkup.inline_keyboard);
+  assert.deepEqual(sent[0].replyMarkup, { remove_keyboard: true });
+  assert.deepEqual(sent[1].replyMarkup, {
+    inline_keyboard: [
+      [
+        {
+          text: 'باز کردن Nexa Studio',
+          web_app: {
+            url: 'https://nexa-dev-bot.davoodmehraban89.workers.dev/studio/'
+          }
+        }
+      ]
+    ]
+  });
 });
 
 test('persistent menu text has precedence over pending draft input', async () => {

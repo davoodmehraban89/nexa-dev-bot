@@ -111,6 +111,13 @@ export class TelegramClient {
     });
   }
 
+  async setChatMenuButton(chatId, menuButton) {
+    return this.callApi('setChatMenuButton', {
+      chat_id: chatId,
+      menu_button: menuButton
+    });
+  }
+
   async editMessageText(
     chatId,
     messageId,

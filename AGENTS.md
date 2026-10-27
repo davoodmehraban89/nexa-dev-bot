@@ -1,5 +1,7 @@
 # Nexa Studio working instructions
 
+- Latest owner correction (2026-10-26/27): entry must begin in the real Mini App, not Telegram repository/file menus. Continue the existing owner-only Worker with `web/`, CodeMirror, real repository APIs and existing signed Approval execution. Preserve this priority; an editor-only page is not the requested primary entry. This slice does not accept the remaining G0 evidence or the full G1/PAT migration gate.
+
 - Latest owner direction (2026-10-25): continue real implementation here. Handoff files are continuity records, not a substitute for execution. Read `docs/roadmap/G0_HARDENING_2026_10_25.md` for the latest completed fixes and explicit remaining limits.
 
 - Start with `docs/handoff/START_HERE.md` and the authoritative `docs/contract/NEXA_STUDIO_V3.md`. The original DOCX next to it wins over transcription differences. The proposed roadmap in PR #62 does not replace or weaken that contract.

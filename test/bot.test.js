@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { NexaDevBot } from '../src/bot.js';
+import { GuidedNexaDevBot } from '../src/guide-bot.js';
 
 const fakeGitHub = {
   owner: 'davoodmehraban89',
@@ -68,28 +69,44 @@ describe('Nexa Dev Bot - Cloudflare plugin registration', () => {
 });
 
 describe('Nexa Dev Bot - Webhook Dispatcher & In-Place Editing', () => {
-  it('/start installs the bottom quick menu and sends the inline Main Menu', async () => {
+  it('/start on the deployed guided bot clears the old keyboard and opens Studio', async () => {
     const sentMessages = [];
-    const bot = makeBot();
+    const bot = new GuidedNexaDevBot({ OWNER_TELEGRAM_ID: '123456' });
     bot.telegram.sendMessage = async (chatId, text, replyMarkup) => {
       sentMessages.push({ chatId, text, replyMarkup });
       return { ok: true, result: { message_id: 500 + sentMessages.length } };
     };
+    bot.telegram.setChatMenuButton = async () => ({ ok: true });
 
     const res = await bot.handleUpdate({
-      message: { message_id: 100, chat: { id: 123456 }, text: '/start' }
+      message: {
+        message_id: 100,
+        from: { id: 123456 },
+        chat: { id: 123456, type: 'private' },
+        text: '/start'
+      }
     });
 
     assert.equal(res.ok, true);
     assert.equal(res.command, 'start');
-    assert.equal(res.persistentMenu, true);
+    assert.equal(res.studioEntry, true);
     assert.equal(sentMessages.length, 2);
     assert.equal(sentMessages[0].chatId, 123456);
-    assert.equal(sentMessages[0].replyMarkup.is_persistent, true);
-    assert.ok(sentMessages[0].replyMarkup.keyboard);
+    assert.deepEqual(sentMessages[0].replyMarkup, { remove_keyboard: true });
     assert.equal(sentMessages[1].chatId, 123456);
-    assert.match(sentMessages[1].text, /Nexa Dev Bot/);
-    assert.ok(sentMessages[1].replyMarkup.inline_keyboard);
+    assert.match(sentMessages[1].text, /Nexa Studio/);
+    assert.deepEqual(sentMessages[1].replyMarkup, {
+      inline_keyboard: [
+        [
+          {
+            text: 'باز کردن Nexa Studio',
+            web_app: {
+              url: 'https://nexa-dev-bot.davoodmehraban89.workers.dev/studio/'
+            }
+          }
+        ]
+      ]
+    });
   });
 
   it('/repos is dispatched through the plugin router', async () => {

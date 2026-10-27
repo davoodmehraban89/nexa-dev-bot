@@ -2,7 +2,7 @@ name: Deploy Cloudflare Worker
 
 on:
   workflow_run:
-    workflows: ["CI"]
+    workflows: ['CI']
     types: [completed]
 
 permissions:
@@ -29,7 +29,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version: '22'
           package-manager-cache: false
 
       - name: Verify Cloudflare deployment credentials
@@ -49,11 +49,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          printf '%s' "$CLOUDFLARE_API_TOKEN" | npx --yes wrangler@4 secret put CLOUDFLARE_API_TOKEN
-          printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | npx --yes wrangler@4 secret put CLOUDFLARE_ACCOUNT_ID
+          printf '%s' "$CLOUDFLARE_API_TOKEN" | npx --yes wrangler@4.152.0 secret put CLOUDFLARE_API_TOKEN
+          printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | npx --yes wrangler@4.152.0 secret put CLOUDFLARE_ACCOUNT_ID
 
       - name: Deploy verified commit to Cloudflare Workers
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx --yes wrangler@4 deploy
+          DEPLOY_COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: npx --yes wrangler@4.152.0 deploy --tag "$DEPLOY_COMMIT_SHA"

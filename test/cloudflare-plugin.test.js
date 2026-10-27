@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { createCloudflarePlugin } from '../src/plugins/cloudflare/plugin.js';
 
 function callbacks(view) {
-  return (view.reply_markup?.inline_keyboard || []).flat().map(button => button.callback_data).filter(Boolean);
+  return (view.reply_markup?.inline_keyboard || [])
+    .flat()
+    .map((button) => button.callback_data)
+    .filter(Boolean);
 }
 
 function telegramContract(view) {
@@ -15,7 +18,9 @@ function telegramContract(view) {
 }
 
 test('Cloudflare plugin exposes CP4 read and destructive actions explicitly', () => {
-  const plugin = createCloudflarePlugin({ cloudflare: { isConfigured: () => true } });
+  const plugin = createCloudflarePlugin({
+    cloudflare: { isConfigured: () => true }
+  });
   assert.equal(plugin.manifest.id, 'cloudflare');
   assert.deepEqual(plugin.manifest.actions, {
     'cloudflare.worker.status': { risk: 'READ' },
@@ -31,13 +36,26 @@ test('cf:status renders source-backed worker deployment details with refresh and
     async getWorkerSnapshot() {
       return {
         workerName: 'nexa-dev-bot',
-        deployment: { id: 'dep-1', createdOn: '2026-10-04T19:34:03Z', versions: [{ versionId: 'ver-1', percentage: 100 }] },
-        version: { id: 'ver-1', createdOn: '2026-10-04T19:34:01Z', triggeredBy: 'upload' },
+        deployment: {
+          id: 'dep-1',
+          createdOn: '2026-10-04T19:34:03Z',
+          versions: [{ versionId: 'ver-1', percentage: 100 }]
+        },
+        version: {
+          id: 'ver-1',
+          createdOn: '2026-10-04T19:34:01Z',
+          triggeredBy: 'upload'
+        },
         bindings: [
           { name: 'WORKSPACE_STORE', type: 'durable_object_namespace' },
           { name: 'GITHUB_TOKEN', type: 'secret_text' }
         ],
-        observability: { enabled: true, logsEnabled: true, invocationLogs: true, tracesEnabled: false }
+        observability: {
+          enabled: true,
+          logsEnabled: true,
+          invocationLogs: true,
+          tracesEnabled: false
+        }
       };
     }
   };
@@ -57,7 +75,9 @@ test('cf:status renders source-backed worker deployment details with refresh and
 });
 
 test('Cloudflare plugin renders explicit unavailable state without fabricating health', async () => {
-  const plugin = createCloudflarePlugin({ cloudflare: { isConfigured: () => false } });
+  const plugin = createCloudflarePlugin({
+    cloudflare: { isConfigured: () => false }
+  });
   const view = await plugin.resolveCallback('cf:status').execute();
   telegramContract(view);
   assert.match(view.text, /پیکربندی نشده|not configured/i);
@@ -73,11 +93,18 @@ test('Cloudflare plugin escapes provider-controlled text and handles empty provi
         deployment: null,
         version: null,
         bindings: [{ name: '<TOKEN>', type: 'secret_text' }],
-        observability: { enabled: false, logsEnabled: false, invocationLogs: false, tracesEnabled: false }
+        observability: {
+          enabled: false,
+          logsEnabled: false,
+          invocationLogs: false,
+          tracesEnabled: false
+        }
       };
     }
   };
-  const view = await createCloudflarePlugin({ cloudflare }).resolveCallback('cf:status').execute();
+  const view = await createCloudflarePlugin({ cloudflare })
+    .resolveCallback('cf:status')
+    .execute();
   telegramContract(view);
   assert.doesNotMatch(view.text, /<worker&name>|<TOKEN>/);
   assert.match(view.text, /&lt;worker&amp;name&gt;/);

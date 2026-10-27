@@ -1,31 +1,40 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NexaDevBot } from '../src/bot.js';
+import { GuidedNexaDevBot } from '../src/guide-bot.js';
 
 const WORKSPACE_ID = 'W000000001';
 
-test('/start installs a persistent bottom quick menu and still sends the inline main menu', async () => {
-  const bot = new NexaDevBot({});
+test('/start replaces the legacy persistent keyboard with the Studio launch button', async () => {
+  const bot = new GuidedNexaDevBot({ OWNER_TELEGRAM_ID: '7' });
   const sent = [];
   bot.telegram.sendMessage = async (chatId, text, replyMarkup) => {
     sent.push({ chatId, text, replyMarkup });
     return { ok: true, result: { message_id: 100 + sent.length } };
   };
+  bot.telegram.setChatMenuButton = async () => ({ ok: true });
 
-  const result = await bot.handleMessage({ chat: { id: 7 }, from: { id: 42 }, text: '/start' });
+  const result = await bot.handleMessage({
+    chat: { id: 7, type: 'private' },
+    from: { id: 7 },
+    text: '/start'
+  });
 
   assert.equal(result.ok, true);
   assert.equal(sent.length, 2);
-  assert.equal(sent[0].replyMarkup.is_persistent, true);
-  assert.equal(sent[0].replyMarkup.resize_keyboard, true);
-  assert.deepEqual(sent[0].replyMarkup.keyboard.flat().map(button => button.text), [
-    '🏠 منوی اصلی',
-    '📁 پروژه‌ها',
-    '📊 وضعیت',
-    '🔧 ابزارها',
-    '🔐 امنیت'
-  ]);
-  assert.ok(sent[1].replyMarkup.inline_keyboard);
+  assert.deepEqual(sent[0].replyMarkup, { remove_keyboard: true });
+  assert.deepEqual(sent[1].replyMarkup, {
+    inline_keyboard: [
+      [
+        {
+          text: 'باز کردن Nexa Studio',
+          web_app: {
+            url: 'https://nexa-dev-bot.davoodmehraban89.workers.dev/studio/'
+          }
+        }
+      ]
+    ]
+  });
 });
 
 test('persistent menu text has precedence over pending draft input', async () => {
@@ -44,7 +53,10 @@ test('persistent menu text has precedence over pending draft input', async () =>
   bot.router = {
     async dispatchMessage() {
       workspaceDispatches += 1;
-      return { text: 'should not happen', reply_markup: { inline_keyboard: [] } };
+      return {
+        text: 'should not happen',
+        reply_markup: { inline_keyboard: [] }
+      };
     }
   };
   bot.telegram.sendMessage = async (chatId, text, replyMarkup) => {
@@ -52,7 +64,11 @@ test('persistent menu text has precedence over pending draft input', async () =>
     return { ok: true };
   };
 
-  const result = await bot.handleMessage({ chat: { id: 7 }, from: { id: 42 }, text: '🏠 منوی اصلی' });
+  const result = await bot.handleMessage({
+    chat: { id: 7 },
+    from: { id: 42 },
+    text: '🏠 منوی اصلی'
+  });
 
   assert.equal(result.ok, true);
   assert.equal(result.quickMenu, 'main');
@@ -61,7 +77,7 @@ test('persistent menu text has precedence over pending draft input', async () =>
   assert.match(sent.at(-1).text, /Nexa Dev Bot/);
 });
 
-test('Paste text opens a focused ForceReply prompt without replacing the workspace message', async () => {
+test('legacy Paste callbacks replace the workspace message with the Mini App redirect', async () => {
   const bot = new NexaDevBot({});
   const sent = [];
   const edited = [];
@@ -78,8 +94,12 @@ test('Paste text opens a focused ForceReply prompt without replacing the workspa
   bot.router.dispatchCallback = async (data) => {
     assert.equal(data, `wtext:${WORKSPACE_ID}`);
     return {
-      text: '📝 متن جدید Draft را ارسال کنید',
-      reply_markup: { inline_keyboard: [[{ text: '↩️ بازگشت', callback_data: `ws:${WORKSPACE_ID}` }]] }
+      text: 'متن را فقط در Mini App ویرایش کنید',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: 'Editor', web_app: { url: 'https://example.test/editor' } }]
+        ]
+      }
     };
   };
 
@@ -91,11 +111,88 @@ test('Paste text opens a focused ForceReply prompt without replacing the workspa
   });
 
   assert.equal(result.ok, true);
-  assert.equal(result.inputPrompt, true);
-  assert.equal(edited.length, 0);
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].replyMarkup.force_reply, true);
-  assert.equal(sent[0].replyMarkup.selective, true);
-  assert.match(sent[0].replyMarkup.input_field_placeholder, /Paste|کد|متن/i);
-  assert.equal(sent[0].replyMarkup.inline_keyboard, undefined);
+  assert.equal(result.edited, true);
+  assert.equal(result.inputPrompt, undefined);
+  assert.equal(sent.length, 0);
+  assert.equal(edited.length, 1);
+  assert.equal(edited[0][1], 55);
+  assert.equal(edited[0][3].force_reply, undefined);
+  assert.equal(
+    edited[0][3].inline_keyboard[0][0].web_app.url,
+    'https://example.test/editor'
+  );
+});
+
+test('stale draft input sends only pending metadata to the Mini App redirect route', async () => {
+  const bot = new NexaDevBot({});
+  const pending = { workspaceId: WORKSPACE_ID, mode: 'draft' };
+  const payloadKeys = [];
+  const sent = [];
+  bot.workspaceStore = {
+    isConfigured: () => true,
+    async getPendingInput() {
+      return pending;
+    }
+  };
+  bot.router.dispatchMessage = async (payload, context) => {
+    payloadKeys.push(Object.keys(payload));
+    assert.deepEqual(payload.pending, pending);
+    assert.equal(context.ownerId, '42');
+    return { text: 'ویرایش فقط در Mini App' };
+  };
+  bot.telegram.sendMessage = async (chatId, text) => {
+    sent.push({ chatId, text });
+    return { ok: true };
+  };
+
+  const result = await bot.handleMessage({
+    message_id: 55,
+    chat: { id: 7 },
+    from: { id: 42 },
+    text: 'SOURCE_BODY_MUST_NOT_REACH_CONTROLLER'
+  });
+
+  assert.deepEqual(payloadKeys, [['pending']]);
+  assert.equal(result.workspaceInput, true);
+  assert.equal(
+    JSON.stringify({ sent, result }).includes('SOURCE_BODY_'),
+    false
+  );
+});
+
+test('stale upload input redirects before downloading or requesting another file', async () => {
+  for (const document of [
+    undefined,
+    { file_id: 'synthetic-file', file_size: 10 }
+  ]) {
+    const bot = new NexaDevBot({});
+    let downloads = 0;
+    const payloadKeys = [];
+    bot.workspaceStore = {
+      isConfigured: () => true,
+      async getPendingInput() {
+        return { workspaceId: WORKSPACE_ID, mode: 'draft_file' };
+      }
+    };
+    bot.telegram.downloadTextFile = async () => {
+      downloads++;
+      return { text: 'SOURCE_BODY', byteLength: 11 };
+    };
+    bot.router.dispatchMessage = async (payload) => {
+      payloadKeys.push(Object.keys(payload));
+      return { text: 'ویرایش فقط در Mini App' };
+    };
+    bot.telegram.sendMessage = async () => ({ ok: true });
+
+    const result = await bot.handleMessage({
+      chat: { id: 7 },
+      from: { id: 42 },
+      document
+    });
+
+    assert.equal(downloads, 0);
+    assert.deepEqual(payloadKeys, [['pending']]);
+    assert.equal(result.workspaceInput, true);
+    assert.equal(result.inputRequired, undefined);
+  }
 });

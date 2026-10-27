@@ -4,21 +4,31 @@ import { NexaDevBot } from '../src/bot.js';
 import { ApprovalService } from '../src/core/approval.js';
 
 function replayStore() {
-  return { async consume() { return true; } };
+  return {
+    async consume() {
+      return true;
+    }
+  };
 }
 
 test('workspace approved provider errors are HTML-escaped before Telegram rendering', async () => {
   const bot = new NexaDevBot({ TELEGRAM_WEBHOOK_SECRET: 'test-secret' });
-  bot.approvals = new ApprovalService({ secret: 'test-secret', replayStore: replayStore() });
+  bot.approvals = new ApprovalService({
+    secret: 'test-secret',
+    replayStore: replayStore()
+  });
   bot.router = {
     async dispatchCallback(data, context) {
-      if (context?.approved === true) throw new Error('GitHub provider <bad>& response');
+      if (context?.approved === true)
+        throw new Error('GitHub provider <bad>& response');
       return null;
     }
   };
   const edits = [];
   bot.telegram = {
-    async answerCallbackQuery() { return { ok: true }; },
+    async answerCallbackQuery() {
+      return { ok: true };
+    },
     async editMessageText(chatId, messageId, text, replyMarkup) {
       edits.push({ chatId, messageId, text, replyMarkup });
       return { ok: true };

@@ -1,19 +1,22 @@
 import {
   WORKSPACE_EDITOR_LIMITS,
+  buildWorkspaceDiff,
   digestText,
   validateEditableFile
 } from './core/workspace-policy.js';
 import { validateTelegramWebAppInitData } from './core/telegram-webapp-auth.js';
+import { readBoundedJson } from './core/bounded-json.js';
 
 const WORKSPACE_ID = /^[A-Za-z0-9_-]{10}$/;
 
-const jsonResponse = (payload, status = 200) => new Response(JSON.stringify(payload), {
-  status,
-  headers: {
-    'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store'
-  }
-});
+const jsonResponse = (payload, status = 200) =>
+  new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store'
+    }
+  });
 
 function safeWorkspaceId(value) {
   const id = String(value || '');
@@ -26,18 +29,18 @@ function statusForError(error) {
   if (/signature|hash|auth_date|owner|initData|user/i.test(message)) return 403;
   if (/not found|expired/i.test(message)) return 404;
   if (/limited|not editable|binary|LFS|sensitive/i.test(message)) return 422;
-  if (/invalid|required|JSON|body|path|member|Change Set/i.test(message)) return 400;
+  if (/invalid|required|JSON|body|path|member|Change Set/i.test(message))
+    return 400;
   return 500;
 }
 
-export async function handleWorkspaceEditorRequest(request, {
-  workspaces,
-  botToken,
-  ownerId,
-  now = () => Date.now()
-} = {}) {
+export async function handleWorkspaceEditorRequest(
+  request,
+  { workspaces, github, botToken, ownerId, now = () => Date.now() } = {}
+) {
   try {
-    if (!workspaces) throw new Error('Durable workspace store is not configured');
+    if (!workspaces)
+      throw new Error('Durable workspace store is not configured');
     const initData = request.headers.get('x-telegram-init-data') || '';
     const identity = await validateTelegramWebAppInitData(initData, {
       botToken,
@@ -49,18 +52,95 @@ export async function handleWorkspaceEditorRequest(request, {
     const url = new URL(request.url);
 
     if (request.method === 'GET') {
+      const refId = url.searchParams.get('refId');
+      if (refId !== null) {
+        const ref = await workspaces.resolveNavigationRef({
+          ownerId: owner,
+          refId: safeWorkspaceId(refId)
+        });
+        if (!ref || ref.type !== 'file')
+          throw new Error('File reference not found or expired');
+        if (!github) throw new Error('File preview service is not configured');
+        let snapshot, file;
+        try {
+          const repo = await github.getRepository(ref.repoId);
+          snapshot = await github.getBranchSnapshot(
+            ref.repoId,
+            repo.defaultBranch
+          );
+          file = await github.getFileAtRef(
+            ref.repoId,
+            ref.path,
+            snapshot.headSha
+          );
+        } catch {
+          throw new Error('File preview provider request failed');
+        }
+        const policy = validateEditableFile({
+          path: file.path,
+          text: file.content,
+          byteLength: file.size
+        });
+        if (!policy.editable)
+          return jsonResponse(
+            {
+              ok: false,
+              error: 'این فایل برای نمایش امن در Mini App مجاز نیست.'
+            },
+            422
+          );
+        return jsonResponse({
+          workspace: {
+            path: file.path,
+            files: [{ path: file.path }],
+            draftText: policy.text,
+            state: 'READ_ONLY',
+            readOnly: true,
+            baseHeadSha: snapshot.headSha.slice(0, 10)
+          },
+          limits: WORKSPACE_EDITOR_LIMITS
+        });
+      }
       const workspaceId = safeWorkspaceId(url.searchParams.get('workspaceId'));
-      const workspace = await workspaces.getWorkspace({ ownerId: owner, workspaceId });
+      const workspace = await workspaces.getWorkspace({
+        ownerId: owner,
+        workspaceId
+      });
       if (!workspace) throw new Error('Workspace not found or expired');
-      const files = Array.isArray(workspace.files) && workspace.files.length ? workspace.files : [{ path: workspace.path, draftText: workspace.draftText }];
-      const requestedPath = String(url.searchParams.get('path') || workspace.path || files[0].path);
-      const selected = files.find(file => file.path === requestedPath);
-      if (!selected) throw new Error('Editor path is not a member of this Change Set');
+      const files =
+        Array.isArray(workspace.files) && workspace.files.length
+          ? workspace.files
+          : [
+              {
+                path: workspace.path,
+                originalText: workspace.originalText,
+                draftText: workspace.draftText
+              }
+            ];
+      if (url.searchParams.get('view') === 'diff') {
+        return jsonResponse({
+          workspace: {
+            id: workspace.id,
+            path: workspace.path || files[0].path,
+            state: workspace.state || 'DRAFT',
+            readOnly: true,
+            files: files.map((file) => ({ path: file.path }))
+          },
+          diff: buildWorkspaceDiff({ files, maxChars: 10000 }),
+          limits: WORKSPACE_EDITOR_LIMITS
+        });
+      }
+      const requestedPath = String(
+        url.searchParams.get('path') || workspace.path || files[0].path
+      );
+      const selected = files.find((file) => file.path === requestedPath);
+      if (!selected)
+        throw new Error('Editor path is not a member of this Change Set');
       return jsonResponse({
         workspace: {
           id: workspace.id,
           path: selected.path,
-          files: files.map(file => ({ path: file.path })),
+          files: files.map((file) => ({ path: file.path })),
           state: workspace.state || 'DRAFT',
           baseHeadSha: String(workspace.baseHeadSha || '').slice(0, 10),
           draftText: String(selected.draftText ?? '')
@@ -70,29 +150,63 @@ export async function handleWorkspaceEditorRequest(request, {
     }
 
     if (request.method === 'PUT') {
-      const contentLength = Number(request.headers.get('content-length'));
-      if (Number.isFinite(contentLength) && contentLength > WORKSPACE_EDITOR_LIMITS.maxBytes + 4096) {
-        return jsonResponse({ ok: false, error: 'Editor request body is too large' }, 413);
-      }
       let body;
       try {
-        body = await request.json();
-      } catch {
-        throw new Error('Editor request body must be valid JSON');
+        body = await readBoundedJson(
+          request,
+          WORKSPACE_EDITOR_LIMITS.maxBytes + 4096
+        );
+      } catch (error) {
+        if (error instanceof RangeError)
+          return jsonResponse(
+            { ok: false, error: 'Editor request body is too large' },
+            413
+          );
+        if (error instanceof SyntaxError)
+          return jsonResponse(
+            { ok: false, error: 'Editor request body must be valid JSON' },
+            400
+          );
+        throw error;
       }
       const workspaceId = safeWorkspaceId(body?.workspaceId);
-      const workspace = await workspaces.getWorkspace({ ownerId: owner, workspaceId });
+      const workspace = await workspaces.getWorkspace({
+        ownerId: owner,
+        workspaceId
+      });
       if (!workspace) throw new Error('Workspace not found or expired');
-      const files = Array.isArray(workspace.files) && workspace.files.length ? workspace.files : [{ path: workspace.path, draftText: workspace.draftText }];
-      const requestedPath = String(body?.path || workspace.path || files[0].path);
-      const selected = files.find(file => file.path === requestedPath);
-      if (!selected) throw new Error('Editor path is not a member of this Change Set');
-      const policy = validateEditableFile({ path: selected.path, text: body?.text });
-      if (!policy.editable) return jsonResponse({ ok: false, error: policy.reason }, 422);
+      const files =
+        Array.isArray(workspace.files) && workspace.files.length
+          ? workspace.files
+          : [{ path: workspace.path, draftText: workspace.draftText }];
+      const requestedPath = String(
+        body?.path || workspace.path || files[0].path
+      );
+      const selected = files.find((file) => file.path === requestedPath);
+      if (!selected)
+        throw new Error('Editor path is not a member of this Change Set');
+      const policy = validateEditableFile({
+        path: selected.path,
+        text: body?.text
+      });
+      if (!policy.editable)
+        return jsonResponse({ ok: false, error: policy.reason }, 422);
       const digest = await digestText(policy.text);
-      const updated = typeof workspaces.updateWorkspaceFileDraft === 'function'
-        ? await workspaces.updateWorkspaceFileDraft({ ownerId: owner, workspaceId, path: selected.path, text: policy.text, digest })
-        : await workspaces.updateDraft({ ownerId: owner, workspaceId, text: policy.text, digest });
+      const updated =
+        typeof workspaces.updateWorkspaceFileDraft === 'function'
+          ? await workspaces.updateWorkspaceFileDraft({
+              ownerId: owner,
+              workspaceId,
+              path: selected.path,
+              text: policy.text,
+              digest
+            })
+          : await workspaces.updateDraft({
+              ownerId: owner,
+              workspaceId,
+              text: policy.text,
+              digest
+            });
       return jsonResponse({
         ok: true,
         workspace: {
@@ -107,7 +221,27 @@ export async function handleWorkspaceEditorRequest(request, {
 
     return jsonResponse({ ok: false, error: 'Method not allowed' }, 405);
   } catch (error) {
-    return jsonResponse({ ok: false, error: String(error?.message || 'Workspace editor request failed') }, statusForError(error));
+    if (error?.code === 'DIFF_COMPLEXITY_LIMIT')
+      return jsonResponse(
+        {
+          ok: false,
+          code: error.code,
+          error:
+            'تغییرات برای محاسبهٔ امن Diff پیچیده‌اند؛ فایل‌ها را در تغییرهای کوچک‌تر ویرایش کنید.'
+        },
+        422
+      );
+    const status = statusForError(error);
+    return jsonResponse(
+      {
+        ok: false,
+        error:
+          status === 500
+            ? 'Workspace editor request failed'
+            : String(error?.message || 'Workspace editor request failed')
+      },
+      status
+    );
   }
 }
 
@@ -151,16 +285,19 @@ export function renderWorkspaceEditorPage() {
   const close = document.getElementById('close');
   const params = new URLSearchParams(location.search);
   const workspaceId = params.get('workspaceId') || '';
+  const refId = params.get('refId') || '';
+  const diffMode = params.get('view') === 'diff';
+  let readOnly = false;
   const byteLength = value => new TextEncoder().encode(value).byteLength;
   const codePoints = value => Array.from(value).length;
-  let limits = { maxChars: 20000, maxBytes: 65536 };
+  let limits = ${JSON.stringify(WORKSPACE_EDITOR_LIMITS)};
 
   function setStatus(message, kind='') { status.textContent = message; status.className = 'status' + (kind ? ' ' + kind : ''); }
   function updateCounter() {
     const chars = codePoints(editor.value); const bytes = byteLength(editor.value);
     counter.textContent = chars.toLocaleString() + ' / ' + limits.maxChars.toLocaleString() + ' · ' + bytes.toLocaleString() + ' B / ' + limits.maxBytes.toLocaleString() + ' B';
     const valid = chars <= limits.maxChars && bytes <= limits.maxBytes;
-    save.disabled = !valid || editor.disabled;
+    save.disabled = readOnly || !valid || editor.disabled;
     if (!valid) setStatus('محتوا از سقف امن Editor بیشتر است.', 'error');
   }
   async function api(url, options={}) {
@@ -173,21 +310,33 @@ export function renderWorkspaceEditorPage() {
   async function load() {
     if (!tg || !tg.initData) throw new Error('این Editor باید از داخل Telegram باز شود.');
     tg.ready(); tg.expand();
-    if (!/^[A-Za-z0-9_-]{10}$/.test(workspaceId)) throw new Error('Workspace نامعتبر است.');
+    if (!/^[A-Za-z0-9_-]{10}$/.test(refId || workspaceId)) throw new Error('Workspace نامعتبر است.');
     const selectedPath = params.get('path') || '';
-    const body = await api('/workspace/api/editor?workspaceId=' + encodeURIComponent(workspaceId) + (selectedPath ? '&path=' + encodeURIComponent(selectedPath) : ''));
+    const query = refId ? 'refId=' + encodeURIComponent(refId) : 'workspaceId=' + encodeURIComponent(workspaceId) + (selectedPath ? '&path=' + encodeURIComponent(selectedPath) : '') + (diffMode ? '&view=diff' : '');
+    const body = await api('/workspace/api/editor?' + query);
     limits = body.limits || limits;
-    files.innerHTML = (body.workspace.files || [{path:body.workspace.path}]).map(file => '<option value="' + file.path.replaceAll('&','&amp;').replaceAll('"','&quot;') + '">' + file.path.replaceAll('&','&amp;').replaceAll('<','&lt;') + '</option>').join('');
+    // Never interpolate repository-controlled paths into HTML.
+    files.replaceChildren();
+    for (const file of (body.workspace.files || [{path:body.workspace.path}])) {
+      const option = document.createElement('option');
+      option.value = file.path;
+      option.textContent = file.path;
+      files.appendChild(option);
+    }
     files.value = body.workspace.path; files.disabled = false;
     path.textContent = body.workspace.path;
-    editor.value = body.workspace.draftText || '';
+    readOnly = body.workspace.readOnly === true;
+    editor.readOnly = readOnly;
+    save.hidden = readOnly;
+    editor.value = body.diff ? body.diff.text : body.workspace.draftText || '';
     editor.disabled = false;
-    setStatus('Draft محلی آماده ویرایش است؛ تا قبل از Safe Approval هیچ تغییری در GitHub انجام نمی‌شود.');
+    setStatus(body.diff ? ('Diff · +' + body.diff.additions + ' / -' + body.diff.deletions + (body.diff.truncated ? ' · نمایش کوتاه شده است.' : '')) : readOnly ? 'نمایش فقط‌خواندنی؛ هیچ Draft یا Commit ساخته نشده است.' : 'Draft محلی آماده ویرایش است؛ تا قبل از Safe Approval هیچ تغییری در GitHub انجام نمی‌شود.');
     updateCounter();
   }
   editor.addEventListener('input', updateCounter);
   files.addEventListener('change', () => { params.set('path', files.value); location.search = params.toString(); });
   save.addEventListener('click', async () => {
+    if (readOnly) return;
     save.disabled = true; setStatus('در حال ذخیره Draft…');
     try {
       await api('/workspace/api/editor', { method:'PUT', headers:{'content-type':'application/json'}, body:JSON.stringify({workspaceId, path:files.value, text:editor.value}) });
@@ -212,7 +361,8 @@ export function workspaceEditorPageResponse() {
       'cache-control': 'no-store',
       'x-content-type-options': 'nosniff',
       'referrer-policy': 'no-referrer',
-      'content-security-policy': "default-src 'none'; script-src 'unsafe-inline' https://telegram.org; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'"
+      'content-security-policy':
+        "default-src 'none'; script-src 'unsafe-inline' https://telegram.org; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'"
     }
   });
 }

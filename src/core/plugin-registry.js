@@ -26,7 +26,9 @@ export class PluginRegistry {
         throw new Error(`Duplicate action id: ${actionId}`);
       }
       if (!ALLOWED_RISKS.has(descriptor?.risk)) {
-        throw new Error(`Invalid action risk for ${actionId}: ${descriptor?.risk}`);
+        throw new Error(
+          `Invalid action risk for ${actionId}: ${descriptor?.risk}`
+        );
       }
     }
 
@@ -34,11 +36,14 @@ export class PluginRegistry {
     this.pluginsById.set(pluginId, plugin);
 
     for (const [actionId, descriptor] of Object.entries(actions)) {
-      this.actionsById.set(actionId, Object.freeze({
-        pluginId,
+      this.actionsById.set(
         actionId,
-        risk: descriptor.risk
-      }));
+        Object.freeze({
+          pluginId,
+          actionId,
+          risk: descriptor.risk
+        })
+      );
     }
   }
 

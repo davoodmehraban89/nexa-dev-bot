@@ -10,12 +10,19 @@ test('Advanced READ provider failures visibly update Telegram instead of appeari
   });
   const edits = [];
   bot.telegram.answerCallbackQuery = async () => ({ ok: true });
-  bot.telegram.editMessageText = async (chatId, messageId, text, replyMarkup) => {
+  bot.telegram.editMessageText = async (
+    chatId,
+    messageId,
+    text,
+    replyMarkup
+  ) => {
     edits.push({ chatId, messageId, text, replyMarkup });
     return { ok: true };
   };
   bot.router.dispatchCallback = async () => {
-    throw new Error('GitHub check runs failed: 403 Resource not accessible by personal access token');
+    throw new Error(
+      'GitHub check runs failed: 403 Resource not accessible by personal access token'
+    );
   };
 
   const result = await bot.handleCallbackQuery({
@@ -30,5 +37,8 @@ test('Advanced READ provider failures visibly update Telegram instead of appeari
   assert.equal(edits.length, 1);
   assert.match(edits[0].text, /دریافت اطلاعات|خطا/);
   assert.match(edits[0].text, /مجوز|دسترسی/);
-  assert.doesNotMatch(edits[0].text, /github-test-token|telegram-test-token|webhook-test-secret/);
+  assert.doesNotMatch(
+    edits[0].text,
+    /github-test-token|telegram-test-token|webhook-test-secret/
+  );
 });

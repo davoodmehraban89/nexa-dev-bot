@@ -37,19 +37,29 @@ function makeGitHub() {
     },
     async listPullRequests(repoId) {
       calls.push(`pr:${repoId}`);
-      return [{ number: 19, title: 'Feature', author: 'dev', state: 'open', merged: false }];
+      return [
+        {
+          number: 19,
+          title: 'Feature',
+          author: 'dev',
+          state: 'open',
+          merged: false
+        }
+      ];
     },
     async listWorkflowRuns(repoId) {
       calls.push(`runs:${repoId}`);
-      return [{
-        id: 77,
-        name: 'CI',
-        status: 'completed',
-        conclusion: 'failure',
-        branch: 'main',
-        sha: 'abcdef0',
-        runNumber: 12
-      }];
+      return [
+        {
+          id: 77,
+          name: 'CI',
+          status: 'completed',
+          conclusion: 'failure',
+          branch: 'main',
+          sha: 'abcdef0',
+          runNumber: 12
+        }
+      ];
     },
     async getWorkflowRun(repoId, runId) {
       calls.push(`run:${repoId}:${runId}`);
@@ -65,16 +75,28 @@ function makeGitHub() {
     },
     async listWorkflowJobs(repoId, runId) {
       calls.push(`jobs:${repoId}:${runId}`);
-      return [{
-        id: 88,
-        name: 'test',
-        status: 'completed',
-        conclusion: 'failure',
-        steps: [
-          { number: 1, name: 'checkout', status: 'completed', conclusion: 'success' },
-          { number: 2, name: 'test', status: 'completed', conclusion: 'failure' }
-        ]
-      }];
+      return [
+        {
+          id: 88,
+          name: 'test',
+          status: 'completed',
+          conclusion: 'failure',
+          steps: [
+            {
+              number: 1,
+              name: 'checkout',
+              status: 'completed',
+              conclusion: 'success'
+            },
+            {
+              number: 2,
+              name: 'test',
+              status: 'completed',
+              conclusion: 'failure'
+            }
+          ]
+        }
+      ];
     },
     async rerunFailedWorkflowRun(repoId, runId) {
       calls.push(`rerun:${repoId}:${runId}`);
@@ -108,7 +130,10 @@ test('GitHub plugin manifest registers read and write workflow actions with expl
     assert.equal(registry.getAction(actionId)?.risk, 'READ');
   }
 
-  assert.equal(registry.getAction('github.workflow.run.rerun_failed')?.risk, 'WRITE');
+  assert.equal(
+    registry.getAction('github.workflow.run.rerun_failed')?.risk,
+    'WRITE'
+  );
   assert.equal(registry.getAction('github.workflow.run.cancel')?.risk, 'WRITE');
 });
 
@@ -148,8 +173,16 @@ test('GitHub plugin maps read callback families to declared actions without eage
     const beforeGitHub = github.calls.length;
     const route = plugin.resolveCallback(callbackData);
     assert.equal(route.actionId, actionId);
-    assert.equal(menu.calls.length, beforeMenu, 'route resolution must be side-effect-free');
-    assert.equal(github.calls.length, beforeGitHub, 'route resolution must not call GitHub');
+    assert.equal(
+      menu.calls.length,
+      beforeMenu,
+      'route resolution must be side-effect-free'
+    );
+    assert.equal(
+      github.calls.length,
+      beforeGitHub,
+      'route resolution must not call GitHub'
+    );
     const view = await route.execute();
     assert.ok(view?.text);
   }
@@ -160,7 +193,7 @@ test('repository detail view keeps its existing status entry without duplicate C
   const plugin = createGitHubPlugin({ github: makeGitHub(), menu });
   const view = await plugin.resolveCallback('repo:123').execute();
   const buttons = view.reply_markup.inline_keyboard.flat();
-  assert.ok(!buttons.some(button => button.callback_data === 'runs:123'));
+  assert.ok(!buttons.some((button) => button.callback_data === 'runs:123'));
 });
 
 test('GitHub plugin write callbacks expose compact approval metadata and defer provider calls', async () => {
@@ -178,7 +211,11 @@ test('GitHub plugin write callbacks expose compact approval metadata and defer p
   const rerunView = await rerun.execute();
   assert.deepEqual(github.calls, ['rerun:123:77']);
   assert.match(rerunView.text, /اجرا.*مجدد|دوباره/i);
-  assert.ok(rerunView.reply_markup.inline_keyboard.flat().some(button => button.callback_data === 'run:123:77'));
+  assert.ok(
+    rerunView.reply_markup.inline_keyboard
+      .flat()
+      .some((button) => button.callback_data === 'run:123:77')
+  );
 
   github.calls.length = 0;
   const cancel = plugin.resolveCallback('cancelrun:123:77');
@@ -198,12 +235,20 @@ test('GitHub workflow views expose bounded navigation and write-action callbacks
 
   const runsView = await plugin.resolveCallback('runs:123').execute();
   assert.match(runsView.text, /CI/);
-  assert.ok(runsView.reply_markup.inline_keyboard.flat().some(button => button.callback_data === 'run:123:77'));
+  assert.ok(
+    runsView.reply_markup.inline_keyboard
+      .flat()
+      .some((button) => button.callback_data === 'run:123:77')
+  );
 
   const runView = await plugin.resolveCallback('run:123:77').execute();
   const runButtons = runView.reply_markup.inline_keyboard.flat();
-  assert.ok(runButtons.some(button => button.callback_data === 'jobs:123:77'));
-  assert.ok(runButtons.some(button => button.callback_data === 'rerun:123:77'));
+  assert.ok(
+    runButtons.some((button) => button.callback_data === 'jobs:123:77')
+  );
+  assert.ok(
+    runButtons.some((button) => button.callback_data === 'rerun:123:77')
+  );
 
   const jobsView = await plugin.resolveCallback('jobs:123:77').execute();
   assert.match(jobsView.text, /checkout/);

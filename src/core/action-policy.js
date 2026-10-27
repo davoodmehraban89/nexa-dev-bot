@@ -36,7 +36,10 @@ export class ActionPolicy {
         allowed: true,
         requiresApproval: false,
         risk,
-        reason: risk === 'WRITE' ? 'owner_write_approved' : 'owner_destructive_approved'
+        reason:
+          risk === 'WRITE'
+            ? 'owner_write_approved'
+            : 'owner_destructive_approved'
       };
     }
 

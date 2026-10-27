@@ -11,9 +11,9 @@ V2.1 شامل Workspace Editor، Ops Console، Security Center، Configuration C
 - منوی اصلی: پروژه‌ها، وضعیت، ابزارهای توسعه، پیکربندی، امنیت و راهنما.
 - دریافت فهرست Repositoryهای قابل‌دسترسی به‌صورت زنده از GitHub API.
 - مشاهده جزئیات Repository، Pull Requestها، Commitها، Branchها، Issues، Releases و GitHub Actions؛ Issue و Release دارای drill-down منبع‌محور برای توضیح، وضعیت، برچسب/مسئول و Release notes هستند.
-- مشاهده Workflow Run، Job، Step، bounded log و Artifact metadata.
+- مشاهده Workflow Run، Job، Step و Artifact metadata؛ لاگ خام در GitHub باز می‌شود و وارد پیام تلگرام نمی‌شود.
 - اجرای کنترل‌شدهٔ `Re-run failed jobs` و `Cancel workflow run` فقط بعد از Safe Approval.
-- مرور پوشه‌ها و فایل‌ها و پیش‌نمایش فایل‌های متنی مناسب.
+- مرور پوشه‌ها و اطلاعات فایل در تلگرام؛ مشاهدهٔ محتوای فایل متنی مجاز و Diff در Mini App احراز هویت‌شده، با نمایش فقط‌خواندنی.
 - Workspace Editor برای اصلاح یک **multi-file Change Set** محدود و پایدار، بدون WRITE مستقیم به GitHub؛ حالت تک‌فایل با **single-file compatibility** به‌صورت Change Set یک‌عضوی حفظ شده است.
 - Telegram Mini App چندخطی برای ویرایش Draft؛ مسیر Paste عادی Telegram فقط fallback است.
 - ساخت Commit روی Branch جداگانه به شکل `nexa/edit-*`؛ مسیر Workspace به‌صورت مستقیم `main` را تغییر نمی‌دهد.
@@ -25,18 +25,26 @@ V2.1 شامل Workspace Editor، Ops Console، Security Center، Configuration C
 
 ## Workspace Editor
 
-جریان ویرایش فایل:
+مرجع سقف‌های فعلی `WORKSPACE_EDITOR_LIMITS` در `src/core/workspace-policy.js` است: هر فایل حداکثر **۲۰٬۰۰۰ نویسهٔ Unicode و ۶۵٬۵۳۶ بایت UTF-8**، هر Change Set حداکثر **۸ فایل و ۱۳۱٬۰۷۲ بایت**. صفحهٔ Editor، API و پیام راهنما از همین مرجع استفاده می‌کنند. ورودی کد از Paste یا فایل تلگرام غیرفعال است؛ متن منبع فقط در Mini App احراز هویت‌شده ویرایش می‌شود. محدودیت ۳٬۰۰۰/۱۲٬۰۰۰ در طرح‌های تاریخی Phase 1 دیگر مقدار جاری نیست.
 
-1. `پروژه‌ها` → انتخاب Repository.
-2. `فایل‌ها` → انتخاب فایل متنی مجاز.
-3. `Edit` → Pin شدن **exact base SHA** و ساخت Workspace/Change Set.
-4. `Editor` → باز شدن Telegram Mini App.
-5. `ذخیره Draft` → فقط Draft داخل `WORKSPACE_STORE` به‌روزرسانی می‌شود.
-6. `Diff` → مقایسه Original و Draft.
-7. `پیام Commit` → ثبت پیام Commit.
-8. `آماده Commit` → اعتبارسنجی و ساخت Intent امن.
-9. `Safe Approval` → فقط بعد از «تأیید و اجرا» Provider WRITE مجاز می‌شود.
-10. Bot یک Commit و Branch مستقل `nexa/edit-*` می‌سازد؛ `main` مستقیم تغییر نمی‌کند.
+لینک Editor در webhook به همان دامنهٔ Worker اشاره می‌کند. برای دامنهٔ سفارشی، `WORKSPACE_EDITOR_URL` را روی آدرس HTTPS با مسیر دقیق `/workspace/editor` قرار دهید؛ وجود نام کاربری، رمز، query یا fragment پیکربندی را نامعتبر و لینک‌ها را غیرفعال می‌کند. مقدار این متغیر عمومی است و نباید توکن داشته باشد.
+
+قرارداد توسعهٔ Nexa Studio نسخهٔ ۳ در [docs/contract/NEXA_STUDIO_V3.md](docs/contract/NEXA_STUDIO_V3.md) و فایل Word اصلی کنار آن نگهداری می‌شود. برچسب محصول V2.1 مربوط به بات موجود است؛ نسخهٔ انتشار کد از `package.json` خوانده می‌شود و با شمارهٔ قرارداد یکی نیست.
+
+ورودی اصلی و جریان ویرایش:
+
+1. `/start` در بات → دکمهٔ **باز کردن Nexa Studio**. دکمهٔ منوی چت مالک نیز Mini App را باز می‌کند.
+2. داخل Mini App در `/studio/`: انتخاب مخزن واقعی و مرور فایل‌ها.
+3. انتخاب فایل متنی مجاز → Pin شدن **exact base SHA** و ساخت Workspace/Change Set.
+4. ویرایش چندفایلی در CodeMirror 6، جست‌وجو و Undo/Redo؛ کد LTR و برنامه فارسی RTL است.
+5. `ذخیره تغییرات` → فقط Draft در `WORKSPACE_STORE` با revision و `If-Match` ذخیره می‌شود؛ تضاد نسخه 409 و انتخاب صریح دارد.
+6. `بازبینی تغییرات` → نمایش Diff و ثبت پیام Commit در همان Mini App.
+7. `درخواست تأیید امن` → اتصال اتمیک تأیید به همان نسخهٔ فایل‌ها و همان پیام بررسی‌شده؛ تغییر هم‌زمان نیازمند بازبینی تازه است.
+8. تأیید نهایی از پیام امضاشدهٔ بات → Commit و Branch مستقل `nexa/edit-*`؛ `main` مستقیم تغییر نمی‌کند.
+
+برنامه پس از بازشدن دوباره می‌تواند فضای کار قبلی را از سرور ادامه دهد؛ فقط شناسهٔ تصادفی فضای کار روی دستگاه نگهداری می‌شود، نه کد یا توکن. این نسخه از دسترسی فعلی مالک استفاده می‌کند و ویزارد اتصال PAT، سشن و Grant چندکاربره یا پذیرش کامل G1 را پیاده‌سازی‌شده نمی‌داند.
+
+کد رابط در `web/` است و با `npm run build:web` در `web/dist` ساخته می‌شود؛ Static Assets از همان Worker و با CSP بدون `unsafe-inline` ارائه می‌شود. برای دامنهٔ سفارشی ورودی، `STUDIO_URL` باید HTTPS با مسیر `/studio/` و بدون query، fragment یا اطلاعات ورود باشد.
 
 فایل‌های حساس، محتوای binary-like، Git LFS و موارد خارج از Policy قابل Edit نیستند.
 

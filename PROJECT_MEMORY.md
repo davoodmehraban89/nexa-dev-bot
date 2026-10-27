@@ -1,10 +1,19 @@
 # PROJECT_MEMORY.md
 
+## Latest implementation checkpoint — 2026-10-25
+- Primary-entry correction (2026-10-26/27): owner requires the real Mini App from `/start`. `web/` React/TypeScript/CodeMirror app, authenticated Studio repository/tree/Workspace APIs, conditional saves/review+message CAS and existing Telegram Approval handoff implemented; see `docs/roadmap/MINIAPP_PRIMARY_ENTRY.md`. Node22 full492 tests/type/lint/format/web+Worker dry-run passed; actual local workerd/SQLite and Chromium mobile/desktop passed with provider stubs, not real owner-device evidence. Existing live cc7772d deployment remains historical until the PR records the corrected entry rollout. Full PAT/G1 and gate acceptance remain incomplete.
+- Follow-up code head `515333d224a5cd9133023a479512fa0a458f9f25`: C-30 token deletion/revocation warning (new/edited text/captions), no Telegram Paste/upload source input, durable one-use TOTP steps across distinct Approvals, validated own-environment Editor links. Full Node22 suite **390 passed**, zero failures/skips; lint zero errors/13 existing warnings, formatting/dry-run pass. Actual local workerd/SQLite full Phase1 + signed Approval against outbound stubs passed across restart; not real owner/provider evidence. See latest section of the hardening report. Wrong-TOTP attempt increments remain an explicitly recorded P2 follow-up.
+- Owner requested continued implementation in this environment. Delivery branch remains `feat/studio-g0-foundation`, PR #65; main baseline remains `5d1c083d326db327cc3973a9d3adecc1d8092c91`.
+- Code head `e02e9fb976f11167aa04a842f881dedb3e11a3ef`: bounded exact Diff, durable Automation claims/CAS, transactional Incident updates, active-runtime/SHA correlation and workflow tagging, metadata-only Telegram source views plus authenticated read-only Mini App file/Diff reading.
+- Full local Node 22 suite: 353 pass, zero fail/skip/cancel; lint zero errors (13 existing warnings), formatting and Worker dry-run pass. Actual local workerd/SQLite concurrency/restart smoke and jsdom read-only rendering smoke pass.
+- Cloudflare Preview failure was confirmed as error10067 /100DO namespace Free limit. Only the G0 branch trigger was changed reversibly to `npm run build:check`; no namespace deletion, paid upgrade or production deploy.
+- Full details and remaining R-07/G0/device/approval/ambiguous-effect limits: `docs/roadmap/G0_HARDENING_2026_10_25.md`. Historical checkpoints below are not current blockers or gate acceptance.
+
 ## Project Identity
 - Name: Nexa Dev Bot
 - Repository: `davoodmehraban89/nexa-dev-bot`
 - Canonical branch: `main`
-- Visibility: private
+- Visibility: public (live API confirmed 2026-10-25; historical private/billing notes below are stale)
 - Purpose: owner-only Telegram developer console for GitHub visibility and controlled developer operations.
 - This file is the continuity source of truth; live repository/runtime evidence overrides stale text.
 
@@ -14,6 +23,17 @@
 3. Keep durable checkpoints here and never store secrets/tokens/private keys.
 4. Do not call a phase production-accepted from CI alone; deployment and owner-device/runtime evidence are separate gates.
 5. Production WRITE / DESTRUCTIVE provider actions must remain behind Safe Approval and durable one-time replay protection.
+
+## Latest checkpoint — 2026-10-24, PR #63 verification recovery
+- Live `main` at investigation: `5d1c083d326db327cc3973a9d3adecc1d8092c91`; PR #63 remains on `fix/editor-safe-file-options`.
+- Actions CI run `40100142480`, job/check `120890430470`, on candidate `18f663c2962478f2016dfb309034277c18239e12` never received a runner and had zero steps. Its failure annotation explicitly reports failed recent account payments or a spending limit needing increase. This is an account billing blocker, not evidence that tests failed.
+- The original candidate's full suite passed locally on Node `22.23.4`: **268 tests, 0 failures/cancelled/skipped**. Wrangler `4.152.0` on Node 22 also completed `deploy --dry-run` with all five Durable Object bindings and no upload. Local checks do not replace PR/main CI or runtime verification.
+- A separate local jsdom `26.1.0` smoke executed the generated page with markup-shaped, quoted, entity and Unicode filenames. Exact option labels/values/count, selection, authenticated draft-save payload and absence of injected script execution were verified. This is DOM emulation, not owner-device browser/Telegram acceptance.
+- Three independent AI-agent reviews covered security, test behavior and release operations for that candidate. No blocking code regression was found; these are not submitted GitHub or human approvals. Reviewers recommended behavioral coverage beyond the two original source-pattern tests.
+- Recovery changes replace regex-only coverage with four executed-script behavior tests plus one construction guard: literal filename labels/values and selection, authenticated draft saving, legacy single-file fallback and navigation/reload. Final local Node 22 suite: **271 tests, 0 failures/cancelled/skipped**. Test mutations mangling option values or labels correctly failed the behavioral tests; no production source was edited for mutation checks.
+- The option DOM construction is defense in depth. No exploitable XSS was demonstrated in the previous correctly escaped interpolation; avoid claiming a proven vulnerability.
+- Cloudflare reported a failed PR Preview build for `18f663c`; its build log was not available, so the cause remains unverified and separate from Actions billing.
+- Recovery procedure: `docs/OPERATIONS_RUNBOOK.md`, “Actions job fails before checkout”. PR #63 remains draft and unmerged. Account owner must resolve GitHub Billing, then obtain fresh CI on the final reviewed head before merge and exact-main CI/deploy/runtime checks afterward. No production deployment or direct-main write was performed in this recovery session.
 
 ## Current Architecture
 - Cloudflare Worker webhook boundary in `src/index.js`.

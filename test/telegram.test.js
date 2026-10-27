@@ -13,10 +13,11 @@ test('TelegramClient fails closed when TELEGRAM_BOT_TOKEN is missing', async () 
 
 test('TelegramClient rejects HTTP-level Telegram API failures', async () => {
   const client = new TelegramClient('token', {
-    fetch: async () => new Response(JSON.stringify({ ok: false, description: 'Bad Request' }), {
-      status: 400,
-      headers: { 'content-type': 'application/json' }
-    })
+    fetch: async () =>
+      new Response(JSON.stringify({ ok: false, description: 'Bad Request' }), {
+        status: 400,
+        headers: { 'content-type': 'application/json' }
+      })
   });
 
   await assert.rejects(
@@ -27,10 +28,14 @@ test('TelegramClient rejects HTTP-level Telegram API failures', async () => {
 
 test('TelegramClient rejects Telegram ok:false responses even with HTTP 200', async () => {
   const client = new TelegramClient('token', {
-    fetch: async () => new Response(JSON.stringify({ ok: false, description: 'message is not modified' }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' }
-    })
+    fetch: async () =>
+      new Response(
+        JSON.stringify({ ok: false, description: 'message is not modified' }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        }
+      )
   });
 
   await assert.rejects(
@@ -46,12 +51,17 @@ test('TelegramClient invokes the default fetch without a TelegramClient receiver
   globalThis.fetch = async function () {
     observedThis = this;
     if (this instanceof TelegramClient) {
-      throw new TypeError('Illegal invocation: function called with incorrect this reference');
+      throw new TypeError(
+        'Illegal invocation: function called with incorrect this reference'
+      );
     }
-    return new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' }
-    });
+    return new Response(
+      JSON.stringify({ ok: true, result: { message_id: 1 } }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      }
+    );
   };
 
   try {

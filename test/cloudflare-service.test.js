@@ -10,7 +10,9 @@ function response(body, status = 200) {
   return {
     ok: status >= 200 && status < 300,
     status,
-    async text() { return JSON.stringify(body); }
+    async text() {
+      return JSON.stringify(body);
+    }
   };
 }
 
@@ -32,13 +34,68 @@ test('CloudflareService normalizes deployment, version, bindings and observabili
   const fetchImpl = async (url, options = {}) => {
     calls.push({ url: String(url), options });
     const value = String(url);
-    if (value.endsWith('/deployments')) return response({ success: true, result: { deployments: [{ id: 'dep-1', created_on: '2026-10-04T19:34:03Z', versions: [{ version_id: 'ver-1', percentage: 100 }] }] } });
-    if (value.endsWith('/versions')) return response({ success: true, result: { items: [{ id: 'ver-1', created_on: '2026-10-04T19:34:01Z', annotations: { 'workers/triggered_by': 'upload' } }] } });
-    if (value.endsWith('/settings')) return response({ success: true, result: { bindings: [{ name: 'WORKSPACE_STORE', type: 'durable_object_namespace' }, { name: 'GITHUB_TOKEN', type: 'secret_text' }], observability: { enabled: true, logs: { enabled: true, invocation_logs: true }, traces: { enabled: false } } } });
-    return response({ success: false, errors: [{ message: 'Not Found' }] }, 404);
+    if (value.endsWith('/deployments'))
+      return response({
+        success: true,
+        result: {
+          deployments: [
+            {
+              id: 'dep-1',
+              created_on: '2026-10-04T19:34:03Z',
+              versions: [{ version_id: 'ver-1', percentage: 100 }]
+            }
+          ]
+        }
+      });
+    if (value.endsWith('/versions'))
+      return response({
+        success: true,
+        result: {
+          items: [
+            {
+              id: 'ver-1',
+              created_on: '2026-10-04T19:34:01Z',
+              annotations: { 'workers/triggered_by': 'upload' }
+            }
+          ]
+        }
+      });
+    if (value.endsWith('/settings'))
+      return response({
+        success: true,
+        result: {
+          bindings: [
+            { name: 'WORKSPACE_STORE', type: 'durable_object_namespace' },
+            { name: 'GITHUB_TOKEN', type: 'secret_text' }
+          ],
+          observability: {
+            enabled: true,
+            logs: { enabled: true, invocation_logs: true },
+            traces: { enabled: false }
+          }
+        }
+      });
+    if (value.endsWith('/versions/ver-1'))
+      return response({
+        success: true,
+        result: {
+          id: 'ver-1',
+          metadata: { created_on: '2026-10-04T19:34:01Z' },
+          annotations: { 'workers/triggered_by': 'upload' }
+        }
+      });
+    return response(
+      { success: false, errors: [{ message: 'Not Found' }] },
+      404
+    );
   };
 
-  const service = new CloudflareService({ token, accountId, workerName, fetchImpl });
+  const service = new CloudflareService({
+    token,
+    accountId,
+    workerName,
+    fetchImpl
+  });
   assert.equal(service.isConfigured(), true);
   const snapshot = await service.getWorkerSnapshot();
 
@@ -57,7 +114,7 @@ test('CloudflareService normalizes deployment, version, bindings and observabili
     invocationLogs: true,
     tracesEnabled: false
   });
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 4);
   for (const call of calls) {
     assert.equal(call.options.headers.Authorization, `Bearer ${token}`);
     assert.equal(call.options.headers['Content-Type'], 'application/json');
@@ -65,14 +122,22 @@ test('CloudflareService normalizes deployment, version, bindings and observabili
 });
 
 test('CloudflareService returns explicit empty state when provider has no deployment or version items', async () => {
-  const fetchImpl = async url => {
+  const fetchImpl = async (url) => {
     const value = String(url);
-    if (value.endsWith('/deployments')) return response({ success: true, result: { deployments: [] } });
-    if (value.endsWith('/versions')) return response({ success: true, result: { items: [] } });
-    if (value.endsWith('/settings')) return response({ success: true, result: {} });
+    if (value.endsWith('/deployments'))
+      return response({ success: true, result: { deployments: [] } });
+    if (value.endsWith('/versions'))
+      return response({ success: true, result: { items: [] } });
+    if (value.endsWith('/settings'))
+      return response({ success: true, result: {} });
     throw new Error('unexpected URL');
   };
-  const service = new CloudflareService({ token, accountId, workerName, fetchImpl });
+  const service = new CloudflareService({
+    token,
+    accountId,
+    workerName,
+    fetchImpl
+  });
   const snapshot = await service.getWorkerSnapshot();
   assert.equal(snapshot.deployment, null);
   assert.equal(snapshot.version, null);
@@ -86,15 +151,27 @@ test('CloudflareService returns explicit empty state when provider has no deploy
 });
 
 test('CloudflareService reports provider failure without leaking token', async () => {
-  const fetchImpl = async () => response({ success: false, errors: [{ message: `bad credential ${token}` }] }, 403);
-  const service = new CloudflareService({ token, accountId, workerName, fetchImpl });
-
-  await assert.rejects(async () => {
-    await service.getWorkerSnapshot();
-  }, error => {
-    assert.match(error.message, /403/);
-    assert.doesNotMatch(error.message, new RegExp(token));
-    assert.match(error.message, /\[REDACTED\]/);
-    return true;
+  const fetchImpl = async () =>
+    response(
+      { success: false, errors: [{ message: `bad credential ${token}` }] },
+      403
+    );
+  const service = new CloudflareService({
+    token,
+    accountId,
+    workerName,
+    fetchImpl
   });
+
+  await assert.rejects(
+    async () => {
+      await service.getWorkerSnapshot();
+    },
+    (error) => {
+      assert.match(error.message, /403/);
+      assert.doesNotMatch(error.message, new RegExp(token));
+      assert.match(error.message, /\[REDACTED\]/);
+      return true;
+    }
+  );
 });

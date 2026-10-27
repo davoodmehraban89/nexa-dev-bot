@@ -1,5 +1,41 @@
 const SECRET = /(token|secret|password|authorization|api[_-]?key)=?[^\s&]*/gi;
-export const redactIncidentText = value => String(value ?? '').replace(SECRET, '$1=[REDACTED]').replace(/https?:\/\/[^\s?]+\?[^\s]*/gi, m => m.split('?')[0] + '?[REDACTED]');
-export const incidentFingerprint = ({ provider='', repo='', sha='', kind='' }={}) => [provider,repo,sha,kind].map(v=>String(v).trim().toLowerCase()).join('|');
-export const incidentSeverity = evidence => evidence?.runtimeMismatch || evidence?.deployFailure ? 'critical' : evidence?.ciFailure ? 'high' : 'medium';
-export function normalizeIncident(input={}) { const fingerprint=incidentFingerprint(input); if(!fingerprint.replaceAll('|','')) throw new Error('Incident evidence is required'); return { fingerprint, provider:String(input.provider||''), repo:String(input.repo||''), sha:String(input.sha||''), kind:String(input.kind||''), severity:incidentSeverity(input), summary:redactIncidentText(input.summary||input.kind||'Operational incident'), evidenceRef:redactIncidentText(input.evidenceRef||''), status:'open' }; }
+export const redactIncidentText = (value) =>
+  String(value ?? '')
+    .replace(SECRET, '$1=[REDACTED]')
+    .replace(
+      /https?:\/\/[^\s?]+\?[^\s]*/gi,
+      (m) => m.split('?')[0] + '?[REDACTED]'
+    );
+export const incidentFingerprint = ({
+  provider = '',
+  repo = '',
+  sha = '',
+  kind = ''
+} = {}) =>
+  [provider, repo, sha, kind]
+    .map((v) => String(v).trim().toLowerCase())
+    .join('|');
+export const incidentSeverity = (evidence) =>
+  evidence?.runtimeMismatch || evidence?.deployFailure
+    ? 'critical'
+    : evidence?.ciFailure
+      ? 'high'
+      : 'medium';
+export function normalizeIncident(input = {}) {
+  const fingerprint = incidentFingerprint(input);
+  if (!fingerprint.replaceAll('|', ''))
+    throw new Error('Incident evidence is required');
+  return {
+    fingerprint,
+    provider: String(input.provider || ''),
+    repo: String(input.repo || ''),
+    sha: String(input.sha || ''),
+    kind: String(input.kind || ''),
+    severity: incidentSeverity(input),
+    summary: redactIncidentText(
+      input.summary || input.kind || 'Operational incident'
+    ),
+    evidenceRef: redactIncidentText(input.evidenceRef || ''),
+    status: 'open'
+  };
+}

@@ -11,10 +11,25 @@ test('Phase 2 acceptance docs lock the multi-file safety contract', async () => 
     read('docs/PHASE2_MULTIFILE_ACCEPTANCE.md')
   ]);
   const docs = `${readme}\n${runbook}\n${acceptance}`;
-  for (const phrase of ['multi-file Change Set', 'nexa/edit-*', 'exact base SHA', 'Safe Approval', 'Kill Switch', 'single-file compatibility']) {
-    assert.match(docs, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `missing acceptance phrase: ${phrase}`);
+  for (const phrase of [
+    'multi-file Change Set',
+    'nexa/edit-*',
+    'exact base SHA',
+    'Safe Approval',
+    'Kill Switch',
+    'single-file compatibility'
+  ]) {
+    assert.match(
+      docs,
+      new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
+      `missing acceptance phrase: ${phrase}`
+    );
   }
-  assert.match(docs, /no direct [`]?main[`]? mutation|main.*never.*mutat|direct.*main.*prohibit/i);
-  for (const evidence of ['CI', 'deploy', 'Runtime', 'Owner-device']) assert.match(acceptance, new RegExp(evidence, 'i'));
+  assert.match(
+    docs,
+    /no direct [`]?main[`]? mutation|main.*never.*mutat|direct.*main.*prohibit/i
+  );
+  for (const evidence of ['CI', 'deploy', 'Runtime', 'Owner-device'])
+    assert.match(acceptance, new RegExp(evidence, 'i'));
   assert.match(acceptance, /merge SHA/i);
 });

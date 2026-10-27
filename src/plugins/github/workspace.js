@@ -1,4 +1,5 @@
 import {
+  WORKSPACE_EDITOR_LIMITS,
   buildUnifiedDiff,
   digestText,
   makeTargetBranch,
@@ -12,17 +13,18 @@ export { commitWorkspaceIntent } from './workspace-commit.js';
 
 const HANDLE_10 = '[A-Za-z0-9_-]{10}';
 const INTENT_8 = '[A-Za-z0-9_-]{8}';
-const escapeHtml = value => String(value ?? '')
-  .replaceAll('&', '&amp;')
-  .replaceAll('<', '&lt;')
-  .replaceAll('>', '&gt;')
-  .replaceAll('"', '&quot;');
+const escapeHtml = (value) =>
+  String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
 const short = (value, max = 70) => {
   const text = String(value ?? '');
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 };
 
-const ownerFrom = context => {
+const ownerFrom = (context) => {
   const ownerId = String(context?.ownerId ?? '');
   if (!ownerId) throw new Error('Workspace owner is required');
   return ownerId;
@@ -31,38 +33,108 @@ const ownerFrom = context => {
 function parseCallback(data) {
   const value = String(data || '');
   let match = value.match(/^(?:files):(\d+)$/);
-  if (match) return { actionId: 'github.files.list', kind: 'root', repoId: Number(match[1]) };
+  if (match)
+    return {
+      actionId: 'github.files.list',
+      kind: 'root',
+      repoId: Number(match[1])
+    };
   match = value.match(new RegExp(`^wnav:(${HANDLE_10})$`));
-  if (match) return { actionId: 'github.workspace.navigate', kind: 'navigate', refId: match[1] };
+  if (match)
+    return {
+      actionId: 'github.workspace.navigate',
+      kind: 'navigate',
+      refId: match[1]
+    };
   match = value.match(new RegExp(`^wedit:(${HANDLE_10})$`));
-  if (match) return { actionId: 'github.workspace.create', kind: 'edit', refId: match[1] };
+  if (match)
+    return {
+      actionId: 'github.workspace.create',
+      kind: 'edit',
+      refId: match[1]
+    };
   match = value.match(new RegExp(`^ws:(${HANDLE_10})$`));
-  if (match) return { actionId: 'github.workspace.view', kind: 'workspace', workspaceId: match[1] };
+  if (match)
+    return {
+      actionId: 'github.workspace.view',
+      kind: 'workspace',
+      workspaceId: match[1]
+    };
   match = value.match(new RegExp(`^wadd:(${HANDLE_10})$`));
-  if (match) return { actionId: 'github.workspace.file.add', kind: 'add_file', refId: match[1] };
+  if (match)
+    return {
+      actionId: 'github.workspace.file.add',
+      kind: 'add_file',
+      refId: match[1]
+    };
   match = value.match(new RegExp(`^wremove:(${HANDLE_10})$`));
-  if (match) return { actionId: 'github.workspace.file.remove', kind: 'remove_file', refId: match[1] };
+  if (match)
+    return {
+      actionId: 'github.workspace.file.remove',
+      kind: 'remove_file',
+      refId: match[1]
+    };
   match = value.match(new RegExp(`^wfiles:(${HANDLE_10}):(\\d+)$`));
-  if (match) return { actionId: 'github.workspace.file.pick', kind: 'pick_file', workspaceId: match[1], repoId: Number(match[2]) };
+  if (match)
+    return {
+      actionId: 'github.workspace.file.pick',
+      kind: 'pick_file',
+      workspaceId: match[1],
+      repoId: Number(match[2])
+    };
   match = value.match(new RegExp(`^wfile:(${HANDLE_10})$`));
-  if (match) return { actionId: 'github.workspace.input.prepare', kind: 'input', workspaceId: match[1], mode: 'draft_file' };
+  if (match)
+    return {
+      actionId: 'github.workspace.input.prepare',
+      kind: 'input',
+      workspaceId: match[1],
+      mode: 'draft_file'
+    };
   match = value.match(new RegExp(`^wtext:(${HANDLE_10})$`));
-  if (match) return { actionId: 'github.workspace.input.prepare', kind: 'input', workspaceId: match[1], mode: 'draft' };
+  if (match)
+    return {
+      actionId: 'github.workspace.input.prepare',
+      kind: 'input',
+      workspaceId: match[1],
+      mode: 'draft'
+    };
   match = value.match(new RegExp(`^wmsg:(${HANDLE_10})$`));
-  if (match) return { actionId: 'github.workspace.input.prepare', kind: 'input', workspaceId: match[1], mode: 'commit_message' };
+  if (match)
+    return {
+      actionId: 'github.workspace.input.prepare',
+      kind: 'input',
+      workspaceId: match[1],
+      mode: 'commit_message'
+    };
   match = value.match(new RegExp(`^wdiff:(${HANDLE_10})$`));
-  if (match) return { actionId: 'github.workspace.diff', kind: 'diff', workspaceId: match[1] };
+  if (match)
+    return {
+      actionId: 'github.workspace.diff',
+      kind: 'diff',
+      workspaceId: match[1]
+    };
   match = value.match(new RegExp(`^wready:(${HANDLE_10})$`));
-  if (match) return { actionId: 'github.workspace.ready', kind: 'ready', workspaceId: match[1] };
+  if (match)
+    return {
+      actionId: 'github.workspace.ready',
+      kind: 'ready',
+      workspaceId: match[1]
+    };
   match = value.match(new RegExp(`^wcancel:(${HANDLE_10})$`));
-  if (match) return { actionId: 'github.workspace.cancel', kind: 'cancel', workspaceId: match[1] };
+  if (match)
+    return {
+      actionId: 'github.workspace.cancel',
+      kind: 'cancel',
+      workspaceId: match[1]
+    };
   match = value.match(new RegExp(`^wscommit:(\\d+):(${INTENT_8})$`));
-  if (match) return {
-    actionId: 'github.workspace.commit_branch',
-    kind: 'commit',
-    repoId: Number(match[1]),
-    intentId: match[2]
-  };
+  if (match)
+    return {
+      actionId: 'github.workspace.commit_branch',
+      kind: 'commit',
+      repoId: Number(match[1]),
+      intentId: match[2]
+    };
   return null;
 }
 
@@ -82,12 +154,8 @@ function editorUrlFor(workspace, editorUrl, path = '') {
 
 function workspaceButtons(workspace, editorUrl) {
   const editor = editorUrlFor(workspace, editorUrl);
-  const firstRow = [];
-  if (editor) firstRow.push({ text: '🧑‍💻 Editor', web_app: { url: editor } });
-  firstRow.push({ text: '📎 بارگذاری فایل', callback_data: `wfile:${workspace.id}` });
-  if (!editor) firstRow.push({ text: '📝 Paste متن', callback_data: `wtext:${workspace.id}` });
   return [
-    firstRow,
+    ...(editor ? [[{ text: '🧑‍💻 Editor', web_app: { url: editor } }]] : []),
     [{ text: '✍️ پیام Commit', callback_data: `wmsg:${workspace.id}` }],
     [
       { text: '🔍 Diff', callback_data: `wdiff:${workspace.id}` },
@@ -100,12 +168,18 @@ function workspaceButtons(workspace, editorUrl) {
   ];
 }
 
+function draftInputNotice(workspace, editorUrl) {
+  return editorUrlFor(workspace, editorUrl)
+    ? 'متن منبع و فایل را در چت ارسال نکنید؛ ویرایش Draft فقط در Mini App احراز هویت‌شده انجام می‌شود.'
+    : 'Editor در دسترس نیست؛ پیکربندی Mini App باید اصلاح شود. متن منبع و فایل را در چت ارسال نکنید.';
+}
+
 function workspaceCommitResultView(repoId, intent, result) {
-  const rows = [
-    [{ text: '🧪 CI / Actions', callback_data: `runs:${repoId}` }]
-  ];
+  const rows = [[{ text: '🧪 CI / Actions', callback_data: `runs:${repoId}` }]];
   if (intent?.workspaceId) {
-    rows.push([{ text: '📝 Workspace', callback_data: `ws:${intent.workspaceId}` }]);
+    rows.push([
+      { text: '📝 Workspace', callback_data: `ws:${intent.workspaceId}` }
+    ]);
   }
   rows.push([{ text: '📦 پروژه', callback_data: `repo:${repoId}` }]);
   return {
@@ -114,9 +188,14 @@ function workspaceCommitResultView(repoId, intent, result) {
   };
 }
 
-export function createWorkspaceController({ github, workspaces, editorUrl = DEFAULT_CONFIG.workspaceEditorUrl } = {}) {
+export function createWorkspaceController({
+  github,
+  workspaces,
+  editorUrl = DEFAULT_CONFIG.workspaceEditorUrl
+} = {}) {
   if (!github) throw new Error('Workspace controller requires GitHub service');
-  if (!workspaces) throw new Error('Workspace controller requires durable workspace store');
+  if (!workspaces)
+    throw new Error('Workspace controller requires durable workspace store');
 
   const requireWorkspace = async (workspaceId, ownerId) => {
     const workspace = await workspaces.getWorkspace({ ownerId, workspaceId });
@@ -132,15 +211,27 @@ export function createWorkspaceController({ github, workspaces, editorUrl = DEFA
     const visible = items.slice(0, 30);
     const handles = await workspaces.createNavigationRefs({
       ownerId,
-      refs: visible.map(item => ({ repoId, path: item.path, type: item.type, sha: item.sha }))
+      refs: visible.map((item) => ({
+        repoId,
+        path: item.path,
+        type: item.type,
+        sha: item.sha
+      }))
     });
     const body = visible.length
-      ? visible.map(item => `${item.type === 'dir' ? '📁' : '📄'} <code>${escapeHtml(short(item.name, 100))}</code>${item.type === 'file' && item.size ? ` (${Number(item.size).toLocaleString()} B)` : ''}`).join('\n')
+      ? visible
+          .map(
+            (item) =>
+              `${item.type === 'dir' ? '📁' : '📄'} <code>${escapeHtml(short(item.name, 100))}</code>${item.type === 'file' && item.size ? ` (${Number(item.size).toLocaleString()} B)` : ''}`
+          )
+          .join('\n')
       : '<i>این پوشه خالی است.</i>';
-    const rows = visible.map((item, index) => [{
-      text: `${item.type === 'dir' ? '📁' : '📄'} ${short(item.name, 46)}`,
-      callback_data: `wnav:${handles[index].refId}`
-    }]);
+    const rows = visible.map((item, index) => [
+      {
+        text: `${item.type === 'dir' ? '📁' : '📄'} ${short(item.name, 46)}`,
+        callback_data: `wnav:${handles[index].refId}`
+      }
+    ]);
     rows.push([
       { text: '🔄 بروزرسانی', callback_data: `files:${repoId}` },
       { text: '📦 پروژه', callback_data: `repo:${repoId}` }
@@ -151,40 +242,70 @@ export function createWorkspaceController({ github, workspaces, editorUrl = DEFA
     };
   };
 
-  const getPinnedFile = async ref => {
+  const getPinnedFile = async (ref) => {
     const repo = await github.getRepository(ref.repoId);
-    const snapshot = await github.getBranchSnapshot(ref.repoId, repo.defaultBranch);
-    const file = await github.getFileAtRef(ref.repoId, ref.path, snapshot.headSha);
+    const snapshot = await github.getBranchSnapshot(
+      ref.repoId,
+      repo.defaultBranch
+    );
+    const file = await github.getFileAtRef(
+      ref.repoId,
+      ref.path,
+      snapshot.headSha
+    );
     return { repo, snapshot, file };
   };
 
   const renderFile = async (refId, ownerId) => {
     const ref = await workspaces.resolveNavigationRef({ ownerId, refId });
-    if (!ref || ref.type !== 'file') throw new Error('Workspace file reference is missing or expired');
+    if (!ref || ref.type !== 'file')
+      throw new Error('Workspace file reference is missing or expired');
     const { repo, snapshot, file } = await getPinnedFile(ref);
-    const policy = validateEditableFile({ path: file.path, text: file.content, byteLength: file.size });
-    const preview = file.content.length > 2600 ? `${file.content.slice(0, 2600)}\n…` : file.content;
+    const policy = validateEditableFile({
+      path: file.path,
+      text: file.content,
+      byteLength: file.size
+    });
     const reason = repo.archived
       ? 'این مخزن آرشیوشده است و ویرایش فایل در آن غیرفعال است.'
       : policy.reason;
     const rows = [];
-    if (!repo.archived && policy.editable) rows.push([{ text: '✏️ Edit', callback_data: `wedit:${refId}` }]);
-    rows.push([{ text: '🔙 فایل‌ها', callback_data: `files:${ref.repoId}` }, { text: '📦 پروژه', callback_data: `repo:${ref.repoId}` }]);
+    const previewLink = editorUrlFor({ id: refId }, editorUrl);
+    if (previewLink && policy.editable) {
+      const url = new URL(previewLink);
+      url.searchParams.delete('workspaceId');
+      url.searchParams.set('refId', refId);
+      rows.push([
+        { text: '📄 مشاهده در Mini App', web_app: { url: url.toString() } }
+      ]);
+    }
+    if (!repo.archived && policy.editable)
+      rows.push([{ text: '✏️ Edit', callback_data: `wedit:${refId}` }]);
+    rows.push([
+      { text: '🔙 فایل‌ها', callback_data: `files:${ref.repoId}` },
+      { text: '📦 پروژه', callback_data: `repo:${ref.repoId}` }
+    ]);
     return {
-      text: `📄 <b>پیش‌نمایش فایل — ${escapeHtml(repo.name)}</b>\nمسیر: <code>${escapeHtml(file.path)}</code>\nRef: <code>${escapeHtml(snapshot.headSha.slice(0, 10))}</code>\n${reason ? `⚠️ ${escapeHtml(reason)}\n` : ''}➖➖➖➖➖➖➖➖➖➖\n<pre>${escapeHtml(preview)}</pre>`,
+      text: `📄 <b>فایل — ${escapeHtml(repo.name)}</b>\nمسیر: <code>${escapeHtml(file.path)}</code>\nRef: <code>${escapeHtml(snapshot.headSha.slice(0, 10))}</code>\n${reason ? `⚠️ ${escapeHtml(reason)}\n` : ''}محتوای فایل در پیام تلگرام ارسال نمی‌شود؛ برای مشاهده، Mini App را باز کنید.`,
       reply_markup: { inline_keyboard: rows }
     };
   };
 
-  const createDraft = async (refId, ownerId) => {
+  const createWorkspaceFromRef = async (refId, ownerId) => {
     const ref = await workspaces.resolveNavigationRef({ ownerId, refId });
-    if (!ref || ref.type !== 'file') throw new Error('Workspace file reference is missing or expired');
+    if (!ref || ref.type !== 'file')
+      throw new Error('Workspace file reference is missing or expired');
     const { repo, snapshot, file } = await getPinnedFile(ref);
     if (repo.archived) throw new Error('Archived repository is not editable');
-    const policy = validateEditableFile({ path: file.path, text: file.content, byteLength: file.size });
-    if (!policy.editable) throw new Error(policy.reason || 'File is not editable');
+    const policy = validateEditableFile({
+      path: file.path,
+      text: file.content,
+      byteLength: file.size
+    });
+    if (!policy.editable)
+      throw new Error(policy.reason || 'File is not editable');
     const originalDigest = await digestText(file.content);
-    const workspace = await workspaces.createWorkspace({
+    return workspaces.createWorkspace({
       ownerId,
       repoId: Number(ref.repoId),
       repoFullName: repo.fullName,
@@ -196,109 +317,257 @@ export function createWorkspaceController({ github, workspaces, editorUrl = DEFA
       originalText: file.content,
       originalDigest
     });
+  };
+
+  const createDraft = async (refId, ownerId) => {
+    const workspace = await createWorkspaceFromRef(refId, ownerId);
     return {
-      text: `📝 <b>Draft ساخته شد</b>\nمخزن: <code>${escapeHtml(repo.fullName)}</code>\nفایل: <code>${escapeHtml(file.path)}</code>\nBase: <code>${escapeHtml(snapshot.headSha.slice(0, 10))}</code>\n\nهنوز هیچ تغییری در GitHub انجام نشده است.`,
-      reply_markup: { inline_keyboard: [[{ text: '📝 باز کردن Draft', callback_data: `ws:${workspace.id}` }], [{ text: '🔙 فایل‌ها', callback_data: `files:${ref.repoId}` }]] }
+      text: `📝 <b>Draft ساخته شد</b>\nمخزن: <code>${escapeHtml(workspace.repoFullName)}</code>\nفایل: <code>${escapeHtml(workspace.path)}</code>\nBase: <code>${escapeHtml(workspace.baseHeadSha.slice(0, 10))}</code>\n\nهنوز هیچ تغییری در GitHub انجام نشده است.`,
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '📝 باز کردن Draft', callback_data: `ws:${workspace.id}` }],
+          [{ text: '🔙 فایل‌ها', callback_data: `files:${workspace.repoId}` }]
+        ]
+      }
     };
   };
 
   const renderWorkspaceObject = async (workspace, ownerId) => {
-    const files = Array.isArray(workspace.files) && workspace.files.length ? workspace.files : [{ path: workspace.path, originalText: workspace.originalText, draftText: workspace.draftText }];
-    const changedCount = files.filter(file => file.draftText !== file.originalText).length;
-    const refs = await workspaces.createNavigationRefs?.({ ownerId, refs: files.map(file => ({ workspaceId: workspace.id, path: file.path, type: 'workspace-file', repoId: workspace.repoId })) }) || [];
-    const commitMessage = workspace.commitMessage ? `<code>${escapeHtml(short(workspace.commitMessage, 120))}</code>` : '<i>ثبت نشده</i>';
-    const list = files.map((file, i) => `${file.draftText !== file.originalText ? '●' : '○'} <code>${escapeHtml(file.path)}</code>${refs[i]?.refId && files.length > 1 ? ` — <i>قابل حذف</i>` : ''}`).join('\n');
+    const files =
+      Array.isArray(workspace.files) && workspace.files.length
+        ? workspace.files
+        : [
+            {
+              path: workspace.path,
+              originalText: workspace.originalText,
+              draftText: workspace.draftText
+            }
+          ];
+    const changedCount = files.filter(
+      (file) => file.draftText !== file.originalText
+    ).length;
+    const refs =
+      (await workspaces.createNavigationRefs?.({
+        ownerId,
+        refs: files.map((file) => ({
+          workspaceId: workspace.id,
+          path: file.path,
+          type: 'workspace-file',
+          repoId: workspace.repoId
+        }))
+      })) || [];
+    const commitMessage = workspace.commitMessage
+      ? `<code>${escapeHtml(short(workspace.commitMessage, 120))}</code>`
+      : '<i>ثبت نشده</i>';
+    const list = files
+      .map(
+        (file, i) =>
+          `${file.draftText !== file.originalText ? '●' : '○'} <code>${escapeHtml(file.path)}</code>${refs[i]?.refId && files.length > 1 ? ` — <i>قابل حذف</i>` : ''}`
+      )
+      .join('\n');
     const buttons = workspaceButtons(workspace, editorUrl);
-    if (editorUrl && files.length > 1) {
-      const fileEditors = files.map(file => [{ text: 'Edit ' + short(file.path, 34), web_app: { url: editorUrlFor(workspace, editorUrl, file.path) } }]);
+    if (editorUrlFor(workspace, editorUrl) && files.length > 1) {
+      const fileEditors = files.map((file) => [
+        {
+          text: 'Edit ' + short(file.path, 34),
+          web_app: { url: editorUrlFor(workspace, editorUrl, file.path) }
+        }
+      ]);
       buttons.unshift(...fileEditors);
       const genericEditorUrl = editorUrlFor(workspace, editorUrl);
-      const genericEditorIndex = buttons.findIndex(row => row.some(button => button.web_app?.url === genericEditorUrl));
-      if (genericEditorIndex >= 0) buttons[genericEditorIndex] = buttons[genericEditorIndex].filter(button => !button.web_app);
+      const genericEditorIndex = buttons.findIndex((row) =>
+        row.some((button) => button.web_app?.url === genericEditorUrl)
+      );
+      if (genericEditorIndex >= 0) buttons.splice(genericEditorIndex, 1);
     }
-    buttons.unshift([{ text: '➕ افزودن فایل', callback_data: `wfiles:${workspace.id}:${workspace.repoId}` }]);
-    if (files.length > 1 && refs[1]?.refId) buttons.unshift([{ text: `➖ حذف ${short(files[1].path, 28)}`, callback_data: `wremove:${refs[1].refId}` }]);
-    return { text: `📝 <b>Repository Workspace</b>\nChange Set: <b>${files.length} فایل</b> · تغییرکرده: <b>${changedCount}</b>\n${list}\nوضعیت: <b>${escapeHtml(workspace.state || 'DRAFT')}</b>\nBase: <code>${escapeHtml(String(workspace.baseHeadSha || '').slice(0, 10))}</code>\nپیام Commit: ${commitMessage}\n\nذخیره فقط Draft محلی را تغییر می‌دهد؛ GitHub فقط بعد از Diff، Ready و Safe Approval تغییر می‌کند.`, reply_markup:{inline_keyboard:buttons} };
+    buttons.unshift([
+      {
+        text: '➕ افزودن فایل',
+        callback_data: `wfiles:${workspace.id}:${workspace.repoId}`
+      }
+    ]);
+    if (files.length > 1 && refs[1]?.refId)
+      buttons.unshift([
+        {
+          text: `➖ حذف ${short(files[1].path, 28)}`,
+          callback_data: `wremove:${refs[1].refId}`
+        }
+      ]);
+    return {
+      text: `📝 <b>Repository Workspace</b>\nChange Set: <b>${files.length} فایل</b> · تغییرکرده: <b>${changedCount}</b>\n${list}\nوضعیت: <b>${escapeHtml(workspace.state || 'DRAFT')}</b>\nBase: <code>${escapeHtml(String(workspace.baseHeadSha || '').slice(0, 10))}</code>\nپیام Commit: ${commitMessage}\n\n${draftInputNotice(workspace, editorUrl)}\nذخیره فقط Draft محلی را تغییر می‌دهد؛ GitHub فقط بعد از Diff، Ready و Safe Approval تغییر می‌کند.`,
+      reply_markup: { inline_keyboard: buttons }
+    };
   };
 
-  const renderWorkspace = async (workspaceId, ownerId) => renderWorkspaceObject(await requireWorkspace(workspaceId, ownerId), ownerId);
+  const renderWorkspace = async (workspaceId, ownerId) =>
+    renderWorkspaceObject(
+      await requireWorkspace(workspaceId, ownerId),
+      ownerId
+    );
 
   const pickWorkspaceFile = async (workspaceId, repoId, ownerId) => {
     const workspace = await requireWorkspace(workspaceId, ownerId);
-    if (Number(workspace.repoId) !== Number(repoId)) throw new Error('Workspace repository mismatch');
-    const existingPaths = new Set((Array.isArray(workspace.files) && workspace.files.length ? workspace.files : [{ path: workspace.path }]).map(file => file.path));
-    const items = (await github.listFiles(repoId, '', { ref: workspace.baseHeadSha })).filter(item => item.type === 'file' && !existingPaths.has(item.path)).slice(0, 20);
-    const refs = await workspaces.createNavigationRefs({ ownerId, refs: items.map(item => ({ repoId, workspaceId, path:item.path, type:'workspace-add', sha:item.sha })) });
-    return { text:`➕ <b>افزودن فایل به Change Set</b>\n${items.length ? 'یک فایل را انتخاب کنید.' : 'فایل قابل افزودن دیگری در این نما نیست.'}`, reply_markup:{inline_keyboard:items.map((item,i)=>[{text:`📄 ${short(item.path,42)}`,callback_data:`wadd:${refs[i].refId}`}]).concat([[{text:'↩️ Workspace',callback_data:`ws:${workspaceId}`} ]])} };
+    if (Number(workspace.repoId) !== Number(repoId))
+      throw new Error('Workspace repository mismatch');
+    const existingPaths = new Set(
+      (Array.isArray(workspace.files) && workspace.files.length
+        ? workspace.files
+        : [{ path: workspace.path }]
+      ).map((file) => file.path)
+    );
+    const items = (
+      await github.listFiles(repoId, '', { ref: workspace.baseHeadSha })
+    )
+      .filter((item) => item.type === 'file' && !existingPaths.has(item.path))
+      .slice(0, 20);
+    const refs = await workspaces.createNavigationRefs({
+      ownerId,
+      refs: items.map((item) => ({
+        repoId,
+        workspaceId,
+        path: item.path,
+        type: 'workspace-add',
+        sha: item.sha
+      }))
+    });
+    return {
+      text: `➕ <b>افزودن فایل به Change Set</b>\n${items.length ? 'یک فایل را انتخاب کنید.' : 'فایل قابل افزودن دیگری در این نما نیست.'}`,
+      reply_markup: {
+        inline_keyboard: items
+          .map((item, i) => [
+            {
+              text: `📄 ${short(item.path, 42)}`,
+              callback_data: `wadd:${refs[i].refId}`
+            }
+          ])
+          .concat([
+            [{ text: '↩️ Workspace', callback_data: `ws:${workspaceId}` }]
+          ])
+      }
+    };
+  };
+
+  const addWorkspaceFileFromRef = async (
+    refId,
+    ownerId,
+    expectedWorkspaceId = null
+  ) => {
+    const ref = await workspaces.resolveNavigationRef({ ownerId, refId });
+    if (!ref || ref.type !== 'workspace-add')
+      throw new Error('Workspace add-file reference is missing or expired');
+    if (expectedWorkspaceId && ref.workspaceId !== expectedWorkspaceId)
+      throw new Error('Workspace reference mismatch');
+    const workspace = await requireWorkspace(ref.workspaceId, ownerId);
+    if (Number(workspace.repoId) !== Number(ref.repoId))
+      throw new Error('Workspace repository mismatch');
+    if (workspace.files.length >= WORKSPACE_EDITOR_LIMITS.maxFiles)
+      throw new Error('Workspace file count is limited');
+    const file = await github.getFileAtRef(
+      ref.repoId,
+      ref.path,
+      workspace.baseHeadSha
+    );
+    const policy = validateEditableFile({
+      path: file.path,
+      text: file.content,
+      byteLength: file.size
+    });
+    if (!policy.editable)
+      throw new Error(policy.reason || 'File is not editable');
+    const aggregateBytes = workspace.files.reduce(
+      (total, entry) =>
+        total +
+        Math.max(
+          new TextEncoder().encode(entry.originalText ?? '').byteLength,
+          new TextEncoder().encode(entry.draftText ?? '').byteLength
+        ),
+      policy.byteLength
+    );
+    if (aggregateBytes > WORKSPACE_EDITOR_LIMITS.maxAggregateBytes)
+      throw new Error('Workspace aggregate size is limited');
+    const digest = await digestText(file.content);
+    return workspaces.upsertWorkspaceFile({
+      ownerId,
+      workspaceId: workspace.id,
+      file: {
+        path: file.path,
+        blobSha: file.sha,
+        originalText: file.content,
+        originalDigest: digest,
+        draftText: file.content,
+        draftDigest: digest
+      }
+    });
   };
 
   const addWorkspaceFile = async (refId, ownerId) => {
-    const ref = await workspaces.resolveNavigationRef({ownerId,refId});
-    if (!ref || ref.type !== 'workspace-add') throw new Error('Workspace add-file reference is missing or expired');
-    const workspace = await requireWorkspace(ref.workspaceId, ownerId);
-    const file = await github.getFileAtRef(ref.repoId, ref.path, workspace.baseHeadSha);
-    const policy = validateEditableFile({path:file.path,text:file.content,byteLength:file.size});
-    if (!policy.editable) throw new Error(policy.reason || 'File is not editable');
-    const digest = await digestText(file.content);
-    const updated = await workspaces.upsertWorkspaceFile({ownerId,workspaceId:workspace.id,file:{path:file.path,blobSha:file.sha,originalText:file.content,originalDigest:digest,draftText:file.content,draftDigest:digest}});
-    const view = await renderWorkspaceObject(updated, ownerId); view.text = `✅ فایل <code>${escapeHtml(file.path)}</code> اضافه شد.\n\n${view.text}`; return view;
+    const updated = await addWorkspaceFileFromRef(refId, ownerId);
+    const view = await renderWorkspaceObject(updated, ownerId);
+    view.text = `✅ فایل به Change Set اضافه شد.\n\n${view.text}`;
+    return view;
   };
 
   const removeWorkspaceFile = async (refId, ownerId) => {
-    const ref=await workspaces.resolveNavigationRef({ownerId,refId});
-    if(!ref || ref.type!=='workspace-file') throw new Error('Workspace file reference is missing or expired');
-    const updated=await workspaces.removeWorkspaceFile({ownerId,workspaceId:ref.workspaceId,path:ref.path});
-    return renderWorkspaceObject(updated,ownerId);
+    const ref = await workspaces.resolveNavigationRef({ ownerId, refId });
+    if (!ref || ref.type !== 'workspace-file')
+      throw new Error('Workspace file reference is missing or expired');
+    const updated = await workspaces.removeWorkspaceFile({
+      ownerId,
+      workspaceId: ref.workspaceId,
+      path: ref.path
+    });
+    return renderWorkspaceObject(updated, ownerId);
   };
 
   const prepareInput = async (workspaceId, mode, ownerId) => {
     const workspace = await requireWorkspace(workspaceId, ownerId);
+    if (mode !== 'commit_message') {
+      await workspaces.consumePendingInput({ ownerId, workspaceId, mode });
+      return {
+        text: `📝 <b>ویرایش Draft در Mini App</b>\n${draftInputNotice(workspace, editorUrl)}`,
+        reply_markup: {
+          inline_keyboard: workspaceButtons(workspace, editorUrl)
+        }
+      };
+    }
     await workspaces.setPendingInput({ ownerId, workspaceId, mode });
-    const fileMode = mode === 'draft_file';
-    const draftMode = mode === 'draft';
     return {
-      text: fileMode
-        ? `📎 <b>فایل متنی جایگزین را ارسال کنید</b>\nمقصد در مخزن: <code>${escapeHtml(workspace.path)}</code>\n\nفایل ارسال‌شده فقط به‌عنوان محتوای جایگزین Draft استفاده می‌شود؛ نام فایل مقصد را تغییر نمی‌دهد. سقف Policy: 20,000 کاراکتر Unicode و 65,536 بایت UTF-8 معتبر. فایل‌های باینری، LFS یا محتوای غیرمجاز رد می‌شوند.`
-        : draftMode
-          ? `📝 <b>ورودی متنی قدیمی Workspace</b>\nفایل: <code>${escapeHtml(workspace.path)}</code>\n\nاین مسیر فقط برای سازگاری پیام‌های قدیمی باقی مانده است. Editor جدید مسیر اصلی است. سقف: 20,000 کاراکتر Unicode و 65,536 بایت UTF-8.`
-          : `✍️ <b>پیام Commit را ارسال کنید</b>\nفایل: <code>${escapeHtml(workspace.path)}</code>\n\nپیام باید غیرخالی و حداکثر 120 کاراکتر باشد. پیام بعدی فقط یک‌بار مصرف می‌شود.`,
-      reply_markup: { inline_keyboard: [[{ text: '↩️ بازگشت به Draft', callback_data: `ws:${workspace.id}` }]] }
+      text: `✍️ <b>پیام Commit را ارسال کنید</b>\nفایل: <code>${escapeHtml(workspace.path)}</code>\n\nپیام باید غیرخالی و حداکثر 120 کاراکتر باشد. پیام بعدی فقط یک‌بار مصرف می‌شود.`,
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '↩️ بازگشت به Draft', callback_data: `ws:${workspace.id}` }]
+        ]
+      }
     };
   };
 
-  const applyPendingInput = async ({ pending, text, file }, ownerId) => {
+  const applyPendingInput = async ({ pending, text }, ownerId) => {
     const workspaceId = String(pending?.workspaceId || '');
     const mode = String(pending?.mode || '');
-    if (!new RegExp(`^${HANDLE_10}$`).test(workspaceId) || !['draft', 'draft_file', 'commit_message'].includes(mode)) {
+    if (
+      !new RegExp(`^${HANDLE_10}$`).test(workspaceId) ||
+      !['draft', 'draft_file', 'commit_message'].includes(mode)
+    ) {
       throw new Error('Pending workspace input is invalid');
     }
 
-    if (mode === 'draft_file' && (!file || typeof file.text !== 'string')) {
-      throw new Error('A UTF-8 Telegram document is required for this workspace input');
-    }
-
-    const consumed = await workspaces.consumePendingInput({ ownerId, workspaceId, mode });
-    if (!consumed) throw new Error('Pending workspace input was already consumed or expired');
+    const consumed = await workspaces.consumePendingInput({
+      ownerId,
+      workspaceId,
+      mode
+    });
+    if (!consumed)
+      throw new Error(
+        'Pending workspace input was already consumed or expired'
+      );
     const workspace = await requireWorkspace(workspaceId, ownerId);
 
-    if (mode === 'draft' || mode === 'draft_file') {
-      const inputText = mode === 'draft_file' ? file.text : text;
-      const inputBytes = mode === 'draft_file' ? Number(file.byteLength) : undefined;
-      const policy = validateEditableFile({ path: workspace.path, text: inputText, byteLength: inputBytes });
-      if (!policy.editable) {
-        return {
-          text: `⚠️ <b>Draft تغییر نکرد</b>\n${escapeHtml(policy.reason || 'محتوای ارسال‌شده مجاز نیست.')}\n\nاین ورودی مصرف شد؛ برای تلاش دوباره ${mode === 'draft_file' ? '«بارگذاری فایل»' : 'Editor'} را باز کنید.`,
-          reply_markup: { inline_keyboard: [[{ text: '📝 بازگشت به Draft', callback_data: `ws:${workspace.id}` }]] }
-        };
-      }
-      const digest = await digestText(policy.text);
-      const updated = await workspaces.updateDraft({ ownerId, workspaceId, text: policy.text, digest });
-      const source = mode === 'draft_file'
-        ? `\nفایل ورودی: <code>${escapeHtml(short(file.name || 'uploaded file', 100))}</code>`
-        : '';
+    if (mode !== 'commit_message') {
       return {
-        text: `✅ <b>Draft محلی ذخیره شد</b>\nفایل مقصد: <code>${escapeHtml(updated.path)}</code>${source}\nکاراکتر: <b>${policy.charLength}</b> · بایت UTF-8: <b>${policy.byteLength}</b>\n\nهنوز هیچ تغییری در GitHub انجام نشده است.`,
-        reply_markup: { inline_keyboard: workspaceButtons(updated, editorUrl) }
+        text: `⚠️ <b>Draft تغییر نکرد</b>\nورودی قدیمی چت لغو شد. ${draftInputNotice(workspace, editorUrl)}`,
+        reply_markup: {
+          inline_keyboard: workspaceButtons(workspace, editorUrl)
+        }
       };
     }
 
@@ -308,11 +577,25 @@ export function createWorkspaceController({ github, workspaces, editorUrl = DEFA
     } catch (error) {
       return {
         text: `⚠️ <b>پیام Commit ذخیره نشد</b>\n${escapeHtml(error?.message || 'Commit message is invalid')}\n\nاین ورودی مصرف شد؛ برای تلاش دوباره «پیام Commit» را بزنید.`,
-        reply_markup: { inline_keyboard: [[{ text: '📝 بازگشت به Draft', callback_data: `ws:${workspace.id}` }]] }
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: '📝 بازگشت به Draft',
+                callback_data: `ws:${workspace.id}`
+              }
+            ]
+          ]
+        }
       };
     }
     const digest = await digestText(message);
-    const updated = await workspaces.setCommitMessage({ ownerId, workspaceId, message, digest });
+    const updated = await workspaces.setCommitMessage({
+      ownerId,
+      workspaceId,
+      message,
+      digest
+    });
     return {
       text: `✅ <b>پیام Commit ذخیره شد</b>\n<code>${escapeHtml(message)}</code>\n\nهنوز هیچ تغییری در GitHub انجام نشده است.`,
       reply_markup: { inline_keyboard: workspaceButtons(updated, editorUrl) }
@@ -321,54 +604,149 @@ export function createWorkspaceController({ github, workspaces, editorUrl = DEFA
 
   const renderDiff = async (workspaceId, ownerId) => {
     const workspace = await requireWorkspace(workspaceId, ownerId);
-    const files = Array.isArray(workspace.files) && workspace.files.length ? workspace.files : [{path:workspace.path,originalText:workspace.originalText,draftText:workspace.draftText}];
-    const changed = files.filter(file => file.draftText !== file.originalText);
-    const diffs = changed.map(file => ({file,diff:buildUnifiedDiff({path:file.path,before:file.originalText,after:file.draftText,maxChars:Math.max(500,Math.floor(2200/Math.max(1,changed.length)))})}));
-    const additions=diffs.reduce((n,x)=>n+x.diff.additions,0), deletions=diffs.reduce((n,x)=>n+x.diff.deletions,0);
-    const body=diffs.length ? diffs.map(({file,diff})=>`<b>${escapeHtml(file.path)}</b> · +${diff.additions}/-${diff.deletions}${diff.truncated?' ⚠️':''}\n<pre>${escapeHtml(diff.text)}</pre>`).join('\n') : '<i>هیچ تغییر محلی وجود ندارد.</i>';
-    return { text:`🔍 <b>Diff تجمیعی Change Set</b>\n${changed.length} فایل تغییرکرده · +${additions} / -${deletions}\n➖➖➖➖➖➖➖➖➖➖\n${body}`, reply_markup:{inline_keyboard:[[{text:'📝 Draft',callback_data:`ws:${workspace.id}`},{text:'✅ آماده Commit',callback_data:`wready:${workspace.id}`}]]} };
+    const files =
+      Array.isArray(workspace.files) && workspace.files.length
+        ? workspace.files
+        : [
+            {
+              path: workspace.path,
+              originalText: workspace.originalText,
+              draftText: workspace.draftText
+            }
+          ];
+    const changed = files.filter(
+      (file) => file.draftText !== file.originalText
+    );
+    const diffs = changed.map((file) => ({
+      file,
+      diff: buildUnifiedDiff({
+        path: file.path,
+        before: file.originalText,
+        after: file.draftText,
+        maxChars: Math.max(500, Math.floor(2200 / Math.max(1, changed.length)))
+      })
+    }));
+    const additions = diffs.reduce((n, x) => n + x.diff.additions, 0),
+      deletions = diffs.reduce((n, x) => n + x.diff.deletions, 0);
+    const body = diffs.length
+      ? diffs
+          .map(
+            ({ file, diff }) =>
+              `<b>${escapeHtml(file.path)}</b> · +${diff.additions}/-${diff.deletions}${diff.truncated ? ' ⚠️' : ''}`
+          )
+          .join('\n')
+      : '<i>هیچ تغییر محلی وجود ندارد.</i>';
+    return {
+      text: `🔍 <b>Diff تجمیعی Change Set</b>\n${changed.length} فایل تغییرکرده · +${additions} / -${deletions}\n➖➖➖➖➖➖➖➖➖➖\n${body}\n\nمتن Diff فقط در Mini App نمایش داده می‌شود.`,
+      reply_markup: {
+        inline_keyboard: [
+          ...(editorUrlFor(workspace, editorUrl)
+            ? [
+                [
+                  {
+                    text: '🔍 مشاهده Diff در Mini App',
+                    web_app: {
+                      url: editorUrlFor(workspace, editorUrl) + '&view=diff'
+                    }
+                  }
+                ]
+              ]
+            : []),
+          [
+            { text: '📝 Draft', callback_data: `ws:${workspace.id}` },
+            { text: '✅ آماده Commit', callback_data: `wready:${workspace.id}` }
+          ]
+        ]
+      }
+    };
   };
 
-  const sealReadyIntent = async (workspaceId, ownerId) => {
+  const sealWorkspaceIntent = async (workspaceId, ownerId, review) => {
     const workspace = await requireWorkspace(workspaceId, ownerId);
-    const workspaceFiles = Array.isArray(workspace.files) && workspace.files.length ? workspace.files : null;
-    const changedFiles = workspaceFiles ? workspaceFiles.filter(file => file.draftText !== file.originalText) : null;
-    if (workspaceFiles ? changedFiles.length === 0 : workspace.draftText === workspace.originalText) throw new Error('No draft change to commit');
+    const workspaceFiles =
+      Array.isArray(workspace.files) && workspace.files.length
+        ? workspace.files
+        : null;
+    const changedFiles = workspaceFiles
+      ? workspaceFiles.filter((file) => file.draftText !== file.originalText)
+      : null;
+    if (
+      workspaceFiles
+        ? changedFiles.length === 0
+        : workspace.draftText === workspace.originalText
+    )
+      throw new Error('No draft change to commit');
     const commitMessage = normalizeCommitMessage(workspace.commitMessage);
     const commitMessageDigest = await digestText(commitMessage);
     const targetBranch = makeTargetBranch(workspace.id);
     const createdAt = Number(workspace.createdAt);
-    const commitTimestamp = new Date(Number.isFinite(createdAt) ? createdAt : 0).toISOString();
-    const fileDescriptors = workspaceFiles ? await Promise.all(workspaceFiles.map(async file => ({ path:file.path, sourceBlobSha:file.blobSha, contentDigest:file.draftDigest || await digestText(file.draftText) }))) : null;
-    const material = workspaceFiles ? {
-      repoId:Number(workspace.repoId), workspaceId:workspace.id, baseBranch:workspace.baseBranch, baseHeadSha:workspace.baseHeadSha, baseTreeSha:workspace.baseTreeSha,
-      files:fileDescriptors, commitMessageDigest, targetBranch, commitTimestamp
-    } : {
-      repoId: Number(workspace.repoId),
-      workspaceId: workspace.id,
-      baseBranch: workspace.baseBranch,
-      baseHeadSha: workspace.baseHeadSha,
-      baseTreeSha: workspace.baseTreeSha,
-      path: workspace.path,
-      sourceBlobSha: workspace.blobSha,
-      contentDigest: await digestText(workspace.draftText),
-      commitMessageDigest,
-      targetBranch,
-      commitTimestamp
-    };
+    const commitTimestamp = new Date(
+      Number.isFinite(createdAt) ? createdAt : 0
+    ).toISOString();
+    const fileDescriptors = workspaceFiles
+      ? await Promise.all(
+          workspaceFiles.map(async (file) => ({
+            path: file.path,
+            sourceBlobSha: file.blobSha,
+            contentDigest:
+              file.draftDigest || (await digestText(file.draftText))
+          }))
+        )
+      : null;
+    const material = workspaceFiles
+      ? {
+          repoId: Number(workspace.repoId),
+          workspaceId: workspace.id,
+          baseBranch: workspace.baseBranch,
+          baseHeadSha: workspace.baseHeadSha,
+          baseTreeSha: workspace.baseTreeSha,
+          files: fileDescriptors,
+          commitMessageDigest,
+          targetBranch,
+          commitTimestamp
+        }
+      : {
+          repoId: Number(workspace.repoId),
+          workspaceId: workspace.id,
+          baseBranch: workspace.baseBranch,
+          baseHeadSha: workspace.baseHeadSha,
+          baseTreeSha: workspace.baseTreeSha,
+          path: workspace.path,
+          sourceBlobSha: workspace.blobSha,
+          contentDigest: await digestText(workspace.draftText),
+          commitMessageDigest,
+          targetBranch,
+          commitTimestamp
+        };
     const intentDigest = await digestText(JSON.stringify(material));
     const intent = await workspaces.sealIntent({
       ownerId,
       workspaceId,
-      intent: { ...material, intentDigest }
+      intent: { ...material, intentDigest },
+      ...(review ? { expectedReview: review } : {})
     });
-    if (!intent?.id || !/^[A-Za-z0-9_-]{8}$/.test(intent.id)) throw new Error('Commit intent ID is invalid');
+    if (!intent?.id || !/^[A-Za-z0-9_-]{8}$/.test(intent.id))
+      throw new Error('Commit intent ID is invalid');
+    return { workspace, workspaceFiles, changedFiles, targetBranch, intent };
+  };
+
+  const sealReadyIntent = async (workspaceId, ownerId) => {
+    const { workspace, workspaceFiles, changedFiles, targetBranch, intent } =
+      await sealWorkspaceIntent(workspaceId, ownerId);
     return {
-      text: `✅ <b>آمادهٔ تأیید Commit</b>\n${workspaceFiles ? `Change Set: <b>${changedFiles.length} فایل تغییرکرده</b>\n${changedFiles.map(file => `• <code>${escapeHtml(file.path)}</code>`).join('\n')}` : `فایل: <code>${escapeHtml(workspace.path)}</code>`}\nBranch: <code>${escapeHtml(targetBranch)}</code>\nBase: <code>${escapeHtml(String(workspace.baseHeadSha).slice(0, 10))}</code>\n\nمرحلهٔ بعد فقط درخواست تأیید امن را می‌سازد؛ تا تأیید معتبر مصرف نشود GitHub WRITE اجرا نمی‌شود.`,
+      text: `✅ <b>آمادهٔ تأیید Commit</b>\n${workspaceFiles ? `Change Set: <b>${changedFiles.length} فایل تغییرکرده</b>\n${changedFiles.map((file) => `• <code>${escapeHtml(file.path)}</code>`).join('\n')}` : `فایل: <code>${escapeHtml(workspace.path)}</code>`}\nBranch: <code>${escapeHtml(targetBranch)}</code>\nBase: <code>${escapeHtml(String(workspace.baseHeadSha).slice(0, 10))}</code>\n\nمرحلهٔ بعد فقط درخواست تأیید امن را می‌سازد؛ تا تأیید معتبر مصرف نشود GitHub WRITE اجرا نمی‌شود.`,
       reply_markup: {
         inline_keyboard: [
-          [{ text: '✅ تأیید و Commit', callback_data: `wscommit:${workspace.repoId}:${intent.id}` }],
-          [{ text: '🔍 Diff', callback_data: `wdiff:${workspace.id}` }, { text: '📝 Draft', callback_data: `ws:${workspace.id}` }]
+          [
+            {
+              text: '✅ تأیید و Commit',
+              callback_data: `wscommit:${workspace.repoId}:${intent.id}`
+            }
+          ],
+          [
+            { text: '🔍 Diff', callback_data: `wdiff:${workspace.id}` },
+            { text: '📝 Draft', callback_data: `ws:${workspace.id}` }
+          ]
         ]
       }
     };
@@ -379,11 +757,31 @@ export function createWorkspaceController({ github, workspaces, editorUrl = DEFA
     await workspaces.cancelWorkspace({ ownerId, workspaceId });
     return {
       text: `🗑 <b>Draft لغو شد</b>\nفایل: <code>${escapeHtml(workspace.path)}</code>\nهیچ تغییری در GitHub انجام نشد.`,
-      reply_markup: { inline_keyboard: [[{ text: '🔙 فایل‌ها', callback_data: `files:${workspace.repoId}` }]] }
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🔙 فایل‌ها', callback_data: `files:${workspace.repoId}` }]
+        ]
+      }
     };
   };
 
   return {
+    createWorkspaceFromRef({ ownerId, refId }) {
+      return createWorkspaceFromRef(refId, ownerFrom({ ownerId }));
+    },
+
+    addWorkspaceFileFromRef({ ownerId, workspaceId, refId }) {
+      return addWorkspaceFileFromRef(
+        refId,
+        ownerFrom({ ownerId }),
+        workspaceId
+      );
+    },
+
+    sealWorkspaceIntent({ ownerId, workspaceId, review }) {
+      return sealWorkspaceIntent(workspaceId, ownerFrom({ ownerId }), review);
+    },
+
     resolveCallback(data, context = {}) {
       const parsed = parseCallback(data);
       if (!parsed) return null;
@@ -406,8 +804,15 @@ export function createWorkspaceController({ github, workspaces, editorUrl = DEFA
               repoId: parsed.repoId,
               intentId: parsed.intentId
             });
-            const intent = await workspaces.getIntent({ ownerId, intentId: parsed.intentId });
-            const view = workspaceCommitResultView(parsed.repoId, intent, result);
+            const intent = await workspaces.getIntent({
+              ownerId,
+              intentId: parsed.intentId
+            });
+            const view = workspaceCommitResultView(
+              parsed.repoId,
+              intent,
+              result
+            );
             return {
               ...view,
               audit: {
@@ -432,18 +837,37 @@ export function createWorkspaceController({ github, workspaces, editorUrl = DEFA
         actionId: parsed.actionId,
         execute: async () => {
           const ownerId = ownerFrom(context);
-          if (parsed.kind === 'root') return renderDirectory(parsed.repoId, '', ownerId);
-          if (parsed.kind === 'workspace') return renderWorkspace(parsed.workspaceId, ownerId);
-          if (parsed.kind === 'pick_file') return pickWorkspaceFile(parsed.workspaceId, parsed.repoId, ownerId);
-          if (parsed.kind === 'add_file') return addWorkspaceFile(parsed.refId, ownerId);
-          if (parsed.kind === 'remove_file') return removeWorkspaceFile(parsed.refId, ownerId);
+          if (parsed.kind === 'root')
+            return renderDirectory(parsed.repoId, '', ownerId);
+          if (parsed.kind === 'workspace')
+            return renderWorkspace(parsed.workspaceId, ownerId);
+          if (parsed.kind === 'pick_file')
+            return pickWorkspaceFile(
+              parsed.workspaceId,
+              parsed.repoId,
+              ownerId
+            );
+          if (parsed.kind === 'add_file')
+            return addWorkspaceFile(parsed.refId, ownerId);
+          if (parsed.kind === 'remove_file')
+            return removeWorkspaceFile(parsed.refId, ownerId);
           if (parsed.kind === 'edit') return createDraft(parsed.refId, ownerId);
-          if (parsed.kind === 'input') return prepareInput(parsed.workspaceId, parsed.mode, ownerId);
-          if (parsed.kind === 'diff') return renderDiff(parsed.workspaceId, ownerId);
-          if (parsed.kind === 'ready') return sealReadyIntent(parsed.workspaceId, ownerId);
-          if (parsed.kind === 'cancel') return cancelDraft(parsed.workspaceId, ownerId);
-          const ref = await workspaces.resolveNavigationRef({ ownerId, refId: parsed.refId });
-          if (!ref) throw new Error('Workspace navigation reference is missing or expired');
+          if (parsed.kind === 'input')
+            return prepareInput(parsed.workspaceId, parsed.mode, ownerId);
+          if (parsed.kind === 'diff')
+            return renderDiff(parsed.workspaceId, ownerId);
+          if (parsed.kind === 'ready')
+            return sealReadyIntent(parsed.workspaceId, ownerId);
+          if (parsed.kind === 'cancel')
+            return cancelDraft(parsed.workspaceId, ownerId);
+          const ref = await workspaces.resolveNavigationRef({
+            ownerId,
+            refId: parsed.refId
+          });
+          if (!ref)
+            throw new Error(
+              'Workspace navigation reference is missing or expired'
+            );
           return ref.type === 'dir'
             ? renderDirectory(ref.repoId, ref.path, ownerId)
             : renderFile(parsed.refId, ownerId);
@@ -453,15 +877,28 @@ export function createWorkspaceController({ github, workspaces, editorUrl = DEFA
 
     resolveMessage(payload, context = {}) {
       const pending = payload?.pending;
-      if (!pending || !['draft', 'draft_file', 'commit_message'].includes(String(pending.mode || ''))) return null;
-      if (!new RegExp(`^${HANDLE_10}$`).test(String(pending.workspaceId || ''))) return null;
+      if (
+        !pending ||
+        !['draft', 'draft_file', 'commit_message'].includes(
+          String(pending.mode || '')
+        )
+      )
+        return null;
+      if (!new RegExp(`^${HANDLE_10}$`).test(String(pending.workspaceId || '')))
+        return null;
       return {
         actionId: 'github.workspace.input.apply',
-        execute: async () => applyPendingInput({
-          pending,
-          text: String(payload?.text ?? ''),
-          file: payload?.file && typeof payload.file === 'object' ? payload.file : null
-        }, ownerFrom(context))
+        execute: async () =>
+          applyPendingInput(
+            {
+              pending,
+              text:
+                pending.mode === 'commit_message'
+                  ? String(payload?.text ?? '')
+                  : undefined
+            },
+            ownerFrom(context)
+          )
       };
     }
   };

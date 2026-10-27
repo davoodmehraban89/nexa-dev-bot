@@ -1,8 +1,17 @@
-const fullSha = value => /^[a-f0-9]{40}$/i.test(String(value || '')) ? String(value).toLowerCase() : '';
+const fullSha = (value) =>
+  typeof value === 'string' && /^[a-f0-9]{40}$/i.test(value)
+    ? value.toLowerCase()
+    : '';
 
-export function correlateDeliveryState({ targetSha, ci, deploy, runtime } = {}) {
+export function correlateDeliveryState({
+  targetSha,
+  ci,
+  deploy,
+  runtime
+} = {}) {
   const target = fullSha(targetSha);
-  if (!target || !ci || !deploy) return { state: 'unknown', reason: 'Delivery evidence is incomplete' };
+  if (!target || !ci || !deploy)
+    return { state: 'unknown', reason: 'Delivery evidence is incomplete' };
 
   const ciSha = fullSha(ci.sha);
   const deploySha = fullSha(deploy.sha);
@@ -12,8 +21,14 @@ export function correlateDeliveryState({ targetSha, ci, deploy, runtime } = {}) 
 
   const ciState = String(ci.conclusion || ci.status || '');
   const deployState = String(deploy.conclusion || deploy.status || '');
-  if (['failure', 'cancelled', 'timed_out', 'action_required'].includes(ciState) ||
-      ['failure', 'cancelled', 'timed_out', 'action_required'].includes(deployState)) {
+  if (
+    ['failure', 'cancelled', 'timed_out', 'action_required'].includes(
+      ciState
+    ) ||
+    ['failure', 'cancelled', 'timed_out', 'action_required'].includes(
+      deployState
+    )
+  ) {
     return { state: 'failed', reason: 'CI or deploy failed' };
   }
   if (ci.status !== 'completed' || deploy.status !== 'completed') {
@@ -24,13 +39,54 @@ export function correlateDeliveryState({ targetSha, ci, deploy, runtime } = {}) 
   }
 
   const versions = runtime?.deployment?.versions;
-  if (!Array.isArray(versions) || versions.length !== 1 || Number(versions[0]?.percentage) !== 100 || !versions[0]?.versionId) {
-    return { state: 'mismatch', reason: 'Runtime traffic is not pinned to one verified version' };
+  if (
+    !Array.isArray(versions) ||
+    versions.length !== 1 ||
+    Number(versions[0]?.percentage) !== 100 ||
+    !versions[0]?.versionId
+  ) {
+    return {
+      state: 'mismatch',
+      reason: 'Runtime traffic is not pinned to one verified version'
+    };
+  }
+
+  const activeVersion = runtime?.version;
+  if (!activeVersion?.id) {
+    return {
+      state: 'unknown',
+      reason: 'Active runtime version SHA evidence is unavailable'
+    };
+  }
+  if (activeVersion.id !== versions[0].versionId) {
+    return {
+      state: 'mismatch',
+      reason: 'Runtime version evidence does not match the active version'
+    };
+  }
+
+  // Cloudflare documents commit_sha as CI metadata and tag as an operator
+  // identifier. Our deploy workflow sets the tag to its verified commit SHA.
+  // These authenticated provider markers are not source-content attestations.
+  const annotations = activeVersion.annotations;
+  const commitSha = fullSha(annotations?.['workers/commit_sha']);
+  const tagSha = fullSha(annotations?.['workers/tag']);
+  if (!commitSha && !tagSha) {
+    return {
+      state: 'unknown',
+      reason: 'Active runtime version has no validated full SHA metadata'
+    };
+  }
+  if ((commitSha && commitSha !== target) || (tagSha && tagSha !== target)) {
+    return {
+      state: 'mismatch',
+      reason: 'Active runtime version SHA does not match target'
+    };
   }
 
   return {
     state: 'success',
-    reason: 'Exact SHA CI/deploy evidence and runtime traffic agree',
+    reason: 'Exact SHA CI/deploy and active runtime version metadata agree',
     sha: target,
     deploymentId: String(runtime?.deployment?.id || ''),
     versionId: String(versions[0].versionId)
